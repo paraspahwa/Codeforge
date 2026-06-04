@@ -41,8 +41,8 @@ Already implemented in this repo:
 
 Still missing for the full roadmap:
 
-- Full production rollout and secrets/config automation for external synthesis providers across all deployment environments
-- Cross-surface guided conflict-resolution UX polish (desktop/web parity and assisted apply automation)
+- Provider rollout hardening from readiness checks to enforced pre-deploy policy gates in every deployment pipeline
+- Repository-grounded benchmark expansion from routing-policy pass/fail into tracked quality-regression baselines
 
 ## Status Snapshot
 
@@ -57,8 +57,8 @@ Completed:
 
 Partially complete:
 
-- Git workflows now include guided conflict-resolution plans, but still need cross-surface parity and assisted apply automation
-- Shared-agent orchestration supports model-backed synthesis with rollout status, but provider rollout and policy tuning remain
+- Shared-agent orchestration supports model-backed synthesis with rollout status and readiness validation, but provider policy enforcement gates remain
+- Routing evals now include policy and repository suites, but longitudinal regression tracking and baseline history remain
 
 Not started yet:
 
@@ -309,10 +309,10 @@ The plan now explicitly covers the feature families described in the source stra
 
 Given the current repo state, the next implementation slices should be:
 
-1. Shared-agent orchestration hardening for production reliability
-2. Git safety and conflict-handling UX polish
-3. VS Code extension polish: richer review actions and deeper editor integration
-4. Expand routing benchmark suites from policy checks to repository-grounded evals
+1. Enforce synthesis readiness as a deployment gate (fail production deploy if readiness is blocked)
+2. Add benchmark baseline persistence and trend reporting for routing/quality regressions
+3. Shared-agent orchestration hardening for production reliability under concurrent load
+4. VS Code extension polish: richer review actions and deeper editor integration
 
 ## Ticket Backlog
 
@@ -348,9 +348,9 @@ Done:
 
 Left:
 
-- True agent orchestration and higher-fidelity model routing policy
-- Context manager and MCP integration
-- Final routing, quality, and benchmark hardening
+- Deployment-time enforcement for synthesis provider readiness and secret-policy gates
+- Benchmark trend storage and regression alerting across policy/repository suites
+- Final orchestration and quality hardening under production load and incident scenarios
 
 ## Non-Goals For The Near Term
 

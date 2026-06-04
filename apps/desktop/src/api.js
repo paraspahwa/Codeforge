@@ -117,3 +117,27 @@ export async function getSynthesisRolloutPlan(token, environment = "local") {
   const query = new URLSearchParams({ environment }).toString();
   return request(`/api/v1/deploy/synthesis-rollout-plan?${query}`, { token });
 }
+
+export async function getSynthesisRolloutValidation(token, environment = "local") {
+  const query = new URLSearchParams({ environment }).toString();
+  return request(`/api/v1/deploy/synthesis-rollout-validate?${query}`, { token });
+}
+
+export async function getRoutingBenchmark(token, suite = "policy") {
+  const query = new URLSearchParams({ suite }).toString();
+  return request(`/api/v1/evals/routing-benchmark?${query}`, { token });
+}
+
+export async function getRoutingBenchmarkTrends(token, suite = "policy", limit = 20) {
+  const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
+  return request(`/api/v1/evals/routing-benchmark/trends?${query}`, { token });
+}
+
+export async function getCoworkReliability(token) {
+  return request("/api/v1/cowork/reliability", { token });
+}
+
+export async function getCoworkReliabilityHistory(token, limit = 50) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return request(`/api/v1/cowork/reliability/history?${query}`, { token });
+}

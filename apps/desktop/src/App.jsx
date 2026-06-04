@@ -10,6 +10,11 @@ import {
   extractCoworkData,
   getGitConflictGuide,
   getSynthesisRolloutPlan,
+  getSynthesisRolloutValidation,
+  getRoutingBenchmark,
+  getRoutingBenchmarkTrends,
+  getCoworkReliability,
+  getCoworkReliabilityHistory,
   listCoworkExtractions,
   listCoworkJobs,
   listCoworkPlans,
@@ -53,6 +58,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [rolloutEnvironment, setRolloutEnvironment] = useState("local");
   const [rolloutPlan, setRolloutPlan] = useState(null);
+  const [rolloutValidation, setRolloutValidation] = useState(null);
+  const [routingBenchmarkSuite, setRoutingBenchmarkSuite] = useState("policy");
+  const [routingBenchmark, setRoutingBenchmark] = useState(null);
+  const [routingBenchmarkTrends, setRoutingBenchmarkTrends] = useState(null);
+  const [coworkReliability, setCoworkReliability] = useState(null);
+  const [coworkReliabilityHistory, setCoworkReliabilityHistory] = useState(null);
   const [conflictTargetBranch, setConflictTargetBranch] = useState("main");
   const [conflictGuide, setConflictGuide] = useState(null);
   const [conflictStrategy, setConflictStrategy] = useState("ours");
@@ -149,6 +160,18 @@ export default function App() {
     setJobs(jobList);
     setExtractions(extractionList);
 
+    try {
+      const [reliability, reliabilityHistory] = await Promise.all([
+        getCoworkReliability(activeToken),
+        getCoworkReliabilityHistory(activeToken, 60),
+      ]);
+      setCoworkReliability(reliability);
+      setCoworkReliabilityHistory(reliabilityHistory);
+    } catch {
+      setCoworkReliability(null);
+      setCoworkReliabilityHistory(null);
+    }
+
     const freshCompleted = runList
       .filter((item) => item.status === "completed")
       .filter((item) => !notifiedRunIds.includes(item.run_id));
@@ -167,8 +190,24 @@ export default function App() {
     if (!activeToken) {
       return;
     }
-    const plan = await getSynthesisRolloutPlan(activeToken, environment);
+    const [plan, validation] = await Promise.all([
+      getSynthesisRolloutPlan(activeToken, environment),
+      getSynthesisRolloutValidation(activeToken, environment),
+    ]);
     setRolloutPlan(plan);
+    setRolloutValidation(validation);
+  }
+
+  async function refreshRoutingBenchmark(activeToken = token, suite = routingBenchmarkSuite) {
+    if (!activeToken) {
+      return;
+    }
+    const [benchmark, trends] = await Promise.all([
+      getRoutingBenchmark(activeToken, suite),
+      getRoutingBenchmarkTrends(activeToken, suite, 20),
+    ]);
+    setRoutingBenchmark(benchmark);
+    setRoutingBenchmarkTrends(trends);
   }
 
   async function handleLoadConflictGuide() {
@@ -244,6 +283,7 @@ export default function App() {
       }
       await refreshCoworkData(nextToken);
       await refreshRolloutPlan(nextToken, rolloutEnvironment);
+      await refreshRoutingBenchmark(nextToken, routingBenchmarkSuite);
       setStatusMessage(`Logged in as ${userId.trim()}`);
     } catch (error) {
       setErrorMessage(error.message);
@@ -265,6 +305,7 @@ export default function App() {
       setSessions(list);
       setSessionId(created.session_id);
       await refreshRolloutPlan(token, rolloutEnvironment);
+      await refreshRoutingBenchmark(token, routingBenchmarkSuite);
       setStatusMessage(`Session ${created.session_id} created`);
     } catch (error) {
       setErrorMessage(error.message);
@@ -423,6 +464,13 @@ export default function App() {
     refreshRolloutPlan(token, rolloutEnvironment).catch(() => null);
   }, [token, rolloutEnvironment]);
 
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+    refreshRoutingBenchmark(token, routingBenchmarkSuite).catch(() => null);
+  }, [token, routingBenchmarkSuite]);
+
   return (
     <main className="desktop-main">
       <h1>CodeForge Desktop</h1>
@@ -461,6 +509,70 @@ export default function App() {
       </section>
 
       <section className="card">
+        <h2>Routing Benchmark Health</h2>
+        <label htmlFor="benchmark-suite">Benchmark Suite</label>
+        <select
+          id="benchmark-suite"
+          value={routingBenchmarkSuite}
+          onChange={(event) => setRoutingBenchmarkSuite(event.target.value)}
+          disabled={!token || loading}
+        >
+          <option value="policy">policy</option>
+          <option value="repository">repository</option>
+          <option value="all">all</option>
+        </select>
+        <button type="button" onClick={() => refreshRoutingBenchmark(token, routingBenchmarkSuite)} disabled={!token || loading}>
+          Refresh Benchmark
+        </button>
+        {routingBenchmark ? (
+          <div className="preview-box">
+            <p><strong>Pass Rate:</strong> {Math.round((routingBenchmark.pass_rate || 0) * 100)}%</p>
+            <p><strong>Fallback Usage:</strong> {Math.round((routingBenchmark.fallback_usage_rate || 0) * 100)}%</p>
+            <p><strong>Low Confidence:</strong> {Math.round((routingBenchmark.low_confidence_rate || 0) * 100)}%</p>
+            <p><strong>Estimated Cost:</strong> ${(routingBenchmark.total_estimated_cost_usd || 0).toFixed(4)}</p>
+            <p><strong>Regression Alerts (last 10):</strong> {routingBenchmarkTrends?.regression_alerts_last_10 ?? 0}</p>
+            {routingBenchmarkTrends?.runs?.length ? (
+              <ul>
+                {routingBenchmarkTrends.runs.slice(0, 5).map((run) => (
+                  <li key={run.run_id}>
+                    {new Date(run.created_at).toLocaleString()} - pass {Math.round((run.pass_rate || 0) * 100)}% - {run.regression_alert ? `regression: ${run.regression_reason || "detected"}` : "ok"}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <p className="muted">No benchmark loaded yet.</p>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Cowork Reliability</h2>
+        <button type="button" onClick={() => refreshCoworkData(token)} disabled={!token || loading}>Refresh Reliability</button>
+        {coworkReliability ? (
+          <div className="preview-box">
+            <p><strong>Reliability Alert:</strong> {coworkReliability.reliability_alert ? "yes" : "no"}</p>
+            <p><strong>Failure Rate:</strong> {Math.round((coworkReliability.recent_failure_rate || 0) * 100)}%</p>
+            <p><strong>Circuit Broken Jobs:</strong> {coworkReliability.circuit_broken_jobs}</p>
+            <p><strong>Running Jobs:</strong> {coworkReliability.running_jobs}/{coworkReliability.max_concurrent_runs}</p>
+            {coworkReliability.alert_reason ? <p><strong>Alert Reason:</strong> {coworkReliability.alert_reason}</p> : null}
+            <p><strong>Snapshots:</strong> {coworkReliabilityHistory?.snapshots?.length ?? 0}</p>
+            {coworkReliabilityHistory?.snapshots?.length ? (
+              <ul>
+                {coworkReliabilityHistory.snapshots.slice(0, 5).map((snapshot) => (
+                  <li key={snapshot.snapshot_id}>
+                    {new Date(snapshot.created_at).toLocaleString()} - failure {Math.round((snapshot.recent_failure_rate || 0) * 100)}% - {snapshot.reliability_alert ? "alert" : "ok"}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <p className="muted">No reliability snapshot loaded yet.</p>
+        )}
+      </section>
+
+      <section className="card">
         <h2>Synthesis Rollout Plan</h2>
         <label htmlFor="rollout-env">Environment</label>
         <select
@@ -481,6 +593,8 @@ export default function App() {
           <div className="preview-box">
             <p><strong>Recommended Provider:</strong> {rolloutPlan.recommended_provider}</p>
             <p><strong>Strategy:</strong> {rolloutPlan.strategy}</p>
+            <p><strong>Release Readiness:</strong> {rolloutValidation?.is_ready_for_release ? "ready" : "blocked"}</p>
+            <p><strong>Readiness Score:</strong> {rolloutValidation?.readiness_score ?? 0}%</p>
             <p>
               <strong>Missing Env:</strong>{" "}
               {(rolloutPlan.providers || [])
@@ -489,6 +603,16 @@ export default function App() {
                 .map((item) => item.name)
                 .join(", ") || "none"}
             </p>
+            {rolloutValidation?.blockers?.length ? (
+              <>
+                <p><strong>Blockers:</strong></p>
+                <ul>
+                  {rolloutValidation.blockers.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
             <ul>
               {(rolloutPlan.automation_steps || []).map((step) => (
                 <li key={step}>{step}</li>

@@ -164,6 +164,54 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS routing_benchmark_baselines (
+                        suite TEXT PRIMARY KEY,
+                        pass_rate DOUBLE PRECISION NOT NULL,
+                        fallback_usage_rate DOUBLE PRECISION NOT NULL,
+                        low_confidence_rate DOUBLE PRECISION NOT NULL,
+                        total_estimated_cost_usd DOUBLE PRECISION NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        updated_by TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS routing_benchmark_runs (
+                        run_id TEXT PRIMARY KEY,
+                        suite TEXT NOT NULL,
+                        total_cases INTEGER NOT NULL,
+                        passed_cases INTEGER NOT NULL,
+                        pass_rate DOUBLE PRECISION NOT NULL,
+                        fallback_usage_rate DOUBLE PRECISION NOT NULL,
+                        low_confidence_rate DOUBLE PRECISION NOT NULL,
+                        total_estimated_cost_usd DOUBLE PRECISION NOT NULL,
+                        regression_alert BOOLEAN NOT NULL,
+                        regression_reason TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cowork_reliability_snapshots (
+                        snapshot_id TEXT PRIMARY KEY,
+                        max_concurrent_runs INTEGER NOT NULL,
+                        running_jobs INTEGER NOT NULL,
+                        total_jobs INTEGER NOT NULL,
+                        enabled_jobs INTEGER NOT NULL,
+                        circuit_broken_jobs INTEGER NOT NULL,
+                        recent_runs INTEGER NOT NULL,
+                        recent_failed_runs INTEGER NOT NULL,
+                        recent_failure_rate DOUBLE PRECISION NOT NULL,
+                        reliability_alert BOOLEAN NOT NULL,
+                        alert_reason TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
         return
 
     conn = _sqlite_connection()
@@ -242,6 +290,45 @@ def init_db() -> None:
                 resolved_at TEXT,
                 resolution_note TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions (session_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS routing_benchmark_baselines (
+                suite TEXT PRIMARY KEY,
+                pass_rate REAL NOT NULL,
+                fallback_usage_rate REAL NOT NULL,
+                low_confidence_rate REAL NOT NULL,
+                total_estimated_cost_usd REAL NOT NULL,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS routing_benchmark_runs (
+                run_id TEXT PRIMARY KEY,
+                suite TEXT NOT NULL,
+                total_cases INTEGER NOT NULL,
+                passed_cases INTEGER NOT NULL,
+                pass_rate REAL NOT NULL,
+                fallback_usage_rate REAL NOT NULL,
+                low_confidence_rate REAL NOT NULL,
+                total_estimated_cost_usd REAL NOT NULL,
+                regression_alert INTEGER NOT NULL,
+                regression_reason TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cowork_reliability_snapshots (
+                snapshot_id TEXT PRIMARY KEY,
+                max_concurrent_runs INTEGER NOT NULL,
+                running_jobs INTEGER NOT NULL,
+                total_jobs INTEGER NOT NULL,
+                enabled_jobs INTEGER NOT NULL,
+                circuit_broken_jobs INTEGER NOT NULL,
+                recent_runs INTEGER NOT NULL,
+                recent_failed_runs INTEGER NOT NULL,
+                recent_failure_rate REAL NOT NULL,
+                reliability_alert INTEGER NOT NULL,
+                alert_reason TEXT,
+                created_at TEXT NOT NULL
             );
             """
         )
@@ -509,3 +596,218 @@ def update_agent_proposal_status(
         """,
         (status, resolved_at, resolution_note, proposal_id),
     )
+
+
+def upsert_routing_benchmark_baseline(
+    *,
+    suite: str,
+    pass_rate: float,
+    fallback_usage_rate: float,
+    low_confidence_rate: float,
+    total_estimated_cost_usd: float,
+    updated_at: str,
+    updated_by: str,
+) -> None:
+    if _is_postgres():
+        with _pg_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO routing_benchmark_baselines(
+                        suite, pass_rate, fallback_usage_rate, low_confidence_rate,
+                        total_estimated_cost_usd, updated_at, updated_by
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (suite) DO UPDATE SET
+                        pass_rate = EXCLUDED.pass_rate,
+                        fallback_usage_rate = EXCLUDED.fallback_usage_rate,
+                        low_confidence_rate = EXCLUDED.low_confidence_rate,
+                        total_estimated_cost_usd = EXCLUDED.total_estimated_cost_usd,
+                        updated_at = EXCLUDED.updated_at,
+                        updated_by = EXCLUDED.updated_by
+                    """,
+                    (
+                        suite,
+                        pass_rate,
+                        fallback_usage_rate,
+                        low_confidence_rate,
+                        total_estimated_cost_usd,
+                        updated_at,
+                        updated_by,
+                    ),
+                )
+        return
+
+    conn = _sqlite_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO routing_benchmark_baselines(
+                suite, pass_rate, fallback_usage_rate, low_confidence_rate,
+                total_estimated_cost_usd, updated_at, updated_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(suite) DO UPDATE SET
+                pass_rate = excluded.pass_rate,
+                fallback_usage_rate = excluded.fallback_usage_rate,
+                low_confidence_rate = excluded.low_confidence_rate,
+                total_estimated_cost_usd = excluded.total_estimated_cost_usd,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by
+            """,
+            (
+                suite,
+                pass_rate,
+                fallback_usage_rate,
+                low_confidence_rate,
+                total_estimated_cost_usd,
+                updated_at,
+                updated_by,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_routing_benchmark_baseline(suite: str) -> dict[str, Any] | None:
+    return _fetchone(
+        """
+        SELECT suite, pass_rate, fallback_usage_rate, low_confidence_rate,
+               total_estimated_cost_usd, updated_at, updated_by
+        FROM routing_benchmark_baselines
+        WHERE suite = ?
+        """,
+        (suite,),
+    )
+
+
+def insert_routing_benchmark_run(
+    *,
+    run_id: str,
+    suite: str,
+    total_cases: int,
+    passed_cases: int,
+    pass_rate: float,
+    fallback_usage_rate: float,
+    low_confidence_rate: float,
+    total_estimated_cost_usd: float,
+    regression_alert: bool,
+    regression_reason: str,
+    created_at: str,
+) -> None:
+    _execute(
+        """
+        INSERT INTO routing_benchmark_runs(
+            run_id, suite, total_cases, passed_cases, pass_rate,
+            fallback_usage_rate, low_confidence_rate, total_estimated_cost_usd,
+            regression_alert, regression_reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            suite,
+            total_cases,
+            passed_cases,
+            pass_rate,
+            fallback_usage_rate,
+            low_confidence_rate,
+            total_estimated_cost_usd,
+            1 if regression_alert else 0,
+            regression_reason,
+            created_at,
+        ),
+    )
+
+
+def list_routing_benchmark_runs(suite: str, limit: int = 20) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 100))
+    query = (
+        """
+        SELECT run_id, suite, total_cases, passed_cases, pass_rate,
+               fallback_usage_rate, low_confidence_rate, total_estimated_cost_usd,
+               regression_alert, regression_reason, created_at
+        FROM routing_benchmark_runs
+        WHERE suite = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """
+    )
+    rows = _fetchall(query, (suite, safe_limit))
+    for row in rows:
+        row["regression_alert"] = bool(row.get("regression_alert", 0))
+    return rows
+
+
+def latest_routing_benchmark_run(suite: str) -> dict[str, Any] | None:
+    row = _fetchone(
+        """
+        SELECT run_id, suite, total_cases, passed_cases, pass_rate,
+               fallback_usage_rate, low_confidence_rate, total_estimated_cost_usd,
+               regression_alert, regression_reason, created_at
+        FROM routing_benchmark_runs
+        WHERE suite = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (suite,),
+    )
+    if row:
+        row["regression_alert"] = bool(row.get("regression_alert", 0))
+    return row
+
+
+def insert_cowork_reliability_snapshot(
+    *,
+    snapshot_id: str,
+    max_concurrent_runs: int,
+    running_jobs: int,
+    total_jobs: int,
+    enabled_jobs: int,
+    circuit_broken_jobs: int,
+    recent_runs: int,
+    recent_failed_runs: int,
+    recent_failure_rate: float,
+    reliability_alert: bool,
+    alert_reason: str,
+    created_at: str,
+) -> None:
+    _execute(
+        """
+        INSERT INTO cowork_reliability_snapshots(
+            snapshot_id, max_concurrent_runs, running_jobs, total_jobs,
+            enabled_jobs, circuit_broken_jobs, recent_runs, recent_failed_runs,
+            recent_failure_rate, reliability_alert, alert_reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            snapshot_id,
+            max_concurrent_runs,
+            running_jobs,
+            total_jobs,
+            enabled_jobs,
+            circuit_broken_jobs,
+            recent_runs,
+            recent_failed_runs,
+            recent_failure_rate,
+            1 if reliability_alert else 0,
+            alert_reason,
+            created_at,
+        ),
+    )
+
+
+def list_cowork_reliability_snapshots(limit: int = 50) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 500))
+    rows = _fetchall(
+        """
+        SELECT snapshot_id, max_concurrent_runs, running_jobs, total_jobs,
+               enabled_jobs, circuit_broken_jobs, recent_runs, recent_failed_runs,
+               recent_failure_rate, reliability_alert, alert_reason, created_at
+        FROM cowork_reliability_snapshots
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (safe_limit,),
+    )
+    for row in rows:
+        row["reliability_alert"] = bool(row.get("reliability_alert", 0))
+    return rows

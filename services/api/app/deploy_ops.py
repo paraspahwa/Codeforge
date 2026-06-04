@@ -84,3 +84,70 @@ def build_synthesis_rollout_plan(environment: str) -> dict[str, Any]:
         "providers": providers,
         "automation_steps": automation_steps,
     }
+
+
+def validate_synthesis_rollout(environment: str) -> dict[str, Any]:
+    plan = build_synthesis_rollout_plan(environment)
+    provider_readiness: list[dict[str, Any]] = []
+    blockers: list[str] = []
+
+    for provider in plan["providers"]:
+        required_items = [item for item in provider["required_env"] if item["required"]]
+        missing_required = [item["name"] for item in required_items if not item["set"]]
+        ready = len(missing_required) == 0
+
+        provider_readiness.append(
+            {
+                "provider": provider["provider"],
+                "ready": ready,
+                "required_count": len(required_items),
+                "configured_count": len(required_items) - len(missing_required),
+                "missing_required_env": missing_required,
+            }
+        )
+
+    recommended_provider = plan["recommended_provider"]
+    selected_provider = "deterministic"
+    strategy = plan["strategy"]
+
+    if strategy in {"openai", "azure_openai"}:
+        selected_provider = strategy
+    elif strategy == "auto":
+        rec_ready = next((p for p in provider_readiness if p["provider"] == recommended_provider), None)
+        if rec_ready and rec_ready["ready"]:
+            selected_provider = recommended_provider
+        else:
+            fallback_ready = next((p for p in provider_readiness if p["provider"] == "openai" and p["ready"]), None)
+            if fallback_ready:
+                selected_provider = "openai"
+
+    selected_readiness = next((p for p in provider_readiness if p["provider"] == selected_provider), None)
+    is_ready_for_release = bool(selected_readiness and selected_readiness["ready"])
+
+    if not is_ready_for_release:
+        if selected_readiness:
+            blockers.extend(
+                [f"{selected_provider}: missing {name}" for name in selected_readiness["missing_required_env"]]
+            )
+        else:
+            blockers.append("No configured synthesis provider is ready; deterministic fallback will be used")
+
+    total_required = sum(item["required_count"] for item in provider_readiness)
+    total_configured = sum(item["configured_count"] for item in provider_readiness)
+    readiness_score = int((total_configured / total_required) * 100) if total_required else 100
+
+    next_actions = list(plan["automation_steps"])
+    if blockers:
+        next_actions.append("Resolve missing required env vars for selected provider before promotion")
+
+    return {
+        "environment": plan["environment"],
+        "strategy": strategy,
+        "recommended_provider": recommended_provider,
+        "selected_provider": selected_provider,
+        "is_ready_for_release": is_ready_for_release,
+        "readiness_score": readiness_score,
+        "provider_readiness": provider_readiness,
+        "blockers": blockers,
+        "next_actions": next_actions,
+    }

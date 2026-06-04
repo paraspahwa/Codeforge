@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import shutil
 import subprocess
@@ -211,6 +212,9 @@ class CoworkService:
         self._extractions: list[dict[str, Any]] = []
         self._worker_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        self._max_concurrent_runs = max(1, int(os.getenv("CODEFORGE_COWORK_MAX_CONCURRENT_RUNS", "3")))
+        self._max_consecutive_failures = max(1, int(os.getenv("CODEFORGE_COWORK_MAX_CONSECUTIVE_FAILURES", "3")))
+        self._run_semaphore = asyncio.Semaphore(self._max_concurrent_runs)
 
     async def start(self) -> None:
         if self._worker_task and not self._worker_task.done():
@@ -302,7 +306,7 @@ class CoworkService:
         self._plans[plan_id] = plan
         return plan
 
-    async def run_plan(self, *, user_id: str, plan_id: str, approved: bool) -> dict[str, Any]:
+    async def run_plan(self, *, user_id: str, plan_id: str, approved: bool, trigger: str = "manual") -> dict[str, Any]:
         plan = self._plans.get(plan_id)
         if plan is None or plan["user_id"] != user_id:
             raise CoworkError("Plan not found")
@@ -321,10 +325,21 @@ class CoworkService:
             "details": {},
             "created_at": utc_now().isoformat(),
             "completed_at": None,
-            "trigger": "manual",
+            "trigger": trigger,
         }
         self._runs.append(run)
 
+        async with self._run_semaphore:
+            details = await self._execute_plan_with_retries(plan=plan, user_id=user_id, trigger=trigger)
+
+        run["status"] = str(details.get("status", "completed"))
+        run["summary"] = str(details.get("summary", "Task completed"))
+        run["details"] = details
+        run["completed_at"] = utc_now().isoformat()
+        plan["status"] = "completed" if run["status"] == "completed" else "failed"
+        return run
+
+    async def _execute_plan_once(self, *, plan: dict[str, Any], user_id: str) -> dict[str, Any]:
         details: dict[str, Any]
         if plan["task_type"] == "shell":
             details = await _run_shell_task(plan["project_path"], str(plan["command"]))
@@ -334,13 +349,43 @@ class CoworkService:
             self._extractions.append({**details, "user_id": user_id})
         else:
             details = await _run_browser_task(str(plan["url"]), str(plan["browser_action"]))
+        return details
 
-        run["status"] = str(details.get("status", "completed"))
-        run["summary"] = str(details.get("summary", "Task completed"))
-        run["details"] = details
-        run["completed_at"] = utc_now().isoformat()
-        plan["status"] = "completed" if run["status"] == "completed" else "failed"
-        return run
+    def _is_transient_failure(self, details: dict[str, Any]) -> bool:
+        if str(details.get("status", "")).lower() == "completed":
+            return False
+        summary = str(details.get("summary", "")).lower()
+        transient_markers = [
+            "timeout",
+            "timed out",
+            "connection",
+            "temporary",
+            "unavailable",
+            "502",
+            "503",
+            "504",
+        ]
+        return any(marker in summary for marker in transient_markers)
+
+    async def _execute_plan_with_retries(self, *, plan: dict[str, Any], user_id: str, trigger: str) -> dict[str, Any]:
+        attempts = 3 if trigger == "job" else 1
+        backoff_seconds = 1.5
+        details: dict[str, Any] = {"status": "failed", "summary": "Unknown failure"}
+
+        for attempt in range(1, attempts + 1):
+            details = await self._execute_plan_once(plan=plan, user_id=user_id)
+            if str(details.get("status", "")).lower() == "completed":
+                if attempt > 1:
+                    details["summary"] = f"Recovered after retry {attempt - 1}: {details.get('summary', 'completed')}"
+                return details
+
+            if attempt == attempts or not self._is_transient_failure(details):
+                break
+
+            await asyncio.sleep(backoff_seconds)
+            backoff_seconds *= 2
+
+        return details
 
     def create_job(
         self,
@@ -392,6 +437,9 @@ class CoworkService:
             "url": url,
             "browser_action": browser_action or "capture_title",
             "enabled": True,
+            "consecutive_failures": 0,
+            "circuit_broken": False,
+            "circuit_broken_reason": "",
             "next_run_at": (now + timedelta(seconds=interval_seconds)).isoformat() if trigger_type == "interval" else None,
             "last_run_at": None,
             "last_status": "never",
@@ -406,10 +454,45 @@ class CoworkService:
             raise CoworkError("Job not found")
 
         job["enabled"] = enabled
+        if enabled:
+            job["circuit_broken"] = False
+            job["circuit_broken_reason"] = ""
+            job["consecutive_failures"] = 0
         if enabled and job["trigger_type"] == "interval":
             interval = int(job["interval_seconds"])
             job["next_run_at"] = (utc_now() + timedelta(seconds=interval)).isoformat()
         return job
+
+    def reliability_snapshot(self) -> dict[str, Any]:
+        total_jobs = len(self._jobs)
+        enabled_jobs = sum(1 for item in self._jobs.values() if item.get("enabled"))
+        circuit_broken_jobs = sum(1 for item in self._jobs.values() if item.get("circuit_broken"))
+        running_jobs = sum(1 for item in self._runs if item.get("status") == "running")
+
+        recent = sorted(self._runs, key=lambda item: item.get("created_at", ""), reverse=True)[:50]
+        recent_runs = len(recent)
+        recent_failed_runs = sum(1 for item in recent if item.get("status") != "completed")
+        recent_failure_rate = (recent_failed_runs / recent_runs) if recent_runs else 0.0
+        reliability_alert = circuit_broken_jobs > 0 or recent_failure_rate >= 0.3
+
+        alert_reason = ""
+        if circuit_broken_jobs > 0:
+            alert_reason = f"{circuit_broken_jobs} job(s) are circuit-broken due to repeated failures"
+        elif reliability_alert:
+            alert_reason = f"Recent failure rate {recent_failure_rate:.2f} exceeds reliability threshold"
+
+        return {
+            "max_concurrent_runs": self._max_concurrent_runs,
+            "running_jobs": running_jobs,
+            "total_jobs": total_jobs,
+            "enabled_jobs": enabled_jobs,
+            "circuit_broken_jobs": circuit_broken_jobs,
+            "recent_runs": recent_runs,
+            "recent_failed_runs": recent_failed_runs,
+            "recent_failure_rate": recent_failure_rate,
+            "reliability_alert": reliability_alert,
+            "alert_reason": alert_reason,
+        }
 
     async def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -424,6 +507,8 @@ class CoworkService:
 
         for job in list(self._jobs.values()):
             if not job.get("enabled"):
+                continue
+            if job.get("circuit_broken"):
                 continue
 
             should_run = False
@@ -463,11 +548,21 @@ class CoworkService:
                 user_id=job["user_id"],
                 plan_id=plan["plan_id"],
                 approved=True,
+                trigger="job",
             )
-            run["trigger"] = "job"
 
             job["last_run_at"] = utc_now().isoformat()
             job["last_status"] = run["status"]
+            if run["status"] == "completed":
+                job["consecutive_failures"] = 0
+            else:
+                job["consecutive_failures"] = int(job.get("consecutive_failures", 0)) + 1
+                if int(job["consecutive_failures"]) >= self._max_consecutive_failures:
+                    job["enabled"] = False
+                    job["circuit_broken"] = True
+                    job["circuit_broken_reason"] = (
+                        f"Automatically disabled after {job['consecutive_failures']} consecutive failures"
+                    )
             if job["trigger_type"] == "interval":
                 interval = int(job["interval_seconds"])
                 job["next_run_at"] = (utc_now() + timedelta(seconds=interval)).isoformat()

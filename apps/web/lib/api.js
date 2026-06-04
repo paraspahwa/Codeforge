@@ -60,8 +60,9 @@ export async function getUsageSummary(token) {
   return response.json();
 }
 
-export async function getRoutingBenchmark(token) {
-  const response = await fetch(`${API_BASE}/api/v1/evals/routing-benchmark`, {
+export async function getRoutingBenchmark(token, suite = "policy") {
+  const query = new URLSearchParams({ suite }).toString();
+  const response = await fetch(`${API_BASE}/api/v1/evals/routing-benchmark?${query}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -69,6 +70,50 @@ export async function getRoutingBenchmark(token) {
 
   if (!response.ok) {
     throw new Error("Failed to load routing benchmark");
+  }
+
+  return response.json();
+}
+
+export async function getRoutingBenchmarkTrends(token, suite = "policy", limit = 20) {
+  const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
+  const response = await fetch(`${API_BASE}/api/v1/evals/routing-benchmark/trends?${query}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load routing benchmark trends");
+  }
+
+  return response.json();
+}
+
+export async function getCoworkReliability(token) {
+  const response = await fetch(`${API_BASE}/api/v1/cowork/reliability`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load cowork reliability snapshot");
+  }
+
+  return response.json();
+}
+
+export async function getCoworkReliabilityHistory(token, limit = 50) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  const response = await fetch(`${API_BASE}/api/v1/cowork/reliability/history?${query}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load cowork reliability history");
   }
 
   return response.json();
@@ -85,6 +130,22 @@ export async function getSynthesisRolloutPlan(token, environment = "local") {
   if (!response.ok) {
     const error = await response.json().catch(() => null);
     throw new Error(error?.detail || "Failed to load synthesis rollout plan");
+  }
+
+  return response.json();
+}
+
+export async function getSynthesisRolloutValidation(token, environment = "local") {
+  const query = new URLSearchParams({ environment }).toString();
+  const response = await fetch(`${API_BASE}/api/v1/deploy/synthesis-rollout-validate?${query}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to validate synthesis rollout readiness");
   }
 
   return response.json();

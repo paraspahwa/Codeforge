@@ -21,6 +21,7 @@ env:
   ECR_REPOSITORY_WEB: codeforge-web
   CONTAINER_NAME_API: codeforge-api
   CONTAINER_NAME_WEB: codeforge-web
+  BENCHMARK_TREND_SUITE: all
 
 jobs:
   smoke-test:
@@ -49,6 +50,29 @@ jobs:
           docker compose -f docker-compose.prod.yml logs
           exit 1
 
+      - name: Routing regression warning check
+        shell: bash
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/dev-login \
+            -H 'Content-Type: application/json' \
+            -d '{"user_id":"ci-bot"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+          # Ensure there is at least one benchmark run for trend evaluation.
+          curl -fsS "http://127.0.0.1:8000/api/v1/evals/routing-benchmark?suite=${BENCHMARK_TREND_SUITE}" \
+            -H "Authorization: Bearer $token" >/tmp/benchmark-run.json
+
+          curl -fsS "http://127.0.0.1:8000/api/v1/evals/routing-benchmark/trends?suite=${BENCHMARK_TREND_SUITE}&limit=20" \
+            -H "Authorization: Bearer $token" >/tmp/benchmark-trends.json
+
+          alerts=$(python -c "import json; print(json.load(open('/tmp/benchmark-trends.json')).get('regression_alerts_last_10', 0))")
+          if [[ "$alerts" -gt 0 ]]; then
+            reasons=$(python -c "import json; data=json.load(open('/tmp/benchmark-trends.json')); runs=data.get('runs', []); flagged=[r.get('regression_reason','regression detected') for r in runs if r.get('regression_alert')]; print(' | '.join(flagged[:3]))")
+            echo "::warning title=Routing regression alerts detected::$alerts regression alert(s) in recent benchmark runs. $reasons"
+          else
+            echo "No routing regression alerts detected in recent benchmark trends."
+          fi
+
       - name: Web health check
         shell: bash
         run: |
@@ -67,9 +91,74 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.prod.yml down -v
 
+  rollout-policy-gate:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+      CODEFORGE_SYNTHESIS_PROVIDER_STAGING: ${{ vars.CODEFORGE_SYNTHESIS_PROVIDER_STAGING }}
+      CODEFORGE_SYNTHESIS_PROVIDER_PRODUCTION: ${{ vars.CODEFORGE_SYNTHESIS_PROVIDER_PRODUCTION }}
+      SYNTHESIS_OPENAI_API_KEY_STAGING: ${{ secrets.SYNTHESIS_OPENAI_API_KEY_STAGING }}
+      SYNTHESIS_AZURE_OPENAI_ENDPOINT_STAGING: ${{ secrets.SYNTHESIS_AZURE_OPENAI_ENDPOINT_STAGING }}
+      SYNTHESIS_AZURE_OPENAI_API_KEY_STAGING: ${{ secrets.SYNTHESIS_AZURE_OPENAI_API_KEY_STAGING }}
+      SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_STAGING: ${{ secrets.SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_STAGING }}
+      SYNTHESIS_AZURE_OPENAI_ENDPOINT_PRODUCTION: ${{ secrets.SYNTHESIS_AZURE_OPENAI_ENDPOINT_PRODUCTION }}
+      SYNTHESIS_AZURE_OPENAI_API_KEY_PRODUCTION: ${{ secrets.SYNTHESIS_AZURE_OPENAI_API_KEY_PRODUCTION }}
+      SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_PRODUCTION: ${{ secrets.SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_PRODUCTION }}
+
+    steps:
+      - name: Validate synthesis rollout readiness gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$TARGET_ENV" == "production" ]]; then
+            provider="${CODEFORGE_SYNTHESIS_PROVIDER_PRODUCTION:-}"
+            if [[ -z "${SYNTHESIS_AZURE_OPENAI_ENDPOINT_PRODUCTION:-}" || -z "${SYNTHESIS_AZURE_OPENAI_API_KEY_PRODUCTION:-}" || -z "${SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_PRODUCTION:-}" ]]; then
+              echo "Production rollout gate failed: Azure OpenAI production credentials are incomplete."
+              exit 1
+            fi
+            if [[ "$provider" != "azure_openai" ]]; then
+              echo "Production rollout gate failed: CODEFORGE_SYNTHESIS_PROVIDER_PRODUCTION must be set to azure_openai."
+              exit 1
+            fi
+            echo "Production rollout gate passed: azure_openai configured and policy-compliant."
+            exit 0
+          fi
+
+          provider="${CODEFORGE_SYNTHESIS_PROVIDER_STAGING:-auto}"
+          openai_ready=false
+          azure_ready=false
+          if [[ -n "${SYNTHESIS_OPENAI_API_KEY_STAGING:-}" ]]; then
+            openai_ready=true
+          fi
+          if [[ -n "${SYNTHESIS_AZURE_OPENAI_ENDPOINT_STAGING:-}" && -n "${SYNTHESIS_AZURE_OPENAI_API_KEY_STAGING:-}" && -n "${SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_STAGING:-}" ]]; then
+            azure_ready=true
+          fi
+
+          if [[ "$openai_ready" == "false" && "$azure_ready" == "false" ]]; then
+            echo "Staging rollout gate failed: neither OpenAI nor Azure OpenAI synthesis provider is fully configured."
+            exit 1
+          fi
+
+          if [[ "$provider" == "openai" && "$openai_ready" == "false" ]]; then
+            echo "Staging rollout gate failed: provider is openai but SYNTHESIS_OPENAI_API_KEY_STAGING is missing."
+            exit 1
+          fi
+
+          if [[ "$provider" == "azure_openai" && "$azure_ready" == "false" ]]; then
+            echo "Staging rollout gate failed: provider is azure_openai but Azure staging credentials are incomplete."
+            exit 1
+          fi
+
+          echo "Staging rollout gate passed: synthesis provider policy is release-ready."
+
   deploy-staging:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
-    needs: smoke-test
+    needs: [smoke-test, rollout-policy-gate]
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -151,7 +240,7 @@ jobs:
 
   deploy-production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
-    needs: smoke-test
+    needs: [smoke-test, rollout-policy-gate]
     runs-on: ubuntu-latest
     environment: production
     permissions:

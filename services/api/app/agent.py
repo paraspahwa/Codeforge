@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -501,6 +502,63 @@ def route_request(prompt: str) -> RoutingDecision:
     return _classify_intent(prompt)
 
 
+def _repository_routing_cases() -> list[RoutingBenchmarkCase]:
+    root = Path.cwd()
+    known_files = {
+        "readme": (root / "README.md").exists(),
+        "api_main": (root / "services" / "api" / "app" / "main.py").exists(),
+        "desktop_app": (root / "apps" / "desktop" / "src" / "App.jsx").exists(),
+        "web_page": (root / "apps" / "web" / "app" / "page.jsx").exists(),
+    }
+
+    cases: list[RoutingBenchmarkCase] = []
+    if known_files["readme"]:
+        cases.append(
+            RoutingBenchmarkCase(
+                prompt="Update README.md with concise local setup troubleshooting notes",
+                expected_intent="simple_edit",
+                expected_tier="deepseek_flash",
+            )
+        )
+
+    if known_files["api_main"]:
+        cases.append(
+            RoutingBenchmarkCase(
+                prompt="Investigate production crash in services/api/app/main.py stream flow and debug root cause",
+                expected_intent="hard_debug",
+                expected_tier="fallback_sonnet",
+            )
+        )
+
+    if known_files["desktop_app"]:
+        cases.append(
+            RoutingBenchmarkCase(
+                prompt="Refactor apps/desktop/src/App.jsx state handling for better readability and lower rerender churn",
+                expected_intent="complex_edit",
+                expected_tier="deepseek_pro",
+            )
+        )
+
+    if known_files["web_page"]:
+        cases.append(
+            RoutingBenchmarkCase(
+                prompt="Run tests for apps/web before release and report failures",
+                expected_intent="shell_cmd",
+                expected_tier="local_rule",
+            )
+        )
+
+    cases.append(
+        RoutingBenchmarkCase(
+            prompt="Repeat previous conflict strategy for same files again",
+            expected_intent="repeat_pattern",
+            expected_tier="cached_pattern",
+        )
+    )
+
+    return cases
+
+
 def build_agent_run(
     prompt: str,
     session_id: str,
@@ -698,8 +756,12 @@ def serialize_sse_event(event_type: str, payload: dict[str, Any], sequence: int,
     return f"data: {event.model_dump_json()}\n\n"
 
 
-def run_routing_benchmark() -> dict[str, Any]:
-    cases = [
+def run_routing_benchmark(suite: str = "policy") -> dict[str, Any]:
+    suite_name = suite.strip().lower() or "policy"
+    if suite_name not in {"policy", "repository", "all"}:
+        raise ValueError("suite must be policy, repository, or all")
+
+    policy_cases = [
         RoutingBenchmarkCase(
             prompt="Do this again for the auth module, same as before",
             expected_intent="repeat_pattern",
@@ -731,6 +793,14 @@ def run_routing_benchmark() -> dict[str, Any]:
             expected_tier="fallback_opus",
         ),
     ]
+
+    repository_cases = _repository_routing_cases()
+    if suite_name == "policy":
+        cases = policy_cases
+    elif suite_name == "repository":
+        cases = repository_cases
+    else:
+        cases = [*policy_cases, *repository_cases]
 
     results: list[dict[str, Any]] = []
     passes = 0
@@ -767,6 +837,7 @@ def run_routing_benchmark() -> dict[str, Any]:
 
     total = len(cases)
     return {
+        "suite": suite_name,
         "total_cases": total,
         "passed_cases": passes,
         "pass_rate": round((passes / total) if total else 0.0, 3),

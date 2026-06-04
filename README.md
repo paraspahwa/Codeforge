@@ -122,8 +122,8 @@ npm run dev:terminal
 
 ## Known Gaps
 
-- External model synthesis rollout automation and policy tuning are still pending for fully-managed production environments
-- Guided conflict-resolution flow is implemented, but desktop/web parity and assisted apply automation are still pending
+- External model synthesis rollout now includes environment-specific planning and readiness validation, but deployment-time policy enforcement gates are still pending
+- Routing benchmark suites now include policy and repository-grounded checks, but benchmark history and regression alerting are still pending
 
 ## Canonical Documents
 

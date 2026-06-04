@@ -14,22 +14,30 @@ from .auth import AuthUser, get_current_user, get_current_user_optional
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
 from .deploy_ops import build_synthesis_rollout_plan
+from .deploy_ops import validate_synthesis_rollout
 from .projects_team import ProjectsTeamError, projects_team_service
 from .db import (
+    insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
+    list_cowork_reliability_snapshots,
+    get_routing_benchmark_baseline,
     get_usage_summary_for_user,
     get_session_for_user,
     get_user_subscription,
     init_db,
+    insert_routing_benchmark_run,
     insert_agent_proposal,
     insert_billing_order,
     insert_billing_webhook,
     insert_message,
     insert_session,
     insert_usage_log,
+    latest_routing_benchmark_run,
+    list_routing_benchmark_runs,
     latest_user_message,
     list_messages_for_session,
     list_sessions_for_user,
+    upsert_routing_benchmark_baseline,
     update_agent_proposal_status,
     update_billing_order_status,
     upsert_user_subscription,
@@ -46,10 +54,13 @@ from .models import (
     CoworkExtractRequest,
     CoworkExtractionListResponse,
     CoworkExtractionResponse,
+    CoworkReliabilityHistoryResponse,
+    CoworkReliabilitySnapshotItem,
     CoworkJobCreateRequest,
     CoworkJobListResponse,
     CoworkJobResponse,
     CoworkJobToggleRequest,
+    CoworkReliabilityResponse,
     CoworkPlanListResponse,
     CoworkPlanRequest,
     CoworkPlanResponse,
@@ -65,6 +76,7 @@ from .models import (
     DevLoginRequest,
     DevLoginResponse,
     DeploymentRolloutPlanResponse,
+    DeploymentRolloutValidationResponse,
     FileApplyRequest,
     FileApplyResponse,
     FileContentResponse,
@@ -90,6 +102,10 @@ from .models import (
     ProposalDecisionRequest,
     ProposalDecisionResponse,
     RoutingBenchmarkResponse,
+    RoutingBenchmarkBaselineResponse,
+    RoutingBenchmarkBaselineSetRequest,
+    RoutingBenchmarkTrendItem,
+    RoutingBenchmarkTrendResponse,
     SynthesisRolloutStatusResponse,
     ProjectKnowledgeQueryRequest,
     ProjectKnowledgeQueryResponse,
@@ -154,6 +170,42 @@ def _attach_trace_id(response: Response) -> Response:
     if trace_id:
         response.headers["x-trace-id"] = trace_id
     return response
+
+
+def _benchmark_regression_threshold() -> float:
+    raw = os.getenv("CODEFORGE_BENCHMARK_REGRESSION_THRESHOLD", "0.05").strip()
+    try:
+        threshold = float(raw)
+    except ValueError:
+        threshold = 0.05
+    return max(0.01, min(threshold, 0.5))
+
+
+def _evaluate_benchmark_regression(
+    result: dict[str, float | int | str | list[dict[str, object]]],
+    baseline: dict[str, object] | None,
+) -> tuple[bool, str]:
+    if baseline is None:
+        return False, ""
+
+    threshold = _benchmark_regression_threshold()
+    reasons: list[str] = []
+
+    pass_drop = float(baseline.get("pass_rate", 0.0)) - float(result.get("pass_rate", 0.0))
+    if pass_drop >= threshold:
+        reasons.append(f"pass_rate dropped by {pass_drop:.3f}")
+
+    fallback_increase = float(result.get("fallback_usage_rate", 0.0)) - float(baseline.get("fallback_usage_rate", 0.0))
+    if fallback_increase >= threshold:
+        reasons.append(f"fallback_usage_rate increased by {fallback_increase:.3f}")
+
+    low_conf_increase = float(result.get("low_confidence_rate", 0.0)) - float(baseline.get("low_confidence_rate", 0.0))
+    if low_conf_increase >= threshold:
+        reasons.append(f"low_confidence_rate increased by {low_conf_increase:.3f}")
+
+    if not reasons:
+        return False, ""
+    return True, "; ".join(reasons)
 
 app.add_middleware(
     CORSMiddleware,
@@ -462,18 +514,126 @@ def post_message(
 
 
 @app.get("/api/v1/evals/routing-benchmark", response_model=RoutingBenchmarkResponse)
-def eval_routing_benchmark(user: AuthUser = Depends(get_current_user)) -> RoutingBenchmarkResponse:
+def eval_routing_benchmark(
+    suite: str = "policy",
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkResponse:
     _ = user
-    result = run_routing_benchmark()
+    try:
+        result = run_routing_benchmark(suite=suite)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    baseline = get_routing_benchmark_baseline(result["suite"])
+    if baseline is None:
+        created_at = utc_now().isoformat()
+        upsert_routing_benchmark_baseline(
+            suite=result["suite"],
+            pass_rate=float(result["pass_rate"]),
+            fallback_usage_rate=float(result["fallback_usage_rate"]),
+            low_confidence_rate=float(result["low_confidence_rate"]),
+            total_estimated_cost_usd=float(result["total_estimated_cost_usd"]),
+            updated_at=created_at,
+            updated_by="system:auto-initialized",
+        )
+        baseline = get_routing_benchmark_baseline(result["suite"])
+
+    regression_alert, regression_reason = _evaluate_benchmark_regression(result, baseline)
+    insert_routing_benchmark_run(
+        run_id=f"bench_{uuid4().hex[:12]}",
+        suite=str(result["suite"]),
+        total_cases=int(result["total_cases"]),
+        passed_cases=int(result["passed_cases"]),
+        pass_rate=float(result["pass_rate"]),
+        fallback_usage_rate=float(result["fallback_usage_rate"]),
+        low_confidence_rate=float(result["low_confidence_rate"]),
+        total_estimated_cost_usd=float(result["total_estimated_cost_usd"]),
+        regression_alert=regression_alert,
+        regression_reason=regression_reason,
+        created_at=utc_now().isoformat(),
+    )
+
     add_span_event(
         "eval.routing_benchmark",
         {
+            "suite": result.get("suite", suite),
             "total_cases": result["total_cases"],
             "pass_rate": result["pass_rate"],
             "fallback_usage_rate": result["fallback_usage_rate"],
+            "regression_alert": regression_alert,
+            "regression_reason": regression_reason,
         },
     )
     return RoutingBenchmarkResponse(**result)
+
+
+@app.get("/api/v1/evals/routing-benchmark/baseline", response_model=RoutingBenchmarkBaselineResponse)
+def get_routing_benchmark_baseline_endpoint(
+    suite: str = "policy",
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkBaselineResponse:
+    _ = user
+    baseline = get_routing_benchmark_baseline(suite)
+    if baseline is None:
+        raise HTTPException(status_code=404, detail="Benchmark baseline not found")
+    return RoutingBenchmarkBaselineResponse(**baseline)
+
+
+@app.post("/api/v1/evals/routing-benchmark/baseline", response_model=RoutingBenchmarkBaselineResponse)
+def set_routing_benchmark_baseline_endpoint(
+    payload: RoutingBenchmarkBaselineSetRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkBaselineResponse:
+    latest = latest_routing_benchmark_run(payload.suite)
+    if latest is None and any(
+        value is None
+        for value in (
+            payload.pass_rate,
+            payload.fallback_usage_rate,
+            payload.low_confidence_rate,
+            payload.total_estimated_cost_usd,
+        )
+    ):
+        raise HTTPException(status_code=400, detail="No latest run available; provide full baseline metrics")
+
+    pass_rate = payload.pass_rate if payload.pass_rate is not None else float(latest["pass_rate"])  # type: ignore[index]
+    fallback_usage_rate = payload.fallback_usage_rate if payload.fallback_usage_rate is not None else float(latest["fallback_usage_rate"])  # type: ignore[index]
+    low_confidence_rate = payload.low_confidence_rate if payload.low_confidence_rate is not None else float(latest["low_confidence_rate"])  # type: ignore[index]
+    total_estimated_cost_usd = payload.total_estimated_cost_usd if payload.total_estimated_cost_usd is not None else float(latest["total_estimated_cost_usd"])  # type: ignore[index]
+
+    updated_at = utc_now().isoformat()
+    upsert_routing_benchmark_baseline(
+        suite=payload.suite,
+        pass_rate=float(pass_rate),
+        fallback_usage_rate=float(fallback_usage_rate),
+        low_confidence_rate=float(low_confidence_rate),
+        total_estimated_cost_usd=float(total_estimated_cost_usd),
+        updated_at=updated_at,
+        updated_by=user.user_id,
+    )
+    baseline = get_routing_benchmark_baseline(payload.suite)
+    if baseline is None:
+        raise HTTPException(status_code=500, detail="Failed to persist benchmark baseline")
+    return RoutingBenchmarkBaselineResponse(**baseline)
+
+
+@app.get("/api/v1/evals/routing-benchmark/trends", response_model=RoutingBenchmarkTrendResponse)
+def get_routing_benchmark_trends_endpoint(
+    suite: str = "policy",
+    limit: int = 20,
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkTrendResponse:
+    _ = user
+    baseline = get_routing_benchmark_baseline(suite)
+    runs = list_routing_benchmark_runs(suite=suite, limit=limit)
+    trend_items = [RoutingBenchmarkTrendItem(**row) for row in runs]
+    regression_alerts_last_10 = sum(1 for item in trend_items[:10] if item.regression_alert)
+    return RoutingBenchmarkTrendResponse(
+        suite=suite,
+        baseline=RoutingBenchmarkBaselineResponse(**baseline) if baseline else None,
+        runs=trend_items,
+        regression_alerts_last_10=regression_alerts_last_10,
+    )
 
 
 @app.get("/api/v1/evals/synthesis-rollout", response_model=SynthesisRolloutStatusResponse)
@@ -502,6 +662,20 @@ def deploy_synthesis_rollout_plan(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return DeploymentRolloutPlanResponse(**plan)
+
+
+@app.get("/api/v1/deploy/synthesis-rollout-validate", response_model=DeploymentRolloutValidationResponse)
+def deploy_synthesis_rollout_validate(
+    environment: str = "local",
+    user: AuthUser = Depends(get_current_user),
+) -> DeploymentRolloutValidationResponse:
+    _ = user
+    try:
+        validation = validate_synthesis_rollout(environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return DeploymentRolloutValidationResponse(**validation)
 
 
 @app.get("/api/v1/sessions/{session_id}/messages", response_model=list[MessageItem])
@@ -687,6 +861,39 @@ async def extract_cowork_data(
 def list_cowork_extractions(user: AuthUser = Depends(get_current_user)) -> CoworkExtractionListResponse:
     rows = cowork_service.list_extractions(user.user_id)
     return CoworkExtractionListResponse(extractions=[CoworkExtractionResponse(**row) for row in rows])
+
+
+@app.get("/api/v1/cowork/reliability", response_model=CoworkReliabilityResponse)
+def cowork_reliability_snapshot(user: AuthUser = Depends(get_current_user)) -> CoworkReliabilityResponse:
+    _ = user
+    snapshot = cowork_service.reliability_snapshot()
+    snapshot_id = f"cwr_{uuid4().hex[:12]}"
+    created_at = utc_now().isoformat()
+    insert_cowork_reliability_snapshot(
+        snapshot_id=snapshot_id,
+        max_concurrent_runs=int(snapshot["max_concurrent_runs"]),
+        running_jobs=int(snapshot["running_jobs"]),
+        total_jobs=int(snapshot["total_jobs"]),
+        enabled_jobs=int(snapshot["enabled_jobs"]),
+        circuit_broken_jobs=int(snapshot["circuit_broken_jobs"]),
+        recent_runs=int(snapshot["recent_runs"]),
+        recent_failed_runs=int(snapshot["recent_failed_runs"]),
+        recent_failure_rate=float(snapshot["recent_failure_rate"]),
+        reliability_alert=bool(snapshot["reliability_alert"]),
+        alert_reason=str(snapshot.get("alert_reason", "")),
+        created_at=created_at,
+    )
+    return CoworkReliabilityResponse(**snapshot)
+
+
+@app.get("/api/v1/cowork/reliability/history", response_model=CoworkReliabilityHistoryResponse)
+def cowork_reliability_history(
+    limit: int = 100,
+    user: AuthUser = Depends(get_current_user),
+) -> CoworkReliabilityHistoryResponse:
+    _ = user
+    rows = list_cowork_reliability_snapshots(limit=limit)
+    return CoworkReliabilityHistoryResponse(snapshots=[CoworkReliabilitySnapshotItem(**row) for row in rows])
 
 
 @app.post("/api/v1/projects/knowledge/rebuild", response_model=ProjectKnowledgeResponse)

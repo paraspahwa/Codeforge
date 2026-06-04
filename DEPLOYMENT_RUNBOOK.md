@@ -486,12 +486,35 @@ Use GitHub Actions (or CodePipeline) with this flow:
 
 1. On push to main:
    - run lint/build/tests
+   - run rollout policy gate (must pass synthesis readiness checks)
    - build API and web images
    - push to ECR
 2. Deploy to staging ECS service
 3. Run smoke tests
 4. Manual approval
 5. Deploy to production ECS services
+
+### 9.1 Rollout policy gate inputs (required)
+
+Configure these GitHub settings so deployment promotion is blocked when synthesis rollout is not ready:
+
+Required repository variables:
+
+1. CODEFORGE_SYNTHESIS_PROVIDER_STAGING (recommended: auto, openai, or azure_openai)
+2. CODEFORGE_SYNTHESIS_PROVIDER_PRODUCTION (required value: azure_openai)
+
+Required staging secrets:
+
+1. SYNTHESIS_OPENAI_API_KEY_STAGING (required if staging provider uses openai)
+2. SYNTHESIS_AZURE_OPENAI_ENDPOINT_STAGING
+3. SYNTHESIS_AZURE_OPENAI_API_KEY_STAGING
+4. SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_STAGING
+
+Required production secrets:
+
+1. SYNTHESIS_AZURE_OPENAI_ENDPOINT_PRODUCTION
+2. SYNTHESIS_AZURE_OPENAI_API_KEY_PRODUCTION
+3. SYNTHESIS_AZURE_OPENAI_DEPLOYMENT_PRODUCTION
 
 ## 10) Post-Deployment Client Configuration
 

@@ -12,7 +12,11 @@ import {
   getProposal,
   getBillingSubscription,
   getRoutingBenchmark,
+  getRoutingBenchmarkTrends,
   getSynthesisRolloutPlan,
+  getSynthesisRolloutValidation,
+  getCoworkReliability,
+  getCoworkReliabilityHistory,
   getUsageSummary,
   listBillingPlans,
   listMessages,
@@ -52,9 +56,14 @@ export default function HomePage() {
   const [agentEvents, setAgentEvents] = useState([]);
   const [pendingProposal, setPendingProposal] = useState(null);
   const [routingBenchmark, setRoutingBenchmark] = useState(null);
+  const [routingBenchmarkTrends, setRoutingBenchmarkTrends] = useState(null);
+  const [routingBenchmarkSuite, setRoutingBenchmarkSuite] = useState("policy");
   const [loadingBenchmark, setLoadingBenchmark] = useState(false);
   const [rolloutEnvironment, setRolloutEnvironment] = useState("local");
   const [rolloutPlan, setRolloutPlan] = useState(null);
+  const [rolloutValidation, setRolloutValidation] = useState(null);
+  const [coworkReliability, setCoworkReliability] = useState(null);
+  const [coworkReliabilityHistory, setCoworkReliabilityHistory] = useState(null);
   const [loadingRolloutPlan, setLoadingRolloutPlan] = useState(false);
   const [conflictTargetBranch, setConflictTargetBranch] = useState("main");
   const [conflictGuide, setConflictGuide] = useState(null);
@@ -79,13 +88,18 @@ export default function HomePage() {
     setSubscription(status);
   }
 
-  async function refreshRoutingBenchmark(authToken) {
+  async function refreshRoutingBenchmark(authToken, suite = routingBenchmarkSuite) {
     setLoadingBenchmark(true);
     try {
-      const benchmark = await getRoutingBenchmark(authToken);
+      const [benchmark, trends] = await Promise.all([
+        getRoutingBenchmark(authToken, suite),
+        getRoutingBenchmarkTrends(authToken, suite, 20),
+      ]);
       setRoutingBenchmark(benchmark);
+      setRoutingBenchmarkTrends(trends);
     } catch {
       setRoutingBenchmark(null);
+      setRoutingBenchmarkTrends(null);
     } finally {
       setLoadingBenchmark(false);
     }
@@ -94,10 +108,21 @@ export default function HomePage() {
   async function refreshRolloutPlan(authToken, environment = rolloutEnvironment) {
     setLoadingRolloutPlan(true);
     try {
-      const plan = await getSynthesisRolloutPlan(authToken, environment);
+      const [plan, validation, reliability, reliabilityHistory] = await Promise.all([
+        getSynthesisRolloutPlan(authToken, environment),
+        getSynthesisRolloutValidation(authToken, environment),
+        getCoworkReliability(authToken),
+        getCoworkReliabilityHistory(authToken, 30),
+      ]);
       setRolloutPlan(plan);
+      setRolloutValidation(validation);
+      setCoworkReliability(reliability);
+      setCoworkReliabilityHistory(reliabilityHistory);
     } catch (error) {
       setRolloutPlan(null);
+      setRolloutValidation(null);
+      setCoworkReliability(null);
+      setCoworkReliabilityHistory(null);
       alert(error.message);
     } finally {
       setLoadingRolloutPlan(false);
@@ -184,7 +209,7 @@ export default function HomePage() {
       await refreshSessions(nextToken);
       await refreshUsage(nextToken);
       await refreshSubscription(nextToken);
-      await refreshRoutingBenchmark(nextToken);
+      await refreshRoutingBenchmark(nextToken, routingBenchmarkSuite);
       await refreshRolloutPlan(nextToken, rolloutEnvironment);
       const availablePlans = await listBillingPlans();
       setPlans(availablePlans);
@@ -282,7 +307,7 @@ export default function HomePage() {
       setMessages([]);
       await refreshSessions(token);
       await refreshUsage(token);
-      await refreshRoutingBenchmark(token);
+      await refreshRoutingBenchmark(token, routingBenchmarkSuite);
       await refreshRolloutPlan(token, rolloutEnvironment);
     } catch (error) {
       alert(error.message);
@@ -479,11 +504,47 @@ export default function HomePage() {
             {routingBenchmark ? `${Math.round((routingBenchmark.pass_rate ?? 0) * 100)}%` : "-"}
           </h2>
           <p className="small">
+            regressions(10): {routingBenchmarkTrends?.regression_alerts_last_10 ?? "-"}
+          </p>
+          <p className="small">suite: {routingBenchmark?.suite ?? "-"}</p>
+          <p className="small">
             fallback: {routingBenchmark ? `${Math.round((routingBenchmark.fallback_usage_rate ?? 0) * 100)}%` : "-"}
           </p>
-          <button type="button" onClick={() => token && refreshRoutingBenchmark(token)} disabled={!token || loadingBenchmark}>
+          <label className="small" htmlFor="benchmark-suite">
+            Suite
+          </label>
+          <select
+            id="benchmark-suite"
+            value={routingBenchmarkSuite}
+            onChange={(event) => setRoutingBenchmarkSuite(event.target.value)}
+            disabled={!token || loadingBenchmark}
+          >
+            <option value="policy">policy</option>
+            <option value="repository">repository</option>
+            <option value="all">all</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => token && refreshRoutingBenchmark(token, routingBenchmarkSuite)}
+            disabled={!token || loadingBenchmark}
+          >
             {loadingBenchmark ? "Refreshing..." : "Refresh"}
           </button>
+        </article>
+        <article className="stat-card">
+          <p className="small">Cowork Reliability</p>
+          <h2>
+            {coworkReliability ? `${Math.round((1 - (coworkReliability.recent_failure_rate ?? 0)) * 100)}%` : "-"}
+          </h2>
+          <p className="small">
+            alert: {coworkReliability ? (coworkReliability.reliability_alert ? "yes" : "no") : "-"}
+          </p>
+          <p className="small">
+            failures: {coworkReliability?.recent_failed_runs ?? "-"}/{coworkReliability?.recent_runs ?? "-"}
+          </p>
+          <p className="small">
+            snapshots: {coworkReliabilityHistory?.snapshots?.length ?? "-"}
+          </p>
         </article>
       </section>
 
@@ -522,6 +583,12 @@ export default function HomePage() {
               <p className="small">Recommended provider: {rolloutPlan.recommended_provider}</p>
               <p className="small">Strategy: {rolloutPlan.strategy}</p>
               <p className="small">
+                Release readiness: {rolloutValidation ? `${rolloutValidation.is_ready_for_release ? "ready" : "blocked"}` : "-"}
+              </p>
+              <p className="small">
+                Readiness score: {rolloutValidation ? `${rolloutValidation.readiness_score}%` : "-"}
+              </p>
+              <p className="small">
                 Missing required env:{" "}
                 {(rolloutPlan.providers || [])
                   .flatMap((provider) => provider.required_env || [])
@@ -529,6 +596,16 @@ export default function HomePage() {
                   .map((item) => item.name)
                   .join(", ") || "none"}
               </p>
+              {rolloutValidation?.blockers?.length ? (
+                <>
+                  <p className="small">Blockers:</p>
+                  <ul>
+                    {rolloutValidation.blockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
               <ul>
                 {(rolloutPlan.automation_steps || []).map((step) => (
                   <li key={step}>{step}</li>
@@ -747,6 +824,31 @@ export default function HomePage() {
               <p className="small">
                 pass rate: {Math.round((routingBenchmark.pass_rate ?? 0) * 100)}% | low confidence: {Math.round((routingBenchmark.low_confidence_rate ?? 0) * 100)}% | estimated cost: ${(routingBenchmark.total_estimated_cost_usd ?? 0).toFixed(4)}
               </p>
+              {routingBenchmarkTrends ? (
+                <>
+                  <p className="small">
+                    baseline pass: {routingBenchmarkTrends.baseline ? `${Math.round((routingBenchmarkTrends.baseline.pass_rate ?? 0) * 100)}%` : "not set"}
+                  </p>
+                  <p className="small">
+                    regression alerts (last 10): {routingBenchmarkTrends.regression_alerts_last_10}
+                  </p>
+                  {routingBenchmarkTrends.runs?.length ? (
+                    <div className="benchmark-list">
+                      {routingBenchmarkTrends.runs.slice(0, 5).map((run) => (
+                        <div className="benchmark-row" key={run.run_id}>
+                          <div className="small">{new Date(run.created_at).toLocaleString()}</div>
+                          <div className="small">
+                            pass {Math.round((run.pass_rate ?? 0) * 100)}% | fallback {Math.round((run.fallback_usage_rate ?? 0) * 100)}%
+                          </div>
+                          <div className={`small ${run.regression_alert ? "benchmark-fail" : "benchmark-pass"}`}>
+                            {run.regression_alert ? `regression: ${run.regression_reason || "detected"}` : "ok"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
               <div className="benchmark-list">
                 {(routingBenchmark.results ?? []).map((item) => (
                   <div className="benchmark-row" key={`${item.prompt}-${item.expected_intent}`}>

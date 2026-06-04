@@ -676,6 +676,7 @@ class RoutingBenchmarkCaseResult(BaseModel):
 
 
 class RoutingBenchmarkResponse(BaseModel):
+    suite: str = "policy"
     total_cases: int
     passed_cases: int
     pass_rate: float
@@ -683,6 +684,45 @@ class RoutingBenchmarkResponse(BaseModel):
     low_confidence_rate: float
     total_estimated_cost_usd: float
     results: list[RoutingBenchmarkCaseResult]
+
+
+class RoutingBenchmarkBaselineSetRequest(BaseModel):
+    suite: Literal["policy", "repository", "all"] = "policy"
+    pass_rate: float | None = None
+    fallback_usage_rate: float | None = None
+    low_confidence_rate: float | None = None
+    total_estimated_cost_usd: float | None = None
+
+
+class RoutingBenchmarkBaselineResponse(BaseModel):
+    suite: str
+    pass_rate: float
+    fallback_usage_rate: float
+    low_confidence_rate: float
+    total_estimated_cost_usd: float
+    updated_at: datetime
+    updated_by: str
+
+
+class RoutingBenchmarkTrendItem(BaseModel):
+    run_id: str
+    suite: str
+    total_cases: int
+    passed_cases: int
+    pass_rate: float
+    fallback_usage_rate: float
+    low_confidence_rate: float
+    total_estimated_cost_usd: float
+    regression_alert: bool
+    regression_reason: str = ""
+    created_at: datetime
+
+
+class RoutingBenchmarkTrendResponse(BaseModel):
+    suite: str
+    baseline: RoutingBenchmarkBaselineResponse | None = None
+    runs: list[RoutingBenchmarkTrendItem]
+    regression_alerts_last_10: int
 
 
 class SynthesisProviderStatus(BaseModel):
@@ -720,6 +760,58 @@ class DeploymentRolloutPlanResponse(BaseModel):
     recommended_provider: str
     providers: list[DeploymentRolloutProviderPlan]
     automation_steps: list[str] = []
+
+
+class DeploymentRolloutProviderReadiness(BaseModel):
+    provider: str
+    ready: bool
+    required_count: int
+    configured_count: int
+    missing_required_env: list[str] = []
+
+
+class DeploymentRolloutValidationResponse(BaseModel):
+    environment: Literal["local", "staging", "production"]
+    strategy: str
+    recommended_provider: str
+    selected_provider: str
+    is_ready_for_release: bool
+    readiness_score: int
+    provider_readiness: list[DeploymentRolloutProviderReadiness]
+    blockers: list[str] = []
+    next_actions: list[str] = []
+
+
+class CoworkReliabilityResponse(BaseModel):
+    max_concurrent_runs: int
+    running_jobs: int
+    total_jobs: int
+    enabled_jobs: int
+    circuit_broken_jobs: int
+    recent_runs: int
+    recent_failed_runs: int
+    recent_failure_rate: float
+    reliability_alert: bool
+    alert_reason: str = ""
+
+
+class CoworkReliabilitySnapshotItem(BaseModel):
+    snapshot_id: str
+    max_concurrent_runs: int
+    running_jobs: int
+    total_jobs: int
+    enabled_jobs: int
+    circuit_broken_jobs: int
+    recent_runs: int
+    recent_failed_runs: int
+    recent_failure_rate: float
+    reliability_alert: bool
+    alert_reason: str = ""
+    created_at: datetime
+
+
+class CoworkReliabilityHistoryResponse(BaseModel):
+    snapshots: list[CoworkReliabilitySnapshotItem]
 
 
 def utc_now() -> datetime:
