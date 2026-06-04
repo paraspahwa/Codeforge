@@ -1,11 +1,33 @@
 from __future__ import annotations
 
 import difflib
+import os
 import re
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+def _detect_repo_root() -> Path:
+    configured = os.getenv("CODEFORGE_REPO_ROOT")
+    if configured:
+        configured_path = Path(configured).expanduser().resolve()
+        if configured_path.exists():
+            return configured_path
+
+    here = Path(__file__).resolve()
+    # Prefer a parent that looks like the monorepo root in local development.
+    for parent in here.parents:
+        if (parent / "package.json").exists() and (parent / "services").exists():
+            return parent
+
+    # In the API container image we run from /app with only app/ copied in.
+    if len(here.parents) > 1 and here.parents[1].name == "app":
+        return here.parents[1]
+
+    # Safe fallback to avoid import-time crashes when parent depth is shallow.
+    return here.parents[min(3, len(here.parents) - 1)]
+
+
+REPO_ROOT = _detect_repo_root()
 FILE_PATTERN = re.compile(r"[\w./\\-]+\.[A-Za-z0-9]+")
 
 
