@@ -13,9 +13,13 @@ from .agent import build_agent_run, get_synthesis_rollout_status, route_request,
 from .auth import AuthUser, get_current_user, get_current_user_optional
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
+from .cache import RedisSessionStore
 from .deploy_ops import build_synthesis_rollout_plan
 from .deploy_ops import validate_synthesis_rollout
+from .model_router import GenerationClient
 from .projects_team import ProjectsTeamError, projects_team_service
+from .task_queue import TaskQueue
+from .vector_store import VectorStore
 from .db import (
     insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
@@ -146,6 +150,11 @@ from .models import (
 
 app = FastAPI(title="CodeForge API", version="0.1.0")
 
+redis_session_store = RedisSessionStore()
+vector_store = VectorStore()
+task_queue = TaskQueue()
+generation_client = GenerationClient()
+
 BILLING_PLANS = [
     BillingPlan(plan_id="lite", name="Lite", amount_inr=199, request_limit=300),
     BillingPlan(plan_id="pro", name="Pro", amount_inr=499, request_limit=1000),
@@ -231,6 +240,14 @@ async def startup() -> None:
     configure_tracing(app)
     await cowork_service.start()
 
+    # Seed stack-level heartbeat keys for diagnostics.
+    redis_session_store.set("stack:last_startup", utc_now().isoformat(), ttl_seconds=3600)
+    vector_store.upsert_text(
+        item_id="stack_bootstrap",
+        text="CodeForge startup heartbeat",
+        metadata={"source": "startup"},
+    )
+
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
@@ -240,6 +257,36 @@ async def shutdown() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/v1/platform/stack-status")
+def platform_stack_status(user: AuthUser = Depends(get_current_user_optional)) -> dict[str, object]:
+    _ = user
+    return {
+        "status": "ok",
+        "redis": {
+            "backend": redis_session_store.backend,
+            "healthy": redis_session_store.ping(),
+        },
+        "vector_store": {
+            "backend": vector_store.backend,
+            "healthy": vector_store.ping(),
+            "embedding_source": vector_store.embedding_source,
+        },
+        "task_queue": {
+            "backend": task_queue.backend,
+            "healthy": task_queue.health(),
+        },
+        "generation": {
+            "backend": generation_client.backend,
+        },
+    }
+
+
+@app.post("/api/v1/platform/queue-ping")
+def platform_queue_ping(user: AuthUser = Depends(get_current_user_optional)) -> dict[str, object]:
+    _ = user
+    return task_queue.enqueue("app.celery_worker.noop_task", {"source": "api"})
 
 
 @app.post("/api/v1/auth/dev-login", response_model=DevLoginResponse)
@@ -916,6 +963,24 @@ def rebuild_project_knowledge(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     add_span_event("projects.knowledge_rebuilt", {"session_id": payload.session_id, "knowledge_id": state["knowledge_id"]})
+
+    # Persist indexed knowledge excerpts in vector store for semantic retrieval.
+    for item in state.get("items", []):
+        path = str(item.get("path", ""))
+        excerpt = str(item.get("excerpt", ""))
+        if not path or not excerpt:
+            continue
+        vector_store.upsert_text(
+            item_id=f"kb:{state['knowledge_id']}:{path}",
+            text=excerpt,
+            metadata={
+                "kind": "knowledge_item",
+                "knowledge_id": state["knowledge_id"],
+                "session_id": payload.session_id,
+                "path": path,
+            },
+        )
+
     return ProjectKnowledgeResponse(**state)
 
 
@@ -943,6 +1008,38 @@ def query_project_knowledge(
         )
     except ProjectsTeamError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    vector_hits = vector_store.search_text(
+        query=payload.query,
+        limit=payload.limit,
+    )
+    lexical_results = list(result.get("results", []))
+    existing_paths = {str(item.get("path", "")) for item in lexical_results}
+
+    for hit in vector_hits:
+        payload_data = hit.get("payload", {}) if isinstance(hit, dict) else {}
+        path = str(payload_data.get("path", "semantic_match"))
+        excerpt = str(payload_data.get("text") or payload_data.get("excerpt") or "")
+        if not excerpt:
+            continue
+
+        if path in existing_paths:
+            continue
+
+        lexical_results.append(
+            {
+                "path": path,
+                "excerpt": excerpt,
+                "score": max(1, int(float(hit.get("score", 0.0)) * 100)),
+            }
+        )
+
+    lexical_results.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
+    result["results"] = lexical_results[: payload.limit]
+    result["summary"] = (
+        f"Returned {len(result['results'])} result(s) with lexical + vector retrieval "
+        f"(embedding_source={vector_store.embedding_source})."
+    )
 
     return ProjectKnowledgeQueryResponse(**result)
 
@@ -1117,6 +1214,20 @@ def create_context_pack(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     add_span_event("context.pack_created", {"pack_id": pack["pack_id"]})
+
+    for index, snippet in enumerate(pack.get("snippets", []), start=1):
+        vector_store.upsert_text(
+            item_id=f"ctx:{pack['pack_id']}:{index}",
+            text=snippet,
+            metadata={
+                "kind": "context_snippet",
+                "pack_id": pack["pack_id"],
+                "session_id": pack.get("session_id"),
+                "title": pack.get("title", "Context pack"),
+                "snippet": snippet,
+            },
+        )
+
     return ContextPackResponse(**pack)
 
 
@@ -1162,6 +1273,32 @@ def get_session_context(session_id: str, user: AuthUser = Depends(get_current_us
         raise HTTPException(status_code=404, detail="Session not found")
 
     context = context_mcp_service.compose_session_context(user_id=user.user_id, session_id=session_id)
+    seed_query = latest_user_message(session_id)
+    if seed_query:
+        vector_hits = vector_store.search_text(seed_query, limit=3)
+        snippets = list(context.get("snippets", []))
+        for hit in vector_hits:
+            payload_data = hit.get("payload", {}) if isinstance(hit, dict) else {}
+            snippet_text = str(payload_data.get("snippet") or payload_data.get("text") or "").strip()
+            if not snippet_text:
+                continue
+            snippets.append(
+                {
+                    "pack_id": str(payload_data.get("pack_id", "vector")),
+                    "title": str(payload_data.get("title", "Semantic retrieval")),
+                    "snippet": snippet_text,
+                }
+            )
+
+        context["snippets"] = snippets[:6]
+        context["summary"] = (
+            f"Loaded {len(context['snippets'])} context snippet(s) including semantic retrieval "
+            f"(embedding_source={vector_store.embedding_source})"
+        )
+        context["composed_text"] = "\n".join(
+            f"[{row['title']}] {row['snippet']}" for row in context["snippets"]
+        )
+
     return SessionContextResponse(**context)
 
 
@@ -1496,7 +1633,7 @@ async def stream_session(
             composed_prompt = user_prompt
             if session_context.get("composed_text"):
                 composed_prompt = f"{user_prompt}\n\nAttached context:\n{session_context['composed_text']}"
-            run = build_agent_run(
+            run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,
                 project_path=session.get("project_path") if session else None,

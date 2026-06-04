@@ -9,8 +9,12 @@ from typing import Any
 import httpx
 
 from .file_ops import build_patch_preview, generate_proposed_content, infer_target_file, read_file_content, read_file_excerpt
+from .model_router import GenerationClient, choose_model
 from .models import AgentEvent, utc_now
 from .tracing import add_span_event, set_span_attributes, traced_span
+
+
+generation_client = GenerationClient()
 
 
 @dataclass
@@ -499,7 +503,11 @@ def classify_request(prompt: str) -> tuple[str, str, float]:
 
 
 def route_request(prompt: str) -> RoutingDecision:
-    return _classify_intent(prompt)
+    decision = _classify_intent(prompt)
+    routed = choose_model(prompt)
+    decision.model_used = routed.model
+    decision.reason = f"{decision.reason} Model router selected {routed.provider}:{routed.model} ({routed.reason})."
+    return decision
 
 
 def _repository_routing_cases() -> list[RoutingBenchmarkCase]:
@@ -559,7 +567,7 @@ def _repository_routing_cases() -> list[RoutingBenchmarkCase]:
     return cases
 
 
-def build_agent_run(
+async def build_agent_run(
     prompt: str,
     session_id: str,
     project_path: str | None = None,
@@ -633,14 +641,27 @@ def build_agent_run(
             },
         )
 
-        synthesized_summary, synthesis_source = _synthesize_with_remote_model(prompt, decision, diff_target)
+        model_response = await generation_client.generate(
+            prompt=(
+                "You are CodeForge orchestration synthesis. Produce a concise developer-facing assistant response "
+                "that explains routed intent, planned file scope, and verification posture. Keep it under 90 words.\n\n"
+                f"Intent: {decision.intent}\n"
+                f"Model route: {decision.model_used}\n"
+                f"Target file: {diff_target}\n"
+                f"Confidence: {decision.confidence_label} ({decision.confidence_score:.2f})\n"
+                f"User request: {prompt}"
+            ),
+            system_prompt="You are CodeForge synthesis orchestrator.",
+        )
+        synthesized_summary = str(model_response.get("text", "")).strip()
         summary = synthesized_summary or fallback_summary
+        synthesis_source = str(model_response.get("backend", "deterministic"))
 
         add_event(
             "tool_result",
             {
                 "tool": "model.synthesize",
-                "status": "completed" if synthesis_source == "model_api" else "fallback",
+                "status": "completed" if synthesis_source == "litellm" else "fallback",
                 "source": synthesis_source,
                 "message": "Assistant summary prepared",
             },
