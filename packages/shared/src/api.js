@@ -1,0 +1,372 @@
+const DEFAULT_API_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
+
+function normalizeBaseUrl(baseUrl = DEFAULT_API_BASE_URL) {
+  return String(baseUrl || DEFAULT_API_BASE_URL).replace(/\/+$/, "");
+}
+
+async function requestJson(baseUrl, path, options = {}) {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
+    method: options.method || "GET",
+    headers: {
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody && typeof errorBody.detail === "string") {
+        detail = errorBody.detail;
+      }
+    } catch {
+      // Fall back to the HTTP status when the body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+export async function devLogin(baseUrl, userId) {
+  return requestJson(baseUrl, "/api/v1/auth/dev-login", {
+    method: "POST",
+    body: { user_id: userId },
+  });
+}
+
+export async function listSessions(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/sessions", { token });
+}
+
+export async function createSession(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/sessions", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listMessages(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/messages`, { token });
+}
+
+export async function sendMessage(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/messages`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getProposal(baseUrl, token, sessionId, proposalId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}`, { token });
+}
+
+export async function decideProposal(baseUrl, token, sessionId, proposalId, action) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}/decision`, {
+    method: "POST",
+    token,
+    body: { action },
+  });
+}
+
+export async function getFilePreview(baseUrl, token, path) {
+  const query = new URLSearchParams({ path }).toString();
+  return requestJson(baseUrl, `/api/v1/files/preview?${query}`, { token });
+}
+
+export async function getFileContent(baseUrl, token, path) {
+  const query = new URLSearchParams({ path }).toString();
+  return requestJson(baseUrl, `/api/v1/files/content?${query}`, { token });
+}
+
+export async function applyFile(baseUrl, token, payload) {
+  return requestJson(baseUrl, `/api/v1/files/apply`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getGitStatus(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/status`, { token });
+}
+
+export async function getGitDiff(baseUrl, token, sessionId, path) {
+  const query = path ? `?${new URLSearchParams({ path }).toString()}` : "";
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/diff${query}`, { token });
+}
+
+export async function getGitLog(baseUrl, token, sessionId, limit = 10) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/log?${query}`, { token });
+}
+
+export async function stageGitFiles(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/stage`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function commitGitChanges(baseUrl, token, sessionId, message) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/commit`, {
+    method: "POST",
+    token,
+    body: { message },
+  });
+}
+
+export async function branchGitRepo(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/branch`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listGitWorktrees(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/worktree/list`, { token });
+}
+
+export async function createGitWorktree(baseUrl, token, sessionId, branch) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/worktree/create`, {
+    method: "POST",
+    token,
+    body: { branch },
+  });
+}
+
+export async function getGitMergeAssist(baseUrl, token, sessionId, targetBranch) {
+  const query = new URLSearchParams({ target_branch: targetBranch }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/merge-assist?${query}`, { token });
+}
+
+export async function getGitConflictGuide(baseUrl, token, sessionId, targetBranch) {
+  const query = new URLSearchParams({ target_branch: targetBranch }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/conflict-guide?${query}`, { token });
+}
+
+export async function applyGitConflictAssist(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/conflict-assist/apply`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function* streamShellCommand(baseUrl, token, sessionId, payload) {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/sessions/${sessionId}/shell/stream`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok || !response.body) {
+    let detail = `Shell command failed with status ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody && typeof errorBody.detail === "string") {
+        detail = errorBody.detail;
+      }
+    } catch {
+      // Fall back to the HTTP status when the body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    while (buffer.includes("\n\n")) {
+      const boundary = buffer.indexOf("\n\n");
+      const chunk = buffer.slice(0, boundary).trim();
+      buffer = buffer.slice(boundary + 2);
+
+      if (!chunk) {
+        continue;
+      }
+
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) {
+          continue;
+        }
+
+        const payloadText = line.slice(6).trim();
+        if (!payloadText) {
+          continue;
+        }
+
+        try {
+          yield JSON.parse(payloadText);
+        } catch {
+          yield { type: "raw", content: payloadText };
+        }
+      }
+    }
+  }
+}
+
+export async function getUsageSummary(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/usage/summary", { token });
+}
+
+export async function getSynthesisRolloutStatus(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/evals/synthesis-rollout", { token });
+}
+
+export async function getSynthesisRolloutPlan(baseUrl, token, environment = "local") {
+  const query = new URLSearchParams({ environment }).toString();
+  return requestJson(baseUrl, `/api/v1/deploy/synthesis-rollout-plan?${query}`, { token });
+}
+
+export async function createContextPack(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/context/packs", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listContextPacks(baseUrl, token, sessionId) {
+  const query = sessionId ? `?${new URLSearchParams({ session_id: sessionId }).toString()}` : "";
+  return requestJson(baseUrl, `/api/v1/context/packs${query}`, { token });
+}
+
+export async function attachContextPack(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/context/attach", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getSessionContext(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/context/session/${sessionId}`, { token });
+}
+
+export async function createMcpConnector(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/mcp/connectors", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listMcpConnectors(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/mcp/connectors", { token });
+}
+
+export async function toggleMcpConnector(baseUrl, token, connectorId, enabled) {
+  return requestJson(baseUrl, `/api/v1/mcp/connectors/${connectorId}/toggle`, {
+    method: "POST",
+    token,
+    body: { enabled },
+  });
+}
+
+export async function invokeMcpConnector(baseUrl, token, connectorId, payload) {
+  return requestJson(baseUrl, `/api/v1/mcp/connectors/${connectorId}/invoke`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listBillingPlans(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/billing/plans", { token });
+}
+
+export async function createBillingOrder(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/billing/create-order", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function verifyBillingPayment(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/billing/verify-payment", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getBillingSubscription(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/billing/subscription", { token });
+}
+
+export async function* streamSessionEvents(baseUrl, token, sessionId) {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/sessions/${sessionId}/stream`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "text/event-stream",
+    },
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`Streaming failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    while (buffer.includes("\n\n")) {
+      const boundary = buffer.indexOf("\n\n");
+      const chunk = buffer.slice(0, boundary).trim();
+      buffer = buffer.slice(boundary + 2);
+
+      if (!chunk) {
+        continue;
+      }
+
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) {
+          continue;
+        }
+
+        const payload = line.slice(6).trim();
+        if (!payload) {
+          continue;
+        }
+
+        try {
+          yield JSON.parse(payload);
+        } catch {
+          yield { type: "raw", content: payload };
+        }
+      }
+    }
+  }
+}

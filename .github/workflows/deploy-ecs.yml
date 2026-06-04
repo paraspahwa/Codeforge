@@ -1,0 +1,232 @@
+name: Deploy CodeForge to ECS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY_API: codeforge-api
+  ECR_REPOSITORY_WEB: codeforge-web
+  CONTAINER_NAME_API: codeforge-api
+  CONTAINER_NAME_WEB: codeforge-web
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and start stack
+        run: docker compose -f docker-compose.prod.yml up -d --build
+
+      - name: API health check
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health > /tmp/api-health.json; then
+              cat /tmp/api-health.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "API health check failed"
+          docker compose -f docker-compose.prod.yml logs
+          exit 1
+
+      - name: Web health check
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000 > /tmp/web-health.html; then
+              head -n 5 /tmp/web-health.html
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Web health check failed"
+          docker compose -f docker-compose.prod.yml logs
+          exit 1
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v
+
+  deploy-staging:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      ECS_CLUSTER: codeforge-staging
+      ECS_SERVICE_API: codeforge-api-staging-service
+      ECS_SERVICE_WEB: codeforge-web-staging-service
+      ECS_TASK_DEFINITION_API: infra/ecs/staging/taskdef-api.json
+      ECS_TASK_DEFINITION_WEB: infra/ecs/staging/taskdef-web.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        id: build-api
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG services/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and push Web image
+        id: build-web
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/web/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG --build-arg NEXT_PUBLIC_API_BASE=${{ vars.NEXT_PUBLIC_API_BASE_STAGING }} .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Render API task definition
+        id: render-api
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_API }}
+          container-name: ${{ env.CONTAINER_NAME_API }}
+          image: ${{ steps.build-api.outputs.image }}
+
+      - name: Deploy API task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-api.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_API }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Render Web task definition
+        id: render-web
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_WEB }}
+          container-name: ${{ env.CONTAINER_NAME_WEB }}
+          image: ${{ steps.build-web.outputs.image }}
+
+      - name: Deploy Web task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-web.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_WEB }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      ECS_CLUSTER: codeforge-prod
+      ECS_SERVICE_API: codeforge-api-service
+      ECS_SERVICE_WEB: codeforge-web-service
+      ECS_TASK_DEFINITION_API: infra/ecs/production/taskdef-api.json
+      ECS_TASK_DEFINITION_WEB: infra/ecs/production/taskdef-web.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME_PRODUCTION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        id: build-api
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG services/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_API:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and push Web image
+        id: build-web
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f apps/web/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG --build-arg NEXT_PUBLIC_API_BASE=${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }} .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Render API task definition
+        id: render-api
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_API }}
+          container-name: ${{ env.CONTAINER_NAME_API }}
+          image: ${{ steps.build-api.outputs.image }}
+
+      - name: Deploy API task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-api.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_API }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Render Web task definition
+        id: render-web
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_WEB }}
+          container-name: ${{ env.CONTAINER_NAME_WEB }}
+          image: ${{ steps.build-web.outputs.image }}
+
+      - name: Deploy Web task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-web.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_WEB }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

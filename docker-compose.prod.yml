@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: codeforge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: codeforge
+      POSTGRES_USER: codeforge
+      POSTGRES_PASSWORD: codeforge
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codeforge -d codeforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: codeforge-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://codeforge:codeforge@db:5432/codeforge
+      OTEL_SERVICE_NAME: codeforge-api
+      OTEL_ENVIRONMENT: production
+      CODEFORGE_API_BASE_URL: http://api:8000
+      CODEFORGE_USER_ID: paras
+      CODEFORGE_MODEL: deepseek-v4-flash
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:8000
+    container_name: codeforge-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

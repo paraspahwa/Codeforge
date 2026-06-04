@@ -1,0 +1,43 @@
+{
+  "family": "codeforge-web-staging-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::111111111111:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::111111111111:role/codeforgeWebTaskRoleStaging",
+  "containerDefinitions": [
+    {
+      "name": "codeforge-web",
+      "image": "111111111111.dkr.ecr.ap-south-1.amazonaws.com/codeforge-web:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "NEXT_PUBLIC_API_BASE",
+          "value": "https://api-staging.example.com"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/codeforge-web-staging",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
