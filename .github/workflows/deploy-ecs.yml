@@ -130,6 +130,13 @@ jobs:
           fi
 
           provider="${CODEFORGE_SYNTHESIS_PROVIDER_STAGING:-auto}"
+          provider="$(echo "$provider" | tr '[:upper:]' '[:lower:]')"
+
+          if [[ "$provider" != "auto" && "$provider" != "deterministic" && "$provider" != "openai" && "$provider" != "azure_openai" ]]; then
+            echo "Staging rollout gate failed: CODEFORGE_SYNTHESIS_PROVIDER_STAGING must be one of auto, deterministic, openai, azure_openai."
+            exit 1
+          fi
+
           openai_ready=false
           azure_ready=false
           if [[ -n "${SYNTHESIS_OPENAI_API_KEY_STAGING:-}" ]]; then
@@ -140,8 +147,13 @@ jobs:
           fi
 
           if [[ "$openai_ready" == "false" && "$azure_ready" == "false" ]]; then
-            echo "Staging rollout gate failed: neither OpenAI nor Azure OpenAI synthesis provider is fully configured."
-            exit 1
+            if [[ "$provider" == "openai" || "$provider" == "azure_openai" ]]; then
+              echo "Staging rollout gate failed: provider is $provider but corresponding staging credentials are not configured."
+              exit 1
+            fi
+
+            echo "Staging rollout gate passed: no staging synthesis provider secrets found, using deterministic fallback policy."
+            exit 0
           fi
 
           if [[ "$provider" == "openai" && "$openai_ready" == "false" ]]; then
