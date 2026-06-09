@@ -42,13 +42,9 @@ Already implemented in this repo:
 
 Still missing for the full roadmap:
 
-- Surface parity: team/cowork/confidence UI on desktop Code, terminal, and VS Code (web is ahead)
-- Enterprise controls: SSO, audit trail, org-scoped dynamic rate limits, knowledge file uploads
-- Phase 3 stretch: terminal parallel sessions and auto mode, artifacts/live preview, remote channels, custom agents
-- Phase 4 ops: screenshot/vision OCR (ECS worker deploy + cowork scheduler isolation shipped)
-- Phase 5 real-time team updates (WebSocket/SSE) and multi-agent delegation orchestration
-- Phase 6: SWE-bench-style quality eval harness shipped (`quality-benchmark`); routing regressions remain warnings; confidence on desktop/VS Code shipped in build order
-- Provider rollout: synthesis readiness gate exists in CI; routing regression is warning-only
+- OIDC login UI on clients (JWKS verification + discovery API shipped)
+- Delegation approval gates between orchestration steps
+- Cowork browser screenshot OCR hardening in ECS worker images
 
 ## Status Snapshot
 
@@ -65,11 +61,11 @@ Partially complete:
 
 - Phases 3–6 core APIs exist but several exit criteria and client surfaces remain (see phase tickets)
 - Routing evals include policy/repository suites with baseline/trend DB storage; SWE-bench-style quality evals via `swe-fixtures` suite with fail-closed CI gate
-- Deploy CI includes synthesis rollout gate; routing regression alerts are warnings, not blockers
+- Deploy CI includes synthesis rollout gate; routing + quality regression gates are fail-closed
 
 Not started yet:
 
-- Artifacts/live preview, remote control, custom agents, SSO, audit logs, knowledge uploads, real-time team sync
+- Client OIDC redirect/login flows, delegation step approvals, ECS vision dependency bake-in
 
 ## Architecture Tracks
 
@@ -321,7 +317,7 @@ Given the current repo state, the next implementation slices should be:
 3. ~~ECS worker deploy for cowork scheduled jobs + move `_worker_loop` off API process~~ (Celery beat tick in worker; API gated by `CODEFORGE_COWORK_SCHEDULER_ENABLED`)
 4. ~~SWE-bench-style internal eval harness (patch apply + verify), with fail-closed CI regression on quality drops~~
 5. ~~Enterprise foundations: audit log table + share/member/delegation events; knowledge file upload API~~
-6. Phase 3 stretch picks: artifacts preview, terminal fork/auto mode, custom agent templates
+6. ~~Phase 3 stretch picks: artifacts preview, terminal fork/auto mode, custom agent templates~~ (shipped)
 
 ## Ticket Backlog
 
@@ -357,13 +353,9 @@ Done:
 
 Left:
 
-- Client surface parity (team, cowork, confidence) across desktop, terminal, VS Code
-- Terminal parallel-session / auto-mode gaps
-- ~~ECS worker production deploy; cowork job isolation from API process~~
-- ~~SWE-bench-style quality evals beyond routing-policy benchmarks~~
-- Enterprise: SSO, audit trail, uploads, real-time team updates
-- Phase 3 stretch: artifacts, remote control, custom agents
-- Fail-closed routing regression deploy gate (today: CI warning only)
+- Client OIDC login UX and production IdP rollout
+- Delegation human-in-the-loop between orchestration steps
+- ECS worker image tuning for Playwright screenshot OCR at scale
 
 ## Non-Goals For The Near Term
 

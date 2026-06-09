@@ -36,14 +36,21 @@ const state = {
   prompt: "",
   panelTab: "chat",
   teamWorkspaces: [],
+  teamDelegations: [],
+  teamAuditEvents: [],
   teamOutput: "",
   teamWorkspaceName: "Core team",
   teamKnowledgeQuery: "",
+  teamMemberUserId: "",
+  teamDelegationTask: "Review recent changes",
+  teamLiveEvents: [],
   coworkPlans: [],
   coworkRuns: [],
+  coworkJobs: [],
   coworkOutput: "",
   coworkShellCommand: "dir",
   coworkExtractPath: "",
+  coworkBrowserUrl: "https://example.com",
 };
 
 function formatRoutingSignal(state) {
@@ -145,7 +152,19 @@ function render() {
         <div class="actions">
           <button data-action="teamCreateWorkspace" ${state.busy ? "disabled" : ""}>Create workspace</button>
           <button data-action="teamQueryKnowledge" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Query knowledge</button>
+          <button data-action="teamShareSession" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Share session</button>
+          <button data-action="teamExportSession" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Export JSON</button>
         </div>
+        <label>
+          <span>Add member user ID</span>
+          <input id="teamMemberUserId" value="${escapeHtml(state.teamMemberUserId)}" ${state.busy ? "disabled" : ""} />
+        </label>
+        <button data-action="teamAddMember" ${state.busy ? "disabled" : ""}>Add member to first workspace</button>
+        <label>
+          <span>Delegation task</span>
+          <input id="teamDelegationTask" value="${escapeHtml(state.teamDelegationTask)}" ${state.busy ? "disabled" : ""} />
+        </label>
+        <button data-action="teamCreateDelegation" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Queue delegation</button>
         <div class="session-list">
           ${state.teamWorkspaces.length === 0 ? '<p class="muted">No workspaces loaded. Refresh after login.</p>' : state.teamWorkspaces.map((workspace) => `
             <div class="session-item">
@@ -154,6 +173,25 @@ function render() {
             </div>
           `).join("")}
         </div>
+        <h2>Delegations</h2>
+        <div class="session-list">
+          ${state.teamDelegations.length === 0 ? '<p class="muted">No delegations.</p>' : state.teamDelegations.slice(0, 8).map((item) => `
+            <button class="session-item" data-delegation-id="${escapeHtml(item.task_id)}">
+              <strong>${escapeHtml(item.assigned_role)}</strong>
+              <span>${escapeHtml(item.status)} · ${escapeHtml((item.task || "").slice(0, 80))}</span>
+            </button>
+          `).join("")}
+        </div>
+        <h2>Audit</h2>
+        <div class="session-list">
+          ${state.teamAuditEvents.length === 0 ? '<p class="muted">No audit events.</p>' : state.teamAuditEvents.slice(0, 6).map((event) => `
+            <div class="session-item">
+              <strong>${escapeHtml(event.event_type)}</strong>
+              <span>${escapeHtml(event.resource_type)}/${escapeHtml(event.resource_id)}</span>
+            </div>
+          `).join("")}
+        </div>
+        ${state.teamLiveEvents.length ? `<pre class="diff-view">${escapeHtml(state.teamLiveEvents.join("\n"))}</pre>` : ""}
         ${state.teamOutput ? `<pre class="diff-view">${escapeHtml(state.teamOutput)}</pre>` : ""}
       </section>
       ` : ""}
@@ -174,9 +212,23 @@ function render() {
             <input id="coworkExtractPath" value="${escapeHtml(state.coworkExtractPath)}" placeholder="README.md" ${state.busy ? "disabled" : ""} />
           </label>
         </div>
+        <label>
+          <span>Browser URL</span>
+          <input id="coworkBrowserUrl" value="${escapeHtml(state.coworkBrowserUrl)}" ${state.busy ? "disabled" : ""} />
+        </label>
         <div class="actions">
           <button data-action="coworkShell" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Run shell plan</button>
           <button data-action="coworkExtract" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Extract file</button>
+          <button data-action="coworkBrowser" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Browser task</button>
+          <button data-action="coworkRefreshJobs" ${state.busy ? "disabled" : ""}>Refresh jobs</button>
+        </div>
+        <div class="session-list">
+          ${state.coworkJobs.length === 0 ? '<p class="muted">No jobs loaded.</p>' : state.coworkJobs.slice(0, 8).map((job) => `
+            <button class="session-item job-item" data-job-id="${escapeHtml(job.job_id)}" data-job-enabled="${job.enabled ? "1" : "0"}">
+              <strong>${escapeHtml(job.title)}</strong>
+              <span>${escapeHtml(job.trigger_type)} · enabled=${job.enabled ? "yes" : "no"}</span>
+            </button>
+          `).join("")}
         </div>
         <div class="grid split">
           <div>
@@ -393,6 +445,24 @@ function render() {
           query: document.getElementById("teamKnowledgeQuery").value.trim(),
         });
       }
+      if (action === "teamShareSession") {
+        vscode.postMessage({ type: "teamShareSession" });
+      }
+      if (action === "teamExportSession") {
+        vscode.postMessage({ type: "teamExportSession" });
+      }
+      if (action === "teamAddMember") {
+        vscode.postMessage({
+          type: "teamAddMember",
+          memberUserId: document.getElementById("teamMemberUserId").value.trim(),
+        });
+      }
+      if (action === "teamCreateDelegation") {
+        vscode.postMessage({
+          type: "teamCreateDelegation",
+          task: document.getElementById("teamDelegationTask").value.trim(),
+        });
+      }
       if (action === "coworkRefresh") {
         vscode.postMessage({ type: "coworkRefresh" });
       }
@@ -408,6 +478,34 @@ function render() {
           sourcePath: document.getElementById("coworkExtractPath").value.trim(),
         });
       }
+      if (action === "coworkBrowser") {
+        vscode.postMessage({
+          type: "coworkBrowser",
+          url: document.getElementById("coworkBrowserUrl").value.trim(),
+        });
+      }
+      if (action === "coworkRefreshJobs") {
+        vscode.postMessage({ type: "coworkRefreshJobs" });
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-delegation-id]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "teamExecuteDelegation",
+        taskId: element.getAttribute("data-delegation-id"),
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-job-id]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "coworkToggleJob",
+        jobId: element.getAttribute("data-job-id"),
+        enabled: element.getAttribute("data-job-enabled") !== "1",
+      });
     });
   });
 

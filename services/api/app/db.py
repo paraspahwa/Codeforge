@@ -31,6 +31,10 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created ON audit_logs(actor_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created ON audit_logs(workspace_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_session_created ON audit_logs(session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_session_artifacts_session ON session_artifacts(session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_templates_user ON agent_templates(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_remote_channels_owner ON remote_channels(owner_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_team_style_guides_workspace ON team_style_guides(workspace_id, updated_at)",
 )
 
 
@@ -413,8 +417,62 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_artifacts (
+                        artifact_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_message_id TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_templates (
+                        template_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        prompt_prefix TEXT NOT NULL,
+                        verify_command TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS remote_channels (
+                        channel_id TEXT PRIMARY KEY,
+                        owner_id TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        pairing_code TEXT NOT NULL UNIQUE,
+                        paired_client_id TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_style_guides (
+                        guide_id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        guide_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        updated_by TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
+                _migrate_optional_columns(cur)
         return
 
     conn = _sqlite_connection()
@@ -678,13 +736,71 @@ def init_db() -> None:
                 metadata_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS session_artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source_message_id TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_templates (
+                template_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                prompt_prefix TEXT NOT NULL,
+                verify_command TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS remote_channels (
+                channel_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                pairing_code TEXT NOT NULL UNIQUE,
+                paired_client_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS team_style_guides (
+                guide_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                guide_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         for statement in INDEX_STATEMENTS:
             conn.execute(statement)
+        _migrate_optional_columns(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_optional_columns(conn_or_cur) -> None:
+    migrations = [
+        "ALTER TABLE team_delegations ADD COLUMN orchestration_mode TEXT DEFAULT 'single'",
+        "ALTER TABLE team_delegations ADD COLUMN agent_roles_json TEXT DEFAULT '[]'",
+        "ALTER TABLE team_delegations ADD COLUMN steps_json TEXT DEFAULT '[]'",
+        "ALTER TABLE team_delegations ADD COLUMN require_step_approval INTEGER DEFAULT 0",
+        "ALTER TABLE team_delegations ADD COLUMN current_step_index INTEGER DEFAULT 0",
+    ]
+    for statement in migrations:
+        try:
+            if hasattr(conn_or_cur, "execute"):
+                conn_or_cur.execute(statement)
+            else:
+                _execute(statement)
+        except Exception:
+            pass
 
 
 def insert_session(session_id: str, user_id: str, project_path: str, model_preference: str, created_at: str) -> None:

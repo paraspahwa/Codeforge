@@ -195,8 +195,10 @@ def save_delegation(delegation: dict[str, Any]) -> None:
         """
         INSERT INTO team_delegations(
             task_id, workspace_id, session_id, requester_id, assigned_role, task,
-            priority, status, note, created_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            priority, status, note, created_at, completed_at,
+            orchestration_mode, agent_roles_json, steps_json,
+            require_step_approval, current_step_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             delegation["task_id"],
@@ -210,11 +212,44 @@ def save_delegation(delegation: dict[str, Any]) -> None:
             delegation.get("note") or "",
             delegation["created_at"],
             delegation.get("completed_at"),
+            delegation.get("orchestration_mode") or "single",
+            _dumps(delegation.get("agent_roles") or []),
+            _dumps(delegation.get("steps") or []),
+            1 if delegation.get("require_step_approval") else 0,
+            int(delegation.get("current_step_index") or 0),
         ),
     )
 
 
-def update_delegation(task_id: str, *, status: str, note: str, completed_at: str | None = None) -> None:
+def update_delegation(
+    task_id: str,
+    *,
+    status: str,
+    note: str,
+    completed_at: str | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    current_step_index: int | None = None,
+) -> None:
+    if steps is not None and current_step_index is not None:
+        _execute(
+            """
+            UPDATE team_delegations
+            SET status = ?, note = ?, completed_at = ?, steps_json = ?, current_step_index = ?
+            WHERE task_id = ?
+            """,
+            (status, note, completed_at, _dumps(steps), current_step_index, task_id),
+        )
+        return
+    if steps is not None:
+        _execute(
+            """
+            UPDATE team_delegations
+            SET status = ?, note = ?, completed_at = ?, steps_json = ?
+            WHERE task_id = ?
+            """,
+            (status, note, completed_at, _dumps(steps), task_id),
+        )
+        return
     _execute(
         """
         UPDATE team_delegations
@@ -260,6 +295,72 @@ def _row_to_delegation(row: dict[str, Any]) -> dict[str, Any]:
         "priority": row["priority"],
         "status": row["status"],
         "note": row["note"] or "",
+        "orchestration_mode": row.get("orchestration_mode") or "single",
+        "agent_roles": _loads(row.get("agent_roles_json"), []),
+        "steps": _loads(row.get("steps_json"), []),
+        "require_step_approval": bool(row.get("require_step_approval")),
+        "current_step_index": int(row.get("current_step_index") or 0),
         "created_at": row["created_at"],
         "completed_at": row["completed_at"],
+    }
+
+
+def save_style_guide(guide: dict[str, Any]) -> None:
+    _execute(
+        """
+        INSERT INTO team_style_guides(
+            guide_id, workspace_id, title, guide_type, content, updated_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            guide["guide_id"],
+            guide["workspace_id"],
+            guide["title"],
+            guide["guide_type"],
+            guide["content"],
+            guide["updated_by"],
+            guide["created_at"],
+            guide["updated_at"],
+        ),
+    )
+
+
+def update_style_guide(guide_id: str, *, title: str, guide_type: str, content: str, updated_by: str, updated_at: str) -> None:
+    _execute(
+        """
+        UPDATE team_style_guides
+        SET title = ?, guide_type = ?, content = ?, updated_by = ?, updated_at = ?
+        WHERE guide_id = ?
+        """,
+        (title, guide_type, content, updated_by, updated_at, guide_id),
+    )
+
+
+def get_style_guide(guide_id: str) -> dict[str, Any] | None:
+    row = _fetchone("SELECT * FROM team_style_guides WHERE guide_id = ?", (guide_id,))
+    return _row_to_style_guide(row) if row else None
+
+
+def list_style_guides_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
+    rows = _fetchall(
+        """
+        SELECT * FROM team_style_guides
+        WHERE workspace_id = ?
+        ORDER BY updated_at DESC
+        """,
+        (workspace_id,),
+    )
+    return [_row_to_style_guide(row) for row in rows]
+
+
+def _row_to_style_guide(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "guide_id": row["guide_id"],
+        "workspace_id": row["workspace_id"],
+        "title": row["title"],
+        "guide_type": row["guide_type"],
+        "content": row["content"],
+        "updated_by": row["updated_by"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
     }

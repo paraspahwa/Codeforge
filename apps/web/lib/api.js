@@ -8,6 +8,19 @@ export async function devLogin(userId) {
   return data.access_token;
 }
 
+export async function getOidcConfig() {
+  return shared.getOidcConfig(API_BASE);
+}
+
+export async function getOidcAuthorizeUrl(redirectUri = null, state = null) {
+  return shared.getOidcAuthorizeUrl(API_BASE, redirectUri, state);
+}
+
+export async function completeOidcCallback(payload) {
+  const data = await shared.completeOidcCallback(API_BASE, payload);
+  return data.access_token;
+}
+
 export async function createSession(projectPath, token) {
   return shared.createSession(API_BASE, token, {
     project_path: projectPath,
@@ -183,8 +196,62 @@ export async function executeTeamDelegation(token, taskId) {
   return shared.executeTeamDelegation(API_BASE, token, taskId);
 }
 
-export async function sendMessage(sessionId, content, token, context = null) {
-  return shared.sendMessage(API_BASE, token, sessionId, { content, context });
+export async function approveTeamDelegationStep(token, taskId, payload) {
+  return shared.approveTeamDelegationStep(API_BASE, token, taskId, payload);
+}
+
+export function streamTeamEvents(token) {
+  return shared.streamTeamEvents(API_BASE, token);
+}
+
+export async function listTeamStyleGuides(token, workspaceId) {
+  return shared.listTeamStyleGuides(API_BASE, token, workspaceId);
+}
+
+export async function createTeamStyleGuide(token, workspaceId, payload) {
+  return shared.createTeamStyleGuide(API_BASE, token, workspaceId, payload);
+}
+
+export async function updateTeamStyleGuide(token, workspaceId, guideId, payload) {
+  return shared.updateTeamStyleGuide(API_BASE, token, workspaceId, guideId, payload);
+}
+
+export async function sendMessage(sessionId, content, token, context = null, templateId = null) {
+  const body = { content, context };
+  if (templateId) {
+    body.template_id = templateId;
+  }
+  return shared.sendMessage(API_BASE, token, sessionId, body);
+}
+
+export async function listSessionArtifacts(sessionId, token) {
+  return shared.listSessionArtifacts(API_BASE, token, sessionId);
+}
+
+export async function getSessionArtifact(sessionId, artifactId, token) {
+  return shared.getSessionArtifact(API_BASE, token, sessionId, artifactId);
+}
+
+export async function fetchSessionArtifactPreviewHtml(sessionId, artifactId, token) {
+  const base = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+  const response = await fetch(
+    `${base.replace(/\/+$/, "")}/api/v1/sessions/${sessionId}/artifacts/${artifactId}/preview`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Preview failed with status ${response.status}`);
+  }
+  return response.text();
+}
+
+export async function listAgentTemplates(token) {
+  return shared.listAgentTemplates(API_BASE, token);
+}
+
+export async function createAgentTemplate(token, payload) {
+  return shared.createAgentTemplate(API_BASE, token, payload);
 }
 
 export async function getProposal(sessionId, proposalId, token) {

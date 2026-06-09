@@ -19,10 +19,11 @@ const NAV_ITEMS = [
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
-  const { userId, token, login, logout } = useAuth();
+  const { userId, token, oidcEnabled, login, loginWithOidc, logout } = useAuth();
   const toast = useToast();
   const [loginInput, setLoginInput] = useState("dev-user");
   const [loggingIn, setLoggingIn] = useState(false);
+  const [oidcLoading, setOidcLoading] = useState(false);
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -37,6 +38,16 @@ export default function AppShell({ children }) {
       toast.push(error.message);
     } finally {
       setLoggingIn(false);
+    }
+  }
+
+  async function handleOidcLogin() {
+    setOidcLoading(true);
+    try {
+      await loginWithOidc();
+    } catch (error) {
+      toast.push(error.message);
+      setOidcLoading(false);
     }
   }
 
@@ -79,11 +90,16 @@ export default function AppShell({ children }) {
                 placeholder="Dev user ID"
                 value={loginInput}
                 onChange={(event) => setLoginInput(event.target.value)}
-                disabled={loggingIn}
+                disabled={loggingIn || oidcLoading}
               />
-              <button type="submit" disabled={loggingIn || !loginInput.trim()}>
+              <button type="submit" disabled={loggingIn || oidcLoading || !loginInput.trim()}>
                 {loggingIn ? "Logging in..." : "Login"}
               </button>
+              {oidcEnabled ? (
+                <button type="button" className="ghost-btn inline-btn" onClick={handleOidcLogin} disabled={oidcLoading}>
+                  {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
+                </button>
+              ) : null}
             </form>
           )}
         </header>

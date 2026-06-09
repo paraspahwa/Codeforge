@@ -3,7 +3,11 @@ import { Box, Text, Newline, render, useApp, useInput } from "ink";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  composeAgentTemplate,
   createSession,
+  forkSession,
+  listAgentTemplates,
+  listSessionArtifacts,
   applyGitConflictAssist,
   branchGitRepo,
   commitGitChanges,
@@ -19,16 +23,30 @@ import {
   listSessions,
   listGitWorktrees,
   compactWorkflow,
+  createCoworkJob,
   createCoworkPlan,
+  createRemoteChannel,
+  createSessionShare,
+  createTeamDelegation,
   createTeamWorkspace,
+  addTeamWorkspaceMember,
+  executeTeamDelegation,
+  exportSession,
   extractCoworkData,
+  listCoworkJobs,
   listCoworkPlans,
   listCoworkRuns,
+  listRemoteChannels,
+  listTeamAuditLog,
+  listTeamDelegations,
   listTeamWorkspaces,
+  pairRemoteChannel,
+  pushRemoteChannelEvent,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
   runAgentLoop,
   runCoworkPlan,
+  toggleCoworkJob,
   sendMessage,
   ultrareviewWorkflow,
   stageGitFiles,
@@ -59,6 +77,10 @@ const PALETTE_ACTIONS = [
   { label: "Plan files", value: "plan" },
   { label: "Rollback plan", value: "rollback" },
   { label: "Loop verify", value: "loop" },
+  { label: "Fork session", value: "fork" },
+  { label: "Toggle auto mode", value: "auto" },
+  { label: "List artifacts", value: "artifacts" },
+  { label: "List templates", value: "template:list" },
   { label: "Team workspaces", value: "team:workspaces" },
   { label: "Cowork plans", value: "cowork:plans" },
   { label: "Refresh", value: "refresh" },
@@ -313,6 +335,7 @@ function App() {
   const [currentProposal, setCurrentProposal] = useState(null);
   const [activePlan, setActivePlan] = useState(null);
   const [loopState, setLoopState] = useState({ running: false, lastSummary: "" });
+  const [autoMode, setAutoMode] = useState(false);
   const [routingSignal, setRoutingSignal] = useState(null);
   const [error, setError] = useState("");
 
@@ -337,6 +360,7 @@ function App() {
 
     let proposalId = "";
     let assistantText = "";
+    let reviewRequired = false;
 
     for await (const event of streamSessionEvents(baseUrl, token, sessionId)) {
       if (event.type === "token") {
@@ -349,6 +373,7 @@ function App() {
 
       if (event.type === "run_started") {
         setRoutingSignal(routingSignalFromPayload(event.payload));
+        reviewRequired = Boolean(event.payload?.review_required);
         if (event.payload?.proposal_id) {
           proposalId = event.payload.proposal_id;
         }
@@ -359,6 +384,10 @@ function App() {
           ...(previous || {}),
           ...routingSignalFromPayload(event.payload),
         }));
+        reviewRequired = Boolean(event.payload?.review_required ?? reviewRequired);
+        if (event.payload?.artifact_ids?.length) {
+          pushEvent(`artifacts: ${event.payload.artifact_ids.join(", ")}`);
+        }
       }
 
       if ((event.type === "diff" || event.type === "approval_request") && event.payload?.proposal_id) {
@@ -372,7 +401,7 @@ function App() {
       await loadProposal(proposalId, token).catch(() => null);
     }
 
-    return { proposalId };
+    return { proposalId, reviewRequired };
   };
 
   const runLoopWorkflow = async ({ verifyCommand, prompt, maxAttempts }) => {
@@ -391,6 +420,7 @@ function App() {
         prompt: fixedPrompt,
         max_attempts: maxAttempts,
         auto_apply: true,
+        auto_mode: autoMode,
       });
 
       const attemptLines = result.attempts.map((item) => {
@@ -484,9 +514,18 @@ function App() {
           throw new Error(`No proposal produced for ${target}`);
         }
 
-        await resolveProposal("approve", turn.proposalId, false);
-        applied.push({ target, proposalId: turn.proposalId });
-        pushEvent(`plan applied ${target}`);
+        if (autoMode && turn.reviewRequired) {
+          throw new Error(`Auto mode blocked apply for ${target} (review required)`);
+        }
+
+        if (autoMode && !turn.reviewRequired) {
+          await resolveProposal("approve", turn.proposalId, false);
+          applied.push({ target, proposalId: turn.proposalId });
+          pushEvent(`plan applied ${target}`);
+        } else {
+          setCurrentProposalId(turn.proposalId);
+          throw new Error(`Manual approval required for ${target}. Review and run /approve.`);
+        }
       }
 
       setActivePlan((previous) => (previous ? {
@@ -758,6 +797,26 @@ function App() {
       return;
     }
 
+    if (action.value === "fork") {
+      await handleCommand("/fork");
+      return;
+    }
+
+    if (action.value === "auto") {
+      await handleCommand("/auto");
+      return;
+    }
+
+    if (action.value === "artifacts") {
+      await handleCommand("/artifacts");
+      return;
+    }
+
+    if (action.value === "template:list") {
+      await handleCommand("/template list");
+      return;
+    }
+
     if (action.value === "refresh") {
       await handleCommand("/refresh");
       return;
@@ -861,7 +920,7 @@ function App() {
     const argument = rest.join(" ").trim();
 
     if (name === "help") {
-      pushEvent("Commands: /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /team workspaces | create <name> | kb [title] | query <text>, /cowork plans | runs | shell <command> | extract <path> | run <plan_id> [--approve], /approve, /reject, /git ... | /run <command>");
+      pushEvent("Commands: /fork, /auto on|off|toggle, /artifacts [preview <id>], /template list|run <id> <task>, /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /team ..., /cowork ..., /approve, /reject, /git ... | /run <command>");
       return;
     }
 
@@ -1020,6 +1079,118 @@ function App() {
       return;
     }
 
+    if (name === "fork") {
+      if (!token || !currentSessionId) {
+        setError("Login and select a session before forking");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        const parentSessionId = currentSessionId;
+        const forked = await forkSession(baseUrl, token, parentSessionId);
+        setCurrentSessionId(forked.session_id);
+        await refreshSessions(token);
+        pushEvent(`fork:${forked.session_id}`);
+        setReviewTitle("Forked session");
+        setDiffPreview(`Parallel session ${forked.session_id} created from ${parentSessionId}`);
+      } catch (forkError) {
+        setError(forkError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "auto") {
+      const mode = (rest[0] || "toggle").toLowerCase();
+      let nextMode = autoMode;
+      if (mode === "on") {
+        nextMode = true;
+      } else if (mode === "off") {
+        nextMode = false;
+      } else {
+        nextMode = !autoMode;
+      }
+      setAutoMode(nextMode);
+      pushEvent(`auto mode: ${nextMode ? "on" : "off"}`);
+      return;
+    }
+
+    if (name === "artifacts") {
+      if (!token || !currentSessionId) {
+        setError("Login and select a session first");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "list").toLowerCase();
+        if (sub === "preview" && rest[1]) {
+          const previewUrl = `${baseUrl.replace(/\/+$/, "")}/api/v1/sessions/${currentSessionId}/artifacts/${rest[1]}/preview`;
+          setReviewTitle(`Artifact preview ${rest[1]}`);
+          setDiffPreview(`Open in browser:\n${previewUrl}`);
+          pushEvent(`artifact preview:${rest[1]}`);
+        } else {
+          const result = await listSessionArtifacts(baseUrl, token, currentSessionId);
+          const lines = (result.artifacts || []).map(
+            (item) => `${item.artifact_id}: ${item.title} (${item.kind})`,
+          );
+          setReviewTitle("Session artifacts");
+          setDiffPreview(lines.length ? lines.join("\n") : "No artifacts yet.");
+          pushEvent(`artifacts: ${lines.length}`);
+        }
+      } catch (artifactError) {
+        setError(artifactError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "template") {
+      if (!token) {
+        setError("Login first with /login <userId>");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "list").toLowerCase();
+        if (sub === "list") {
+          const result = await listAgentTemplates(baseUrl, token);
+          const lines = (result.templates || []).map(
+            (item) => `${item.template_id}: ${item.name}`,
+          );
+          setReviewTitle("Agent templates");
+          setDiffPreview(lines.length ? lines.join("\n") : "No templates yet.");
+          pushEvent(`templates: ${lines.length}`);
+        } else if (sub === "run") {
+          const templateId = rest[1];
+          const userTask = rest.slice(2).join(" ").trim();
+          if (!templateId || !userTask) {
+            throw new Error("Usage: /template run <template_id> <task>");
+          }
+          const composed = await composeAgentTemplate(baseUrl, token, templateId, userTask);
+          const sessionId = await ensureSession(token);
+          setDraft(composed.composed_prompt);
+          pushEvent(`template run:${templateId}`);
+          await runAgentTurn(sessionId, composed.composed_prompt);
+          if (composed.verify_command) {
+            pushEvent(`template verify:${composed.verify_command}`);
+          }
+          await refreshMessages(sessionId, token);
+        } else {
+          throw new Error("Usage: /template list | /template run <template_id> <task>");
+        }
+      } catch (templateError) {
+        setError(templateError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (name === "team") {
       if (!token) {
         setError("Login first with /login <userId>");
@@ -1073,8 +1244,111 @@ function App() {
           setReviewTitle(`Knowledge query: ${subArg}`);
           setDiffPreview(lines.length ? lines.join("\n\n") : "No matches.");
           pushEvent(`team: query ${lines.length} hit(s)`);
+        } else if (sub === "delegations") {
+          const workspaceId = subArg || null;
+          const result = await listTeamDelegations(baseUrl, token, workspaceId);
+          const lines = (result.delegations || []).map(
+            (item) => `${item.task_id}: ${item.assigned_role} — ${item.status} — ${item.task}`,
+          );
+          setReviewTitle("Team delegations");
+          setDiffPreview(lines.length ? lines.join("\n") : "No delegations yet.");
+          pushEvent(`team: ${lines.length} delegation(s)`);
+        } else if (sub === "delegate") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const workspaceId = tokens[0];
+          const role = tokens[1] || "reviewer";
+          const task = tokens.slice(2).join(" ");
+          if (!workspaceId || !task) {
+            throw new Error("Usage: /team delegate <workspace_id> <role> <task>");
+          }
+          const delegation = await createTeamDelegation(baseUrl, token, {
+            workspace_id: workspaceId,
+            session_id: sessionId,
+            assigned_role: role,
+            task,
+            priority: "normal",
+          });
+          setReviewTitle("Delegation queued");
+          setDiffPreview(`${delegation.task_id}: ${delegation.status}`);
+          pushEvent(`team: delegation ${delegation.task_id}`);
+        } else if (sub === "execute") {
+          if (!subArg) {
+            throw new Error("Usage: /team execute <task_id>");
+          }
+          const result = await executeTeamDelegation(baseUrl, token, subArg.trim());
+          setReviewTitle(`Delegation ${subArg}`);
+          setDiffPreview(`${result.status}: ${result.note || ""}`);
+          pushEvent(`team: execute ${result.status}`);
+        } else if (sub === "audit") {
+          const result = await listTeamAuditLog(baseUrl, token, subArg || null, 30);
+          const lines = (result.events || []).map(
+            (event) => `${event.event_type} ${event.resource_type}/${event.resource_id}`,
+          );
+          setReviewTitle("Team audit log");
+          setDiffPreview(lines.length ? lines.join("\n") : "No audit events yet.");
+          pushEvent(`team: audit ${lines.length} event(s)`);
+        } else if (sub === "member") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const workspaceId = tokens[0];
+          const memberId = tokens[1];
+          const role = tokens[2] || "member";
+          if (!workspaceId || !memberId) {
+            throw new Error("Usage: /team member <workspace_id> <user_id> [role]");
+          }
+          await addTeamWorkspaceMember(baseUrl, token, workspaceId, { user_id: memberId, role });
+          setReviewTitle("Member added");
+          setDiffPreview(`${memberId} added as ${role}`);
+          pushEvent(`team: member ${memberId}`);
+        } else if (sub === "share") {
+          const share = await createSessionShare(baseUrl, token, sessionId);
+          setReviewTitle("Session share");
+          setDiffPreview(share.share_url || share.share_id);
+          pushEvent(`team: share ${share.share_id}`);
+        } else if (sub === "export") {
+          const format = (subArg || "json").toLowerCase();
+          const exported = await exportSession(baseUrl, token, sessionId, format);
+          setReviewTitle(`Session export (${format})`);
+          setDiffPreview(exported.content.slice(0, 1200));
+          pushEvent(`team: export ${format}`);
+        } else if (sub === "remote") {
+          const remoteSub = (rest[1] || "list").toLowerCase();
+          const remoteArg = rest.slice(2).join(" ").trim();
+          if (remoteSub === "list") {
+            const result = await listRemoteChannels(baseUrl, token);
+            const lines = (result.channels || []).map(
+              (channel) => `${channel.channel_id}: ${channel.label} code=${channel.pairing_code}`,
+            );
+            setReviewTitle("Remote channels");
+            setDiffPreview(lines.length ? lines.join("\n") : "No channels yet.");
+          } else if (remoteSub === "create") {
+            const channel = await createRemoteChannel(baseUrl, token, { label: remoteArg || "Terminal remote" });
+            setReviewTitle("Remote channel");
+            setDiffPreview(`${channel.channel_id} pairing=${channel.pairing_code}`);
+          } else if (remoteSub === "pair") {
+            const tokens = splitShellWords(remoteArg).map(stripQuotes);
+            const pairingCode = tokens[0];
+            const clientId = tokens[1] || userId;
+            const channel = await pairRemoteChannel(baseUrl, token, { pairing_code: pairingCode, client_id: clientId });
+            setReviewTitle("Remote paired");
+            setDiffPreview(`${channel.channel_id} paired with ${channel.paired_client_id}`);
+          } else if (remoteSub === "push") {
+            const tokens = splitShellWords(remoteArg).map(stripQuotes);
+            const channelId = tokens[0];
+            const eventType = tokens[1] || "terminal.command";
+            const message = tokens.slice(2).join(" ") || "ping";
+            await pushRemoteChannelEvent(baseUrl, token, channelId, {
+              event_type: eventType,
+              payload: { message },
+            });
+            setReviewTitle("Remote push");
+            setDiffPreview(`Queued ${eventType} on ${channelId}`);
+          } else {
+            throw new Error("Usage: /team remote list|create [label]|pair <code> [client]|push <channel> [type] [message]");
+          }
         } else {
-          throw new Error("Usage: /team workspaces | create <name> | kb [title] | query <text>");
+          throw new Error(
+            "Usage: /team workspaces | create <name> | kb [title] | query <text> | delegations [workspace] | delegate <ws> <role> <task> | execute <task_id> | audit [workspace] | member <ws> <user> [role] | share | export [json|markdown] | remote ...",
+          );
         }
       } catch (teamError) {
         setError(teamError.message);
@@ -1149,8 +1423,58 @@ function App() {
           setReviewTitle(`Cowork run ${run.run_id}`);
           setDiffPreview(`${run.status}: ${run.summary}`);
           pushEvent(`cowork: run ${run.status}`);
+        } else if (sub === "jobs") {
+          const result = await listCoworkJobs(baseUrl, token);
+          const lines = (result.jobs || []).map(
+            (job) => `${job.job_id}: ${job.title} enabled=${job.enabled} trigger=${job.trigger_type}`,
+          );
+          setReviewTitle("Cowork jobs");
+          setDiffPreview(lines.length ? lines.join("\n") : "No jobs yet.");
+          pushEvent(`cowork: ${lines.length} job(s)`);
+        } else if (sub === "job") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const action = (tokens[0] || "").toLowerCase();
+          if (action === "create") {
+            const title = tokens[1] || "Terminal watch job";
+            const job = await createCoworkJob(baseUrl, token, {
+              session_id: sessionId,
+              title,
+              trigger_type: "interval",
+              interval_seconds: 60,
+              task_type: "shell",
+              command: "echo cowork",
+            });
+            setReviewTitle("Cowork job created");
+            setDiffPreview(`${job.job_id}: ${job.title}`);
+          } else if (action === "toggle") {
+            const jobId = tokens[1];
+            const enabled = !subArg.includes("--off");
+            if (!jobId) {
+              throw new Error("Usage: /cowork job toggle <job_id> [--off]");
+            }
+            const job = await toggleCoworkJob(baseUrl, token, jobId, enabled);
+            setReviewTitle("Cowork job toggled");
+            setDiffPreview(`${job.job_id} enabled=${job.enabled}`);
+          } else {
+            throw new Error("Usage: /cowork job create [title] | job toggle <job_id> [--off]");
+          }
+        } else if (sub === "browser") {
+          const url = subArg || "https://example.com";
+          const plan = await createCoworkPlan(baseUrl, token, {
+            session_id: sessionId,
+            title: "Terminal browser task",
+            task_type: "browser",
+            url,
+            browser_action: "capture_title",
+          });
+          const run = await runCoworkPlan(baseUrl, token, plan.plan_id, true);
+          setReviewTitle(`Browser run ${run.run_id}`);
+          setDiffPreview(`${run.status}: ${run.summary}`);
+          pushEvent(`cowork: browser ${run.status}`);
         } else {
-          throw new Error("Usage: /cowork plans | runs | shell <command> | extract <path> | run <plan_id> [--approve]");
+          throw new Error(
+            "Usage: /cowork plans | runs | shell <command> | extract <path> | run <plan_id> [--approve] | jobs | job create [title] | job toggle <id> [--off] | browser [url]",
+          );
         }
       } catch (coworkError) {
         setError(coworkError.message);
@@ -1722,7 +2046,7 @@ function App() {
         {baseUrl} | model {routingSignal?.model_used || DEFAULT_MODEL} | project {truncate(projectPath, 36)}
       </Text>
       <Text color={routingSignal?.review_required ? "yellow" : "green"}>
-        {truncate(formatRoutingSignal(routingSignal), 110)}
+        {truncate(formatRoutingSignal(routingSignal), 90)} | auto {autoMode ? "on" : "off"}
       </Text>
       <Text dimColor>{shortcutHint}</Text>
       <Newline />

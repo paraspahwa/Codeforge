@@ -20,7 +20,11 @@ import {
   compactWorkflow,
   createWorkflowPlan,
   executeWorkflowPlan,
+  createAgentTemplate,
+  fetchSessionArtifactPreviewHtml,
   forkSession,
+  listAgentTemplates,
+  listSessionArtifacts,
   rollbackWorkflowPlan,
   runAgentLoop,
   sendMessage,
@@ -44,12 +48,14 @@ function saveStoredState(patch) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
 }
 
-export default function CodeWorkspace() {
+export default function CodeWorkspace({ sharedToken = null, sharedUserId = null }) {
   const stored = useMemo(() => loadStoredState(), []);
 
-  const [userId, setUserId] = useState(import.meta.env.VITE_CODEFORGE_USER_ID || stored.userId || "dev-user");
+  const [userId, setUserId] = useState(
+    sharedUserId || import.meta.env.VITE_CODEFORGE_USER_ID || stored.userId || "dev-user",
+  );
   const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || stored.projectPath || "");
-  const [token, setToken] = useState(stored.token || null);
+  const [token, setToken] = useState(sharedToken || stored.token || null);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(stored.sessionId || "");
   const [messages, setMessages] = useState([]);
@@ -72,6 +78,15 @@ export default function CodeWorkspace() {
   const [activePlanId, setActivePlanId] = useState("");
   const [workflowOutput, setWorkflowOutput] = useState("");
   const [autoMode, setAutoMode] = useState(false);
+  const [artifacts, setArtifacts] = useState([]);
+  const [selectedArtifactId, setSelectedArtifactId] = useState("");
+  const [artifactPreviewHtml, setArtifactPreviewHtml] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateName, setTemplateName] = useState("Code reviewer");
+  const [templatePrefix, setTemplatePrefix] = useState(
+    "You are a senior reviewer. Focus on correctness, security, and test coverage.",
+  );
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const chatEndRef = useRef(null);
@@ -82,6 +97,17 @@ export default function CodeWorkspace() {
   );
 
   const canSend = Boolean(token && sessionId && prompt.trim() && !loading);
+
+  useEffect(() => {
+    if (sharedToken) {
+      setToken(sharedToken);
+      saveStoredState({ token: sharedToken });
+    }
+    if (sharedUserId) {
+      setUserId(sharedUserId);
+      saveStoredState({ userId: sharedUserId });
+    }
+  }, [sharedToken, sharedUserId]);
 
   const pushActivity = (entries) => {
     setActivity((previous) => [...entries.filter(Boolean), ...previous].slice(0, 16));
@@ -235,7 +261,14 @@ export default function CodeWorkspace() {
     ]);
 
     try {
-      const sent = await sendMessage(token, sessionId, userText, projectPath, selectedFile || null);
+      const sent = await sendMessage(
+        token,
+        sessionId,
+        userText,
+        projectPath,
+        selectedFile || null,
+        selectedTemplateId || null,
+      );
       setLastModel(sent.model_used ?? "-");
       const nextRoutingSignal = routingSignalFromMessageResponse(sent);
       setRoutingSignal(nextRoutingSignal);
@@ -286,7 +319,13 @@ export default function CodeWorkspace() {
             ...(previous || {}),
             ...routingSignalFromPayload(event.payload),
           }));
-          pushActivity([formatEvent(event)]);
+          pushActivity([
+            formatEvent(event),
+            event.payload?.artifact_ids?.length ? `artifacts: ${event.payload.artifact_ids.join(", ")}` : null,
+          ]);
+          listSessionArtifacts(token, sessionId)
+            .then((result) => setArtifacts(result.artifacts || []))
+            .catch(() => undefined);
           break;
         }
       }
@@ -386,6 +425,47 @@ export default function CodeWorkspace() {
       setWorkflowOutput(result.report);
       pushActivity([`workflow: ultrareview ${result.risk_level}`]);
       setStatusMessage(`Ultrareview complete (${result.risk_level})`);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePreviewArtifact(artifactId) {
+    if (!token || !sessionId || !artifactId) {
+      return;
+    }
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      const html = await fetchSessionArtifactPreviewHtml(token, sessionId, artifactId);
+      setSelectedArtifactId(artifactId);
+      setArtifactPreviewHtml(html);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateTemplate() {
+    if (!token || !templateName.trim() || !templatePrefix.trim()) {
+      setErrorMessage("Template name and prompt prefix are required");
+      return;
+    }
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      await createAgentTemplate(token, {
+        name: templateName.trim(),
+        description: "Custom reusable agent template",
+        prompt_prefix: templatePrefix.trim(),
+        verify_command: loopVerify.trim() || null,
+      });
+      const result = await listAgentTemplates(token);
+      setTemplates(result.templates || []);
+      setStatusMessage("Template saved");
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -525,13 +605,22 @@ export default function CodeWorkspace() {
     }
     refreshSessions(token).catch(() => null);
     refreshUsage(token).catch(() => null);
+    listAgentTemplates(token)
+      .then((result) => setTemplates(result.templates || []))
+      .catch(() => undefined);
   }, [token]);
 
   useEffect(() => {
     if (!token || !sessionId) {
+      setArtifacts([]);
+      setSelectedArtifactId("");
+      setArtifactPreviewHtml("");
       return;
     }
     refreshGit(token, sessionId).catch(() => null);
+    listSessionArtifacts(token, sessionId)
+      .then((result) => setArtifacts(result.artifacts || []))
+      .catch(() => undefined);
   }, [token, sessionId]);
 
   useEffect(() => {
@@ -780,6 +869,60 @@ export default function CodeWorkspace() {
             </button>
           </div>
           {workflowOutput ? <pre className="shell-output">{workflowOutput}</pre> : null}
+          <h4 className="small">Agent templates</h4>
+          <select
+            value={selectedTemplateId}
+            onChange={(event) => setSelectedTemplateId(event.target.value)}
+            disabled={loading}
+          >
+            <option value="">None</option>
+            {templates.map((template) => (
+              <option key={template.template_id} value={template.template_id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+          <input
+            value={templateName}
+            onChange={(event) => setTemplateName(event.target.value)}
+            placeholder="template name"
+            disabled={loading}
+          />
+          <textarea
+            rows={3}
+            value={templatePrefix}
+            onChange={(event) => setTemplatePrefix(event.target.value)}
+            placeholder="prompt prefix"
+            disabled={loading}
+          />
+          <button type="button" onClick={handleCreateTemplate} disabled={!token || loading}>
+            Save template
+          </button>
+          <h4 className="small">Artifacts</h4>
+          {artifacts.length === 0 ? (
+            <p className="muted small">No artifacts yet.</p>
+          ) : (
+            <div className="button-row">
+              {artifacts.map((artifact) => (
+                <button
+                  key={artifact.artifact_id}
+                  type="button"
+                  onClick={() => handlePreviewArtifact(artifact.artifact_id)}
+                  disabled={loading}
+                >
+                  {artifact.title}
+                </button>
+              ))}
+            </div>
+          )}
+          {artifactPreviewHtml ? (
+            <iframe
+              title="Artifact preview"
+              className="artifact-preview-frame"
+              sandbox="allow-scripts"
+              srcDoc={artifactPreviewHtml}
+            />
+          ) : null}
         </div>
         <div className="tool-panel">
           <h3>Shell</h3>

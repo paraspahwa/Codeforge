@@ -510,6 +510,135 @@ export async function executeTeamDelegation(baseUrl, token, taskId) {
   });
 }
 
+export async function exchangeOidcToken(baseUrl, payload) {
+  return requestJson(baseUrl, "/api/v1/auth/oidc/exchange", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function getOidcConfig(baseUrl) {
+  return requestJson(baseUrl, "/api/v1/auth/oidc/config");
+}
+
+export async function getOidcAuthorizeUrl(baseUrl, redirectUri = null, state = null) {
+  const params = new URLSearchParams();
+  if (redirectUri) {
+    params.set("redirect_uri", redirectUri);
+  }
+  if (state) {
+    params.set("state", state);
+  }
+  const query = params.toString();
+  return requestJson(baseUrl, `/api/v1/auth/oidc/authorize-url${query ? `?${query}` : ""}`);
+}
+
+export async function completeOidcCallback(baseUrl, payload) {
+  return requestJson(baseUrl, "/api/v1/auth/oidc/callback", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function getOidcDiscovery(baseUrl) {
+  return requestJson(baseUrl, "/api/v1/auth/oidc/discovery");
+}
+
+export async function approveTeamDelegationStep(baseUrl, token, taskId, payload) {
+  return requestJson(baseUrl, `/api/v1/team/delegations/${taskId}/approve-step`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function createTeamStyleGuide(baseUrl, token, workspaceId, payload) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/style-guides`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listTeamStyleGuides(baseUrl, token, workspaceId) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/style-guides`, { token });
+}
+
+export async function updateTeamStyleGuide(baseUrl, token, workspaceId, guideId, payload) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/style-guides/${guideId}`, {
+    method: "PUT",
+    token,
+    body: payload,
+  });
+}
+
+export async function createRemoteChannel(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/remote/channels", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listRemoteChannels(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/remote/channels", { token });
+}
+
+export async function pairRemoteChannel(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/remote/channels/pair", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function pushRemoteChannelEvent(baseUrl, token, channelId, payload) {
+  return requestJson(baseUrl, `/api/v1/remote/channels/${channelId}/push`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listSessionArtifacts(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/artifacts`, { token });
+}
+
+export async function getSessionArtifact(baseUrl, token, sessionId, artifactId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/artifacts/${artifactId}`, { token });
+}
+
+export function sessionArtifactPreviewUrl(baseUrl, sessionId, artifactId) {
+  return `${normalizeBaseUrl(baseUrl)}/api/v1/sessions/${sessionId}/artifacts/${artifactId}/preview`;
+}
+
+export async function createAgentTemplate(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/agent/templates", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listAgentTemplates(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/agent/templates", { token });
+}
+
+export async function deleteAgentTemplate(baseUrl, token, templateId) {
+  return requestJson(baseUrl, `/api/v1/agent/templates/${templateId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function composeAgentTemplate(baseUrl, token, templateId, userTask) {
+  return requestJson(baseUrl, `/api/v1/agent/templates/${templateId}/compose`, {
+    method: "POST",
+    token,
+    body: { user_task: userTask },
+  });
+}
+
 export async function createContextPack(baseUrl, token, payload) {
   return requestJson(baseUrl, "/api/v1/context/packs", {
     method: "POST",
@@ -587,8 +716,8 @@ export async function getBillingSubscription(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/billing/subscription", { token });
 }
 
-export async function* streamSessionEvents(baseUrl, token, sessionId) {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/sessions/${sessionId}/stream`, {
+async function* streamSseJson(baseUrl, path, token) {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "text/event-stream",
@@ -638,4 +767,16 @@ export async function* streamSessionEvents(baseUrl, token, sessionId) {
       }
     }
   }
+}
+
+export async function* streamTeamEvents(baseUrl, token) {
+  yield* streamSseJson(baseUrl, "/api/v1/team/events", token);
+}
+
+export async function* streamRemoteChannelEvents(baseUrl, token, channelId) {
+  yield* streamSseJson(baseUrl, `/api/v1/remote/channels/${channelId}/events`, token);
+}
+
+export async function* streamSessionEvents(baseUrl, token, sessionId) {
+  yield* streamSseJson(baseUrl, `/api/v1/sessions/${sessionId}/stream`, token);
 }

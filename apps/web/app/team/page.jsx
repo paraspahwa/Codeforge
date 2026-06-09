@@ -4,16 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   addTeamWorkspaceMember,
+  approveTeamDelegationStep,
   createTeamDelegation,
   createTeamWorkspace,
   executeTeamDelegation,
   getProjectKnowledge,
   listSessions,
+  createTeamStyleGuide,
   listTeamAuditLog,
   listTeamDelegations,
+  listTeamStyleGuides,
   listTeamWorkspaces,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
+  streamTeamEvents,
   uploadProjectKnowledge,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
@@ -32,6 +36,7 @@ export default function TeamPage() {
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [knowledgeResults, setKnowledgeResults] = useState(null);
   const [auditEvents, setAuditEvents] = useState([]);
+  const [liveEvents, setLiveEvents] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [workspaceName, setWorkspaceName] = useState("Core team");
@@ -42,6 +47,15 @@ export default function TeamPage() {
   const [delegationRole, setDelegationRole] = useState("reviewer");
   const [delegationTask, setDelegationTask] = useState("Review recent changes and summarize risks");
   const [delegationPriority, setDelegationPriority] = useState("normal");
+  const [delegationMode, setDelegationMode] = useState("sequential");
+  const [delegationRoles, setDelegationRoles] = useState("reviewer, implementer");
+  const [requireStepApproval, setRequireStepApproval] = useState(false);
+  const [styleGuides, setStyleGuides] = useState([]);
+  const [styleGuideTitle, setStyleGuideTitle] = useState("UI style guide");
+  const [styleGuideType, setStyleGuideType] = useState("style");
+  const [styleGuideContent, setStyleGuideContent] = useState(
+    "Use concise headings, accessible contrast, and consistent component spacing.",
+  );
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((entry) => entry.workspace_id === selectedWorkspaceId) || null,
@@ -52,16 +66,20 @@ export default function TeamPage() {
     if (!activeToken) {
       return;
     }
-    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit] = await Promise.all([
+    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides] = await Promise.all([
       listTeamWorkspaces(activeToken),
       listTeamDelegations(activeToken, selectedWorkspaceId || null),
       listSessions(activeToken),
       listTeamAuditLog(activeToken, selectedWorkspaceId || null, 30),
+      selectedWorkspaceId
+        ? listTeamStyleGuides(activeToken, selectedWorkspaceId).catch(() => ({ guides: [] }))
+        : Promise.resolve({ guides: [] }),
     ]);
     setWorkspaces(nextWorkspaces.workspaces || []);
     setDelegations(nextDelegations.delegations || []);
     setSessions(nextSessions);
     setAuditEvents(nextAudit.events || []);
+    setStyleGuides(nextGuides.guides || []);
     if (!selectedWorkspaceId && nextWorkspaces.workspaces?.length) {
       setSelectedWorkspaceId(nextWorkspaces.workspaces[0].workspace_id);
     }
@@ -108,6 +126,35 @@ export default function TeamPage() {
       .catch(() => setKnowledge(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, sessionId]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        for await (const event of streamTeamEvents(token)) {
+          if (cancelled) {
+            break;
+          }
+          if (event.type === "heartbeat" || event.type === "connected") {
+            continue;
+          }
+          setLiveEvents((previous) => [JSON.stringify(event), ...previous].slice(0, 12));
+          if (event.type === "team.audit") {
+            await refreshTeamData(token);
+          }
+        }
+      } catch {
+        // Stream reconnects on next login.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   async function handleCreateWorkspace() {
     setLoading(true);
@@ -220,9 +267,36 @@ export default function TeamPage() {
         assigned_role: delegationRole,
         task: delegationTask.trim(),
         priority: delegationPriority,
+        orchestration_mode: delegationMode,
+        agent_roles: delegationRoles
+          .split(",")
+          .map((role) => role.trim())
+          .filter(Boolean),
+        require_step_approval: requireStepApproval,
       });
       toast.push(`Delegation ${delegation.task_id} queued`, "success");
       await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateStyleGuide() {
+    if (!selectedWorkspaceId || !styleGuideTitle.trim() || !styleGuideContent.trim()) {
+      toast.push("Workspace, title, and content are required");
+      return;
+    }
+    setLoading(true);
+    try {
+      await createTeamStyleGuide(token, selectedWorkspaceId, {
+        title: styleGuideTitle.trim(),
+        guide_type: styleGuideType,
+        content: styleGuideContent.trim(),
+      });
+      await refreshTeamData(token);
+      toast.push("Style guide saved", "success");
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -235,6 +309,22 @@ export default function TeamPage() {
     try {
       const result = await executeTeamDelegation(token, taskId);
       toast.push(`Delegation ${taskId}: ${result.status}`, result.status === "completed" ? "success" : undefined);
+      await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelegationStepDecision(taskId, approved) {
+    setLoading(true);
+    try {
+      const result = await approveTeamDelegationStep(token, taskId, { approved });
+      toast.push(
+        `Delegation ${taskId}: ${result.status}`,
+        approved && result.status === "completed" ? "success" : undefined,
+      );
       await refreshTeamData(token);
     } catch (error) {
       toast.push(error.message);
@@ -400,6 +490,52 @@ export default function TeamPage() {
             ))}
           </ul>
         )}
+        <h4 className="small mt-8">Live team events</h4>
+        {liveEvents.length === 0 ? (
+          <p className="small">Connected SSE stream waiting for workspace updates…</p>
+        ) : (
+          <ul className="small">
+            {liveEvents.map((line, index) => (
+              <li key={`${line}-${index}`}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="panel">
+        <h3>Shared style guides</h3>
+        {styleGuides.length === 0 ? <p className="small">No style guides for this workspace yet.</p> : null}
+        <ul className="small">
+          {styleGuides.map((guide) => (
+            <li key={guide.guide_id}>
+              <strong>{guide.title}</strong> ({guide.guide_type}) — {guide.content.slice(0, 160)}
+            </li>
+          ))}
+        </ul>
+        <label className="small" htmlFor="styleGuideTitle">
+          Title
+        </label>
+        <input id="styleGuideTitle" value={styleGuideTitle} onChange={(event) => setStyleGuideTitle(event.target.value)} />
+        <label className="small" htmlFor="styleGuideType">
+          Type
+        </label>
+        <select id="styleGuideType" value={styleGuideType} onChange={(event) => setStyleGuideType(event.target.value)}>
+          <option value="style">Style</option>
+          <option value="conventions">Conventions</option>
+          <option value="architecture">Architecture</option>
+        </select>
+        <label className="small" htmlFor="styleGuideContent">
+          Content
+        </label>
+        <textarea
+          id="styleGuideContent"
+          rows={4}
+          value={styleGuideContent}
+          onChange={(event) => setStyleGuideContent(event.target.value)}
+        />
+        <button type="button" onClick={handleCreateStyleGuide} disabled={loading || !selectedWorkspaceId}>
+          Save style guide
+        </button>
       </section>
 
       <section className="panel">
@@ -435,6 +571,31 @@ export default function TeamPage() {
               <option value="normal">Normal</option>
               <option value="high">High</option>
             </select>
+            <label className="small" htmlFor="delegationMode">
+              Orchestration mode
+            </label>
+            <select id="delegationMode" value={delegationMode} onChange={(event) => setDelegationMode(event.target.value)}>
+              <option value="single">Single agent</option>
+              <option value="sequential">Sequential multi-agent</option>
+              <option value="supervisor">Supervisor + worker</option>
+            </select>
+            <label className="small" htmlFor="delegationRoles">
+              Agent roles (comma-separated)
+            </label>
+            <input
+              id="delegationRoles"
+              value={delegationRoles}
+              onChange={(event) => setDelegationRoles(event.target.value)}
+            />
+            <label className="small" htmlFor="requireStepApproval">
+              <input
+                id="requireStepApproval"
+                type="checkbox"
+                checked={requireStepApproval}
+                onChange={(event) => setRequireStepApproval(event.target.checked)}
+              />{" "}
+              Require approval between orchestration steps
+            </label>
             <button type="button" onClick={handleCreateDelegation} disabled={loading || !selectedWorkspaceId}>
               Queue delegation
             </button>
@@ -450,10 +611,39 @@ export default function TeamPage() {
                   {item.task_id} · {item.status} · {item.priority}
                 </span>
                 <p className="small">{item.note}</p>
+                {item.steps?.length ? (
+                  <ul className="small">
+                    {item.steps.map((step) => (
+                      <li key={`${item.task_id}-${step.step_index}`}>
+                        {step.role}: {step.status}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {item.status === "queued" || item.status === "failed" ? (
                   <button type="button" className="ghost-btn inline-btn" onClick={() => handleExecuteDelegation(item.task_id)} disabled={loading}>
                     Execute
                   </button>
+                ) : null}
+                {item.status === "awaiting_approval" ? (
+                  <div className="inline-actions">
+                    <button
+                      type="button"
+                      className="ghost-btn inline-btn"
+                      onClick={() => handleDelegationStepDecision(item.task_id, true)}
+                      disabled={loading}
+                    >
+                      Approve step
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn inline-btn"
+                      onClick={() => handleDelegationStepDecision(item.task_id, false)}
+                      disabled={loading}
+                    >
+                      Reject
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}

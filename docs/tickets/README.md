@@ -4,7 +4,7 @@ This backlog turns [docs/implementation-plan.md](../implementation-plan.md) into
 
 ## Status Overview
 
-Core backend + primary surfaces (Phases 0–2) are largely in place. Phases 3–6 have **shipped slices** but several **exit criteria and surface-parity items remain open** — see each phase file for caveats.
+Core backend + primary surfaces (Phases 0–6) are largely complete. Remaining work is mostly enterprise hardening (full OIDC/JWKS verification, screenshot OCR) and optional polish.
 
 Completed or in place:
 
@@ -13,25 +13,24 @@ Completed or in place:
 - Phase 1 terminal parity (split panes, palette, approvals)
 - Phase 2 platform surfaces (web, desktop Code workspace, VS Code panel, shared SDK)
 - Phase 3 advanced code workflows (loop, compact, ultrareview, multi-file plan/rollback on terminal/desktop/VS Code)
-- Phase 4 cowork mode (API + DB persistence, Playwright browser with httpx fallback, web `/cowork`, desktop CoworkWorkspace)
-- Phase 5 team platform (API + DB persistence, web `/team`, share-resume `/share/[id]`, delegation execute)
-- Phase 6 routing quality (tier-bound policy, benchmark baselines/trends, confidence on web chat + terminal)
-- Shared client helpers for file, git, shell, context packs, MCP, team, and cowork APIs
+- Phase 3 stretch: fork/auto mode, artifacts preview, custom agent templates, remote control channels (pairing + SSE push)
+- Phase 4 cowork mode (API + DB persistence, Playwright browser with httpx fallback, web `/cowork`, desktop CoworkWorkspace, terminal/VS Code jobs+browser)
+- Phase 5 team platform (API + DB persistence, web `/team`, desktop Team mode, terminal/VS Code team parity, audit log, knowledge upload, team SSE)
+- Phase 6 routing quality (tier-bound policy, benchmark baselines/trends, confidence on all coding surfaces, fail-closed routing + quality CI gates)
+- ECS worker deploy for background cowork/jobs (Celery beat scheduler)
+- SWE-bench-style internal quality eval harness (`quality-benchmark` + CI gate)
+- Shared client helpers for file, git, shell, context packs, MCP, team, cowork, remote channels, and SSE streams
 
 Partially complete:
 
-- Phase 3: parallel sessions and auto mode missing on terminal; artifacts/remote/custom agents not started
-- Phase 4: OCR is path-based Tesseract only (no screenshot capture); terminal/VS Code cowork UI shipped in build order item 3
-- Phase 5: team UI on web + terminal/VS Code; audit log + knowledge upload API shipped; no SSO or real-time team updates
-- Phase 6: routing eval regressions are CI warnings; quality benchmark (`swe-fixtures`) is fail-closed in deploy smoke test
+- Phase 5: JWKS verification + style guides + multi-agent delegations shipped; client OIDC login UX not wired
+- Enterprise: org-scoped workspace rate limits shipped; billing-tier org entities not modeled
 
-Still ahead (cross-cutting):
+Still ahead (lower priority):
 
-- ~~ECS worker deploy for background cowork/jobs~~ (shipped: worker service + Celery beat scheduler)
-- Enterprise: SSO, org-scoped rate limits
-- Surface parity matrix (team/cowork/confidence on desktop, terminal, VS Code)
-- ~~SWE-bench-style internal quality eval harness~~ (shipped: `quality-benchmark` + CI gate)
-- Phase 3 stretch: artifacts/live preview, remote control, custom agents
+- Client OIDC redirect/login on web/desktop
+- Delegation approval gates between orchestration steps
+- Session-level permission enforcement hardening across share/delegation paths
 
 ## Ticket Order
 

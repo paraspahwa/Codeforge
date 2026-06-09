@@ -52,6 +52,27 @@ def record_audit_event(
             event["created_at"],
         ),
     )
+    try:
+        from . import team_event_bus
+        from .projects_team_store import list_workspace_members
+
+        recipients = [actor_id]
+        if workspace_id:
+            recipients.extend(member["user_id"] for member in list_workspace_members(workspace_id))
+        team_event_bus.publish(
+            recipients,
+            "team.audit",
+            {
+                "event_id": event["event_id"],
+                "event_type": event_type,
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "workspace_id": workspace_id,
+                "session_id": session_id,
+            },
+        )
+    except Exception:
+        pass
     return event
 
 

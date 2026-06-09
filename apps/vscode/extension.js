@@ -52,14 +52,21 @@ function initialState(context) {
     fallbackUsed: false,
     panelTab: "chat",
     teamWorkspaces: [],
+    teamDelegations: [],
+    teamAuditEvents: [],
     teamOutput: "",
     teamWorkspaceName: "Core team",
     teamKnowledgeQuery: "",
+    teamMemberUserId: "",
+    teamDelegationTask: "Review recent changes",
+    teamLiveEvents: [],
     coworkPlans: [],
     coworkRuns: [],
+    coworkJobs: [],
     coworkOutput: "",
     coworkShellCommand: "dir",
     coworkExtractPath: "",
+    coworkBrowserUrl: "https://example.com",
   };
 }
 
@@ -428,18 +435,58 @@ async function streamPrompt(context, prompt, currentFile) {
 
 async function refreshTeamData(context) {
   const api = await loadSharedModule(context, "api.js");
-  const result = await api.listTeamWorkspaces(panelState.baseUrl, panelState.token);
-  panelState.teamWorkspaces = result.workspaces || [];
+  const workspaceId = panelState.teamWorkspaces[0]?.workspace_id || null;
+  const [workspaces, delegations, audit] = await Promise.all([
+    api.listTeamWorkspaces(panelState.baseUrl, panelState.token),
+    api.listTeamDelegations(panelState.baseUrl, panelState.token, workspaceId),
+    api.listTeamAuditLog(panelState.baseUrl, panelState.token, workspaceId, 20),
+  ]);
+  panelState.teamWorkspaces = workspaces.workspaces || [];
+  panelState.teamDelegations = delegations.delegations || [];
+  panelState.teamAuditEvents = audit.events || [];
 }
 
 async function refreshCoworkData(context) {
   const api = await loadSharedModule(context, "api.js");
-  const [plans, runs] = await Promise.all([
+  const [plans, runs, jobs] = await Promise.all([
     api.listCoworkPlans(panelState.baseUrl, panelState.token),
     api.listCoworkRuns(panelState.baseUrl, panelState.token),
+    api.listCoworkJobs(panelState.baseUrl, panelState.token),
   ]);
   panelState.coworkPlans = plans.plans || [];
   panelState.coworkRuns = runs.runs || [];
+  panelState.coworkJobs = jobs.jobs || [];
+}
+
+let teamEventPump = null;
+
+function startTeamEventPump(context) {
+  if (teamEventPump || !panelState?.token) {
+    return;
+  }
+  teamEventPump = true;
+  (async () => {
+    const api = await loadSharedModule(context, "api.js");
+    try {
+      for await (const event of api.streamTeamEvents(panelState.baseUrl, panelState.token)) {
+        if (!panelState) {
+          break;
+        }
+        if (event.type === "heartbeat" || event.type === "connected") {
+          continue;
+        }
+        panelState.teamLiveEvents = [JSON.stringify(event), ...(panelState.teamLiveEvents || [])].slice(0, 8);
+        if (event.type === "team.audit") {
+          await refreshTeamData(context);
+        }
+        postState();
+      }
+    } catch {
+      // Ignore stream disconnects; user can refresh/login again.
+    } finally {
+      teamEventPump = null;
+    }
+  })();
 }
 
 async function runAgentLoop(context, verifyCommand) {
@@ -731,6 +778,7 @@ function ensurePanel(context) {
         setBusy(true);
         setError("");
         await refreshTeamData(context);
+        startTeamEventPump(context);
         panelState.teamOutput = `${panelState.teamWorkspaces.length} workspace(s) loaded`;
         pushEvent(`team:${panelState.teamWorkspaces.length} workspace(s)`);
         setBusy(false);
@@ -780,6 +828,88 @@ function ensurePanel(context) {
         const lines = (result.results || []).map((item) => `${item.path}: ${item.excerpt}`);
         panelState.teamOutput = lines.length ? lines.join("\n\n") : "No matches.";
         pushEvent(`team:query:${lines.length} hit(s)`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamShareSession") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const share = await api.createSessionShare(panelState.baseUrl, panelState.token, sessionId);
+        panelState.teamOutput = share.share_url || share.share_id;
+        pushEvent(`team:share:${share.share_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamExportSession") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const exported = await api.exportSession(panelState.baseUrl, panelState.token, sessionId, "json");
+        panelState.teamOutput = `json export (${exported.content.length} chars)`;
+        pushEvent("team:export:json");
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamAddMember") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const workspaceId = panelState.teamWorkspaces[0]?.workspace_id;
+        if (!workspaceId || !message.memberUserId) {
+          setError("Create/refresh a workspace and enter a member user ID");
+          setBusy(false);
+          return;
+        }
+        await api.addTeamWorkspaceMember(panelState.baseUrl, panelState.token, workspaceId, {
+          user_id: message.memberUserId,
+          role: "member",
+        });
+        await refreshTeamData(context);
+        panelState.teamOutput = `Added ${message.memberUserId}`;
+        pushEvent(`team:member:${message.memberUserId}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamCreateDelegation") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const workspaceId = panelState.teamWorkspaces[0]?.workspace_id;
+        if (!workspaceId) {
+          setError("Create/refresh a workspace first");
+          setBusy(false);
+          return;
+        }
+        const delegation = await api.createTeamDelegation(panelState.baseUrl, panelState.token, {
+          workspace_id: workspaceId,
+          session_id: sessionId,
+          assigned_role: "reviewer",
+          task: message.task || panelState.teamDelegationTask,
+          priority: "normal",
+        });
+        await refreshTeamData(context);
+        panelState.teamOutput = `Delegation ${delegation.task_id} queued`;
+        pushEvent(`team:delegation:${delegation.task_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamExecuteDelegation") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const result = await api.executeTeamDelegation(panelState.baseUrl, panelState.token, message.taskId);
+        await refreshTeamData(context);
+        panelState.teamOutput = `${message.taskId}: ${result.status}`;
+        pushEvent(`team:execute:${result.status}`);
         setBusy(false);
         return;
       }
@@ -842,6 +972,53 @@ function ensurePanel(context) {
         await refreshCoworkData(context);
         panelState.coworkOutput = `${run.status}: ${run.summary}`;
         pushEvent(`cowork:run:${run.status}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkBrowser") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const plan = await api.createCoworkPlan(panelState.baseUrl, panelState.token, {
+          session_id: sessionId,
+          title: "VS Code browser task",
+          task_type: "browser",
+          url: message.url || panelState.coworkBrowserUrl,
+          browser_action: "capture_title",
+        });
+        const run = await api.runCoworkPlan(panelState.baseUrl, panelState.token, plan.plan_id, true);
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${run.status}: ${run.summary}`;
+        pushEvent(`cowork:browser:${run.status}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkRefreshJobs") {
+        setBusy(true);
+        setError("");
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${panelState.coworkJobs.length} job(s)`;
+        pushEvent(`cowork:jobs:${panelState.coworkJobs.length}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkToggleJob") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const job = await api.toggleCoworkJob(
+          panelState.baseUrl,
+          panelState.token,
+          message.jobId,
+          Boolean(message.enabled),
+        );
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${job.job_id} enabled=${job.enabled}`;
+        pushEvent(`cowork:job:${job.enabled ? "on" : "off"}`);
         setBusy(false);
         return;
       }

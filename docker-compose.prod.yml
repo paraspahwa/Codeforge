@@ -102,6 +102,16 @@ services:
 
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:?SUPABASE_JWT_SECRET must be set}
 
+      CODEFORGE_OIDC_ENABLED: ${CODEFORGE_OIDC_ENABLED:-false}
+
+      CODEFORGE_OIDC_ISSUER: ${CODEFORGE_OIDC_ISSUER:-}
+
+      CODEFORGE_OIDC_AUDIENCE: ${CODEFORGE_OIDC_AUDIENCE:-}
+
+      CODEFORGE_OIDC_JWKS_URI: ${CODEFORGE_OIDC_JWKS_URI:-}
+
+      CODEFORGE_VISION_MODEL: ${CODEFORGE_VISION_MODEL:-gpt-4o-mini}
+
       CODEFORGE_API_BASE_URL: http://api:8000
 
       CODEFORGE_PUBLIC_API_BASE: ${CODEFORGE_PUBLIC_API_BASE:-http://localhost:8000}
@@ -144,7 +154,7 @@ services:
 
       context: ./services/api
 
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.worker
 
     container_name: codeforge-worker
 
@@ -169,6 +179,10 @@ services:
       OTEL_SERVICE_NAME: codeforge-worker
 
       CODEFORGE_COWORK_SCHEDULER_ENABLED: "false"
+
+      CODEFORGE_DISABLE_PLAYWRIGHT: "false"
+
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
 
       CODEFORGE_WORKSPACES_CONTAINER_PREFIX: /workspaces
 

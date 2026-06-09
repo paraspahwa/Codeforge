@@ -19,6 +19,7 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY_API: codeforge-api
   ECR_REPOSITORY_WEB: codeforge-web
+  ECR_REPOSITORY_WORKER: codeforge-worker
   CONTAINER_NAME_API: codeforge-api
   CONTAINER_NAME_WEB: codeforge-web
   CONTAINER_NAME_WORKER: codeforge-worker
@@ -113,7 +114,7 @@ jobs:
           print('Queue ping gate passed')
           PY
 
-      - name: Routing regression warning check
+      - name: Routing regression fail-closed gate
         shell: bash
         run: |
           set -euo pipefail
@@ -128,13 +129,19 @@ jobs:
           curl -fsS "http://127.0.0.1:8000/api/v1/evals/routing-benchmark/trends?suite=${BENCHMARK_TREND_SUITE}&limit=20" \
             -H "Authorization: Bearer $token" >/tmp/benchmark-trends.json
 
-          alerts=$(python -c "import json; print(json.load(open('/tmp/benchmark-trends.json')).get('regression_alerts_last_10', 0))")
-          if [[ "$alerts" -gt 0 ]]; then
-            reasons=$(python -c "import json; data=json.load(open('/tmp/benchmark-trends.json')); runs=data.get('runs', []); flagged=[r.get('regression_reason','regression detected') for r in runs if r.get('regression_alert')]; print(' | '.join(flagged[:3]))")
-            echo "::warning title=Routing regression alerts detected::$alerts regression alert(s) in recent benchmark runs. $reasons"
-          else
-            echo "No routing regression alerts detected in recent benchmark trends."
-          fi
+          python - <<'PY'
+          import json
+          import sys
+
+          data = json.load(open("/tmp/benchmark-trends.json", encoding="utf-8"))
+          alerts = int(data.get("regression_alerts_last_10", 0))
+          if alerts > 0:
+              runs = data.get("runs", [])
+              flagged = [r.get("regression_reason", "regression detected") for r in runs if r.get("regression_alert")]
+              print("Routing regression gate failed:", " | ".join(flagged[:3]))
+              sys.exit(1)
+          print("Routing regression gate passed")
+          PY
 
       - name: Quality benchmark fail-closed gate
         shell: bash
@@ -312,6 +319,16 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Build and push Worker image
+        id: build-worker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f Dockerfile.worker -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG services/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
       - name: Render API task definition
         id: render-api
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -350,7 +367,7 @@ jobs:
         with:
           task-definition: ${{ env.ECS_TASK_DEFINITION_WORKER }}
           container-name: ${{ env.CONTAINER_NAME_WORKER }}
-          image: ${{ steps.build-api.outputs.image }}
+          image: ${{ steps.build-worker.outputs.image }}
 
       - name: Deploy Worker task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
@@ -412,6 +429,16 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Build and push Worker image
+        id: build-worker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f Dockerfile.worker -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG services/api
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
       - name: Render API task definition
         id: render-api
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -450,7 +477,7 @@ jobs:
         with:
           task-definition: ${{ env.ECS_TASK_DEFINITION_WORKER }}
           container-name: ${{ env.CONTAINER_NAME_WORKER }}
-          image: ${{ steps.build-api.outputs.image }}
+          image: ${{ steps.build-worker.outputs.image }}
 
       - name: Deploy Worker task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2

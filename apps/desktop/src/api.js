@@ -7,6 +7,23 @@ export async function devLogin(userId) {
   return data.access_token;
 }
 
+export async function getOidcConfig() {
+  return shared.getOidcConfig(API_BASE);
+}
+
+export async function getOidcAuthorizeUrl(redirectUri = null, state = null) {
+  return shared.getOidcAuthorizeUrl(API_BASE, redirectUri, state);
+}
+
+export async function completeOidcCallback(payload) {
+  const data = await shared.completeOidcCallback(API_BASE, payload);
+  return data.access_token;
+}
+
+export async function approveTeamDelegationStep(token, taskId, payload) {
+  return shared.approveTeamDelegationStep(API_BASE, token, taskId, payload);
+}
+
 export async function listSessions(token) {
   return shared.listSessions(API_BASE, token);
 }
@@ -90,15 +107,44 @@ export async function listMessages(token, sessionId) {
   return shared.listMessages(API_BASE, token, sessionId);
 }
 
-export async function sendMessage(token, sessionId, content, projectPath, activeFile = null) {
-  return shared.sendMessage(API_BASE, token, sessionId, {
+export async function sendMessage(token, sessionId, content, projectPath, activeFile = null, templateId = null) {
+  const body = {
     content,
     context: {
       workspace_path: projectPath,
       selection: null,
       active_file: activeFile,
     },
-  });
+  };
+  if (templateId) {
+    body.template_id = templateId;
+  }
+  return shared.sendMessage(API_BASE, token, sessionId, body);
+}
+
+export async function listSessionArtifacts(token, sessionId) {
+  return shared.listSessionArtifacts(API_BASE, token, sessionId);
+}
+
+export async function fetchSessionArtifactPreviewHtml(token, sessionId, artifactId) {
+  const response = await fetch(
+    `${API_BASE.replace(/\/+$/, "")}/api/v1/sessions/${sessionId}/artifacts/${artifactId}/preview`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Artifact preview failed (${response.status})`);
+  }
+  return response.text();
+}
+
+export async function listAgentTemplates(token) {
+  return shared.listAgentTemplates(API_BASE, token);
+}
+
+export async function createAgentTemplate(token, payload) {
+  return shared.createAgentTemplate(API_BASE, token, payload);
 }
 
 export async function listProposals(token, sessionId, limit = 50) {
@@ -163,4 +209,76 @@ export async function executeWorkflowPlan(token, sessionId, planId, payload = {}
 
 export async function rollbackWorkflowPlan(token, sessionId, planId) {
   return shared.rollbackWorkflowPlan(API_BASE, token, sessionId, planId);
+}
+
+export async function createTeamWorkspace(token, payload) {
+  return shared.createTeamWorkspace(API_BASE, token, payload);
+}
+
+export async function listTeamWorkspaces(token) {
+  return shared.listTeamWorkspaces(API_BASE, token);
+}
+
+export async function addTeamWorkspaceMember(token, workspaceId, payload) {
+  return shared.addTeamWorkspaceMember(API_BASE, token, workspaceId, payload);
+}
+
+export async function createTeamDelegation(token, payload) {
+  return shared.createTeamDelegation(API_BASE, token, payload);
+}
+
+export async function listTeamDelegations(token, workspaceId = null) {
+  return shared.listTeamDelegations(API_BASE, token, workspaceId);
+}
+
+export async function listTeamAuditLog(token, workspaceId = null, limit = 50) {
+  return shared.listTeamAuditLog(API_BASE, token, workspaceId, limit);
+}
+
+export async function executeTeamDelegation(token, taskId) {
+  return shared.executeTeamDelegation(API_BASE, token, taskId);
+}
+
+export async function createSessionShare(token, sessionId, accessLevel = "view", expiresInHours = 72) {
+  return shared.createSessionShare(API_BASE, token, sessionId, accessLevel, expiresInHours);
+}
+
+export async function exportSession(token, sessionId, format = "json") {
+  return shared.exportSession(API_BASE, token, sessionId, format);
+}
+
+export async function rebuildProjectKnowledge(token, payload) {
+  return shared.rebuildProjectKnowledge(API_BASE, token, payload);
+}
+
+export async function uploadProjectKnowledge(token, sessionId, files) {
+  return shared.uploadProjectKnowledge(API_BASE, token, sessionId, files);
+}
+
+export async function getProjectKnowledge(token, sessionId) {
+  return shared.getProjectKnowledge(API_BASE, token, sessionId);
+}
+
+export async function queryProjectKnowledge(token, payload) {
+  return shared.queryProjectKnowledge(API_BASE, token, payload);
+}
+
+export function streamTeamEvents(token) {
+  return shared.streamTeamEvents(API_BASE, token);
+}
+
+export async function createRemoteChannel(token, payload) {
+  return shared.createRemoteChannel(API_BASE, token, payload);
+}
+
+export async function listRemoteChannels(token) {
+  return shared.listRemoteChannels(API_BASE, token);
+}
+
+export async function pairRemoteChannel(token, payload) {
+  return shared.pairRemoteChannel(API_BASE, token, payload);
+}
+
+export function streamRemoteChannelEvents(token, channelId) {
+  return shared.streamRemoteChannelEvents(API_BASE, token, channelId);
 }

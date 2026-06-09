@@ -429,6 +429,14 @@ textarea {
   color: var(--text);
 }
 
+.artifact-preview-frame {
+  width: 100%;
+  min-height: 280px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .proposal-actions {
   display: flex;
   gap: 0.6rem;

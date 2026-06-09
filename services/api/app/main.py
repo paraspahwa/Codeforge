@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -10,11 +11,14 @@ from uuid import uuid4
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
 from .agent_loop import run_verify_fix_loop
-from .auth import AuthUser, dev_auth_enabled, get_current_user
+from .auth import AuthUser, dev_auth_enabled, get_current_user, oidc_auth_enabled
+from . import team_event_bus
+from . import remote_channels
+from .remote_channels import RemoteChannelError
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
 from .cowork_scheduler import cowork_scheduler_enabled
@@ -30,6 +34,14 @@ from .deploy_ops import build_synthesis_rollout_plan
 from .deploy_ops import validate_synthesis_rollout
 from .projects_team import ProjectsTeamError, projects_team_service
 from .quality_eval import run_quality_eval
+from . import artifact_store
+from .artifacts import (
+    extract_artifacts_from_text,
+    get_session_artifact,
+    list_session_artifacts,
+    render_artifact_preview,
+)
+from .agent_templates import AgentTemplateError, agent_template_service
 from .db import (
     insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
@@ -77,6 +89,11 @@ from .models import (
     AgentLoopRequest,
     AgentLoopResponse,
     AgentProposal,
+    AgentTemplateComposeRequest,
+    AgentTemplateComposeResponse,
+    AgentTemplateCreateRequest,
+    AgentTemplateListResponse,
+    AgentTemplateResponse,
     CompactWorkflowResponse,
     BillingPlan,
     BillingWebhookResponse,
@@ -161,6 +178,9 @@ from .models import (
     McpConnectorResponse,
     McpConnectorToggleRequest,
     McpInvokeResponse,
+    SessionArtifactCreateRequest,
+    SessionArtifactItem,
+    SessionArtifactListResponse,
     SessionExportResponse,
     SessionForkResponse,
     SessionShareCreateRequest,
@@ -180,6 +200,21 @@ from .models import (
     TeamWorkspaceListResponse,
     TeamWorkspaceMemberRequest,
     TeamWorkspaceResponse,
+    OidcAuthorizeUrlResponse,
+    OidcCallbackRequest,
+    OidcConfigResponse,
+    OidcDiscoveryResponse,
+    OidcExchangeRequest,
+    TeamDelegationStepDecisionRequest,
+    RemoteChannelCreateRequest,
+    TeamStyleGuideCreateRequest,
+    TeamStyleGuideListResponse,
+    TeamStyleGuideResponse,
+    TeamStyleGuideUpdateRequest,
+    RemoteChannelListResponse,
+    RemoteChannelPairRequest,
+    RemoteChannelPushRequest,
+    RemoteChannelResponse,
     UltrareviewRequest,
     UltrareviewResponse,
     UsageSummary,
@@ -215,6 +250,24 @@ def _enforce_rate_limit(scope: str, identity: str, limit: int) -> None:
     count = redis_session_store.incr_with_ttl(f"ratelimit:{scope}:{identity}:{window}", 120)
     if count > limit:
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
+
+
+WORKSPACE_RATE_LIMIT = int(os.getenv("CODEFORGE_WORKSPACE_RATE_LIMIT", "60"))
+
+
+def _enforce_workspace_rate_limit(scope: str, workspace_id: str | None, user_id: str, limit: int | None = None) -> None:
+    identity = workspace_id or user_id
+    _enforce_rate_limit(f"{scope}:workspace", identity, limit or WORKSPACE_RATE_LIMIT)
+
+
+def _resolve_oidc_subject(id_token: str, explicit_subject: str | None = None) -> str:
+    trust_subject = os.getenv("CODEFORGE_OIDC_TRUST_SUBJECT", "").strip().lower() in {"1", "true", "yes"}
+    if trust_subject and explicit_subject:
+        return explicit_subject.strip()
+    from .oidc import subject_from_id_token
+
+    return subject_from_id_token(id_token)
+
 
 BILLING_PLANS = [
     BillingPlan(plan_id="lite", name="Lite", amount_inr=199, request_limit=300),
@@ -306,6 +359,68 @@ def dev_login(payload: DevLoginRequest, request: Request) -> DevLoginResponse:
     client_host = request.client.host if request.client else "unknown"
     _enforce_rate_limit("dev-login", client_host, 10)
     return DevLoginResponse(access_token=f"dev_{payload.user_id}")
+
+
+@app.post("/api/v1/auth/oidc/exchange", response_model=DevLoginResponse)
+def oidc_exchange(payload: OidcExchangeRequest) -> DevLoginResponse:
+    if not oidc_auth_enabled():
+        raise HTTPException(status_code=501, detail="OIDC exchange is not enabled")
+    user_id = _resolve_oidc_subject(payload.id_token, payload.subject)
+    if len(user_id) < 2:
+        raise HTTPException(status_code=400, detail="Resolved OIDC subject is too short")
+    return DevLoginResponse(access_token=f"oidc_{user_id}")
+
+
+@app.get("/api/v1/auth/oidc/config", response_model=OidcConfigResponse)
+def oidc_config() -> OidcConfigResponse:
+    from .oidc import public_oidc_config
+
+    return OidcConfigResponse(**public_oidc_config())
+
+
+@app.get("/api/v1/auth/oidc/authorize-url", response_model=OidcAuthorizeUrlResponse)
+async def oidc_authorize_url(
+    redirect_uri: str | None = None,
+    state: str | None = None,
+) -> OidcAuthorizeUrlResponse:
+    if not oidc_auth_enabled():
+        raise HTTPException(status_code=501, detail="OIDC is not enabled")
+    from .oidc import build_authorize_url, default_redirect_uri
+
+    resolved_redirect = (redirect_uri or default_redirect_uri()).strip()
+    resolved_state = (state or f"cf_{uuid4().hex[:12]}").strip()
+    authorize_url = await build_authorize_url(redirect_uri=resolved_redirect, state=resolved_state)
+    return OidcAuthorizeUrlResponse(
+        authorize_url=authorize_url,
+        state=resolved_state,
+        redirect_uri=resolved_redirect,
+    )
+
+
+@app.post("/api/v1/auth/oidc/callback", response_model=DevLoginResponse)
+async def oidc_callback(payload: OidcCallbackRequest) -> DevLoginResponse:
+    if not oidc_auth_enabled():
+        raise HTTPException(status_code=501, detail="OIDC is not enabled")
+    from .oidc import default_redirect_uri, exchange_authorization_code
+
+    redirect_uri = (payload.redirect_uri or default_redirect_uri()).strip()
+    user_id = await exchange_authorization_code(code=payload.code, redirect_uri=redirect_uri)
+    return DevLoginResponse(access_token=f"oidc_{user_id}")
+
+
+@app.get("/api/v1/auth/oidc/discovery", response_model=OidcDiscoveryResponse)
+async def oidc_discovery() -> OidcDiscoveryResponse:
+    if not oidc_auth_enabled():
+        raise HTTPException(status_code=501, detail="OIDC is not enabled")
+    from .oidc import discover_oidc_configuration, oidc_issuer, oidc_jwks_uri
+
+    document = await discover_oidc_configuration()
+    return OidcDiscoveryResponse(
+        issuer=document.get("issuer") or oidc_issuer(),
+        jwks_uri=document.get("jwks_uri") or oidc_jwks_uri(),
+        authorization_endpoint=document.get("authorization_endpoint"),
+        token_endpoint=document.get("token_endpoint"),
+    )
 
 
 @app.post("/api/v1/sessions", response_model=SessionCreateResponse)
@@ -546,9 +661,21 @@ def post_message(
             add_span_event("usage.limit_reached", {"plan_id": plan_id})
             raise HTTPException(status_code=429, detail=f"Request limit reached for {plan_id} plan")
 
-        decision = route_request(payload.content)
+        message_content = payload.content
+        if payload.template_id:
+            try:
+                composed = agent_template_service.compose_prompt(
+                    user_id=user.user_id,
+                    template_id=payload.template_id,
+                    user_task=payload.content,
+                )
+                message_content = composed["composed_prompt"]
+            except AgentTemplateError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        decision = route_request(message_content)
         message_id = f"msg_{uuid4().hex[:12]}"
-        input_tokens = max(1, len(payload.content.split()))
+        input_tokens = max(1, len(message_content.split()))
         output_tokens = max(6, input_tokens // 2)
         latency_ms = 120 + min(input_tokens * 3, 420)
         cost_usd = round((input_tokens * 0.0000012) + (output_tokens * 0.0000024), 6)
@@ -568,12 +695,15 @@ def post_message(
         )
 
         created_at = utc_now().isoformat()
+        context_payload = payload.context.model_dump() if payload.context else {}
+        if payload.template_id:
+            context_payload["template_id"] = payload.template_id
         insert_message(
             message_id=message_id,
             session_id=session_id,
             role="user",
-            content=payload.content,
-            context_json=json.dumps(payload.context.model_dump()) if payload.context else None,
+            content=message_content,
+            context_json=json.dumps(context_payload) if context_payload else None,
             created_at=created_at,
         )
 
@@ -1304,6 +1434,7 @@ def create_team_workspace(
     payload: TeamWorkspaceCreateRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> TeamWorkspaceResponse:
+    _enforce_workspace_rate_limit("team-workspace-create", None, user.user_id)
     workspace = projects_team_service.create_workspace(
         owner_id=user.user_id,
         name=payload.name,
@@ -1325,6 +1456,7 @@ def add_team_workspace_member(
     payload: TeamWorkspaceMemberRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> TeamWorkspaceResponse:
+    _enforce_workspace_rate_limit("team-member-add", workspace_id, user.user_id)
     try:
         workspace = projects_team_service.add_workspace_member(
             actor_id=user.user_id,
@@ -1413,6 +1545,7 @@ def create_team_delegation(
     payload: TeamDelegationCreateRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> TeamDelegationResponse:
+    _enforce_workspace_rate_limit("team-delegation-create", payload.workspace_id, user.user_id)
     session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
     if session is None:
         owner_session = None
@@ -1431,6 +1564,9 @@ def create_team_delegation(
             assigned_role=payload.assigned_role,
             task=payload.task,
             priority=payload.priority,
+            orchestration_mode=payload.orchestration_mode,
+            agent_roles=payload.agent_roles,
+            require_step_approval=payload.require_step_approval,
         )
     except ProjectsTeamError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1494,6 +1630,196 @@ async def execute_team_delegation(
 
     add_span_event("team.delegation_executed", {"task_id": task_id, "status": result["status"]})
     return TeamDelegationResponse(**result)
+
+
+@app.post("/api/v1/team/delegations/{task_id}/approve-step", response_model=TeamDelegationResponse)
+async def approve_team_delegation_step(
+    task_id: str,
+    payload: TeamDelegationStepDecisionRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamDelegationResponse:
+    delegation = projects_team_service.list_delegations(user_id=user.user_id)
+    match = next((item for item in delegation if item["task_id"] == task_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Delegation not found")
+
+    session = get_session_for_user(session_id=match["session_id"], user_id=user.user_id)
+    if session is None:
+        owner_session = None
+        for workspace in projects_team_service.list_workspaces(user_id=user.user_id):
+            owner_session = get_session_for_user(session_id=match["session_id"], user_id=workspace["owner_id"])
+            if owner_session:
+                break
+        session = owner_session
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found for delegation")
+
+    try:
+        result = await projects_team_service.decide_delegation_step(
+            actor_id=user.user_id,
+            task_id=task_id,
+            project_path=resolved_project_path(session),
+            approved=payload.approved,
+            note=payload.note,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    add_span_event(
+        "team.delegation_step_decision",
+        {"task_id": task_id, "approved": payload.approved, "status": result["status"]},
+    )
+    return TeamDelegationResponse(**result)
+
+
+@app.post("/api/v1/team/workspaces/{workspace_id}/style-guides", response_model=TeamStyleGuideResponse)
+def create_team_style_guide(
+    workspace_id: str,
+    payload: TeamStyleGuideCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamStyleGuideResponse:
+    _enforce_workspace_rate_limit("team-style-guide-create", workspace_id, user.user_id)
+    try:
+        guide = projects_team_service.create_style_guide(
+            actor_id=user.user_id,
+            workspace_id=workspace_id,
+            title=payload.title,
+            guide_type=payload.guide_type,
+            content=payload.content,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TeamStyleGuideResponse(**guide)
+
+
+@app.get("/api/v1/team/workspaces/{workspace_id}/style-guides", response_model=TeamStyleGuideListResponse)
+def list_team_style_guides(
+    workspace_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamStyleGuideListResponse:
+    try:
+        guides = projects_team_service.list_style_guides(user_id=user.user_id, workspace_id=workspace_id)
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TeamStyleGuideListResponse(guides=[TeamStyleGuideResponse(**item) for item in guides])
+
+
+@app.put("/api/v1/team/workspaces/{workspace_id}/style-guides/{guide_id}", response_model=TeamStyleGuideResponse)
+def update_team_style_guide(
+    workspace_id: str,
+    guide_id: str,
+    payload: TeamStyleGuideUpdateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamStyleGuideResponse:
+    _enforce_workspace_rate_limit("team-style-guide-update", workspace_id, user.user_id)
+    try:
+        guide = projects_team_service.update_style_guide(
+            actor_id=user.user_id,
+            guide_id=guide_id,
+            title=payload.title,
+            guide_type=payload.guide_type,
+            content=payload.content,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if guide["workspace_id"] != workspace_id:
+        raise HTTPException(status_code=404, detail="Style guide not found in workspace")
+    return TeamStyleGuideResponse(**guide)
+
+
+@app.get("/api/v1/team/events")
+async def stream_team_events(user: AuthUser = Depends(get_current_user)) -> StreamingResponse:
+    queue = team_event_bus.subscribe(user.user_id)
+
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        finally:
+            team_event_bus.unsubscribe(user.user_id, queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/api/v1/remote/channels", response_model=RemoteChannelResponse)
+def create_remote_channel(
+    payload: RemoteChannelCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> RemoteChannelResponse:
+    channel = remote_channels.create_channel(owner_id=user.user_id, label=payload.label)
+    return RemoteChannelResponse(**channel)
+
+
+@app.get("/api/v1/remote/channels", response_model=RemoteChannelListResponse)
+def list_remote_channels(user: AuthUser = Depends(get_current_user)) -> RemoteChannelListResponse:
+    channels = remote_channels.list_channels(owner_id=user.user_id)
+    return RemoteChannelListResponse(channels=[RemoteChannelResponse(**item) for item in channels])
+
+
+@app.post("/api/v1/remote/channels/pair", response_model=RemoteChannelResponse)
+def pair_remote_channel(
+    payload: RemoteChannelPairRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> RemoteChannelResponse:
+    try:
+        channel = remote_channels.pair_channel(
+            pairing_code=payload.pairing_code,
+            client_id=payload.client_id or user.user_id,
+        )
+    except RemoteChannelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RemoteChannelResponse(**channel)
+
+
+@app.post("/api/v1/remote/channels/{channel_id}/push")
+def push_remote_channel_event(
+    channel_id: str,
+    payload: RemoteChannelPushRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, str]:
+    try:
+        remote_channels.get_channel_for_user(channel_id=channel_id, user_id=user.user_id)
+        remote_channels.push_event(
+            channel_id=channel_id,
+            event_type=payload.event_type,
+            payload=payload.payload,
+        )
+    except RemoteChannelError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "queued", "channel_id": channel_id}
+
+
+@app.get("/api/v1/remote/channels/{channel_id}/events")
+async def stream_remote_channel_events(
+    channel_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    try:
+        remote_channels.get_channel_for_user(channel_id=channel_id, user_id=user.user_id)
+    except RemoteChannelError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    queue = remote_channels.subscribe(channel_id)
+
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'type': 'connected', 'channel_id': channel_id})}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        finally:
+            remote_channels.unsubscribe(channel_id, queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/api/v1/context/packs", response_model=ContextPackResponse)
@@ -2065,6 +2391,122 @@ async def session_agent_loop(
     )
 
 
+@app.get("/api/v1/sessions/{session_id}/artifacts", response_model=SessionArtifactListResponse)
+def list_session_artifacts_endpoint(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionArtifactListResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    artifacts = list_session_artifacts(session_id=session_id, user_id=user.user_id)
+    return SessionArtifactListResponse(artifacts=[SessionArtifactItem(**item) for item in artifacts])
+
+
+@app.post("/api/v1/sessions/{session_id}/artifacts", response_model=SessionArtifactItem)
+def create_session_artifact_endpoint(
+    session_id: str,
+    payload: SessionArtifactCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionArtifactItem:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    artifact = {
+        "artifact_id": f"art_{uuid4().hex[:10]}",
+        "session_id": session_id,
+        "user_id": user.user_id,
+        "title": payload.title,
+        "kind": payload.kind,
+        "content": payload.content,
+        "source_message_id": None,
+        "created_at": utc_now().isoformat(),
+    }
+    artifact_store.save_artifact(artifact)
+    return SessionArtifactItem(**artifact)
+
+
+@app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}", response_model=SessionArtifactItem)
+def get_session_artifact_endpoint(
+    session_id: str,
+    artifact_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionArtifactItem:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    artifact = get_session_artifact(artifact_id=artifact_id, user_id=user.user_id)
+    if artifact is None or artifact["session_id"] != session_id:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return SessionArtifactItem(**artifact)
+
+
+@app.get("/api/v1/sessions/{session_id}/artifacts/{artifact_id}/preview")
+def preview_session_artifact_endpoint(
+    session_id: str,
+    artifact_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> HTMLResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    artifact = get_session_artifact(artifact_id=artifact_id, user_id=user.user_id)
+    if artifact is None or artifact["session_id"] != session_id:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return HTMLResponse(content=render_artifact_preview(artifact))
+
+
+@app.post("/api/v1/agent/templates", response_model=AgentTemplateResponse)
+def create_agent_template_endpoint(
+    payload: AgentTemplateCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> AgentTemplateResponse:
+    try:
+        template = agent_template_service.create_template(
+            user_id=user.user_id,
+            name=payload.name,
+            description=payload.description,
+            prompt_prefix=payload.prompt_prefix,
+            verify_command=payload.verify_command,
+        )
+    except AgentTemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AgentTemplateResponse(**template)
+
+
+@app.get("/api/v1/agent/templates", response_model=AgentTemplateListResponse)
+def list_agent_templates_endpoint(user: AuthUser = Depends(get_current_user)) -> AgentTemplateListResponse:
+    templates = agent_template_service.list_templates(user_id=user.user_id)
+    return AgentTemplateListResponse(templates=[AgentTemplateResponse(**item) for item in templates])
+
+
+@app.delete("/api/v1/agent/templates/{template_id}")
+def delete_agent_template_endpoint(template_id: str, user: AuthUser = Depends(get_current_user)) -> dict[str, str]:
+    try:
+        agent_template_service.delete_template(user_id=user.user_id, template_id=template_id)
+    except AgentTemplateError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "deleted", "template_id": template_id}
+
+
+@app.post("/api/v1/agent/templates/{template_id}/compose", response_model=AgentTemplateComposeResponse)
+def compose_agent_template_endpoint(
+    template_id: str,
+    payload: AgentTemplateComposeRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> AgentTemplateComposeResponse:
+    try:
+        composed = agent_template_service.compose_prompt(
+            user_id=user.user_id,
+            template_id=template_id,
+            user_task=payload.user_task,
+        )
+    except AgentTemplateError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return AgentTemplateComposeResponse(**composed)
+
+
 @app.get("/api/v1/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,
@@ -2095,6 +2537,9 @@ async def stream_session(
             )
             if knowledge_context:
                 composed_prompt = f"{composed_prompt}\n\n{knowledge_context}"
+            style_context = projects_team_service.compose_style_context(user_id=user.user_id)
+            if style_context:
+                composed_prompt = f"{composed_prompt}\n\n{style_context}"
             run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,
@@ -2147,15 +2592,25 @@ async def stream_session(
                 payload = {"content": token, "model": run.model_used, "trace_id": trace_id}
                 yield serialize_sse_event("token", payload, index)
 
+            assistant_message_id = f"msg_{uuid4().hex[:12]}"
             insert_message(
-                message_id=f"msg_{uuid4().hex[:12]}",
+                message_id=assistant_message_id,
                 session_id=session_id,
                 role="assistant",
                 content=run.assistant_message,
                 context_json=None,
                 created_at=utc_now().isoformat(),
             )
-            add_span_event("assistant.message_persisted", {"proposal_id": proposal_id})
+            extracted_artifacts = extract_artifacts_from_text(
+                text=run.assistant_message,
+                session_id=session_id,
+                user_id=user.user_id,
+                source_message_id=assistant_message_id,
+            )
+            add_span_event(
+                "assistant.message_persisted",
+                {"proposal_id": proposal_id, "artifact_count": len(extracted_artifacts)},
+            )
 
             for offset, event in enumerate(run.events, start=len(run.token_chunks) + 1):
                 payload = dict(event.payload)
@@ -2164,25 +2619,28 @@ async def stream_session(
                     payload["proposal_id"] = proposal_id
                 yield serialize_sse_event(event.type, payload, offset, event.timestamp)
 
+            complete_payload = {
+                "session_id": session_id,
+                "proposal_id": proposal_id,
+                "model": run.model_used,
+                "intent": run.intent,
+                "estimated_cost_usd": run.estimated_cost_usd,
+                "reason": run.events[-1].payload.get("reason") if run.events else None,
+                "input_tokens": run.input_tokens,
+                "output_tokens": run.output_tokens,
+                "synthesis_source": run.synthesis_source,
+                "confidence_score": run.confidence_score,
+                "confidence_label": run.confidence_label,
+                "review_required": run.review_required,
+                "routing_tier": run.routing_tier,
+                "fallback_used": run.fallback_used,
+                "trace_id": trace_id,
+            }
+            if extracted_artifacts:
+                complete_payload["artifact_ids"] = [item["artifact_id"] for item in extracted_artifacts]
             yield serialize_sse_event(
                 event_type="complete",
-                payload={
-                    "session_id": session_id,
-                    "proposal_id": proposal_id,
-                    "model": run.model_used,
-                    "intent": run.intent,
-                    "estimated_cost_usd": run.estimated_cost_usd,
-                    "reason": run.events[-1].payload.get("reason") if run.events else None,
-                    "input_tokens": run.input_tokens,
-                    "output_tokens": run.output_tokens,
-                    "synthesis_source": run.synthesis_source,
-                    "confidence_score": run.confidence_score,
-                    "confidence_label": run.confidence_label,
-                    "review_required": run.review_required,
-                    "routing_tier": run.routing_tier,
-                    "fallback_used": run.fallback_used,
-                    "trace_id": trace_id,
-                },
+                payload=complete_payload,
                 sequence=len(run.token_chunks) + len(run.events) + 1,
             )
 

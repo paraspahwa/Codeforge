@@ -219,7 +219,19 @@ async def _run_browser_task_httpx(url: str, action: str) -> dict[str, Any]:
     }
 
 
-async def _run_browser_task_playwright(url: str, action: str) -> dict[str, Any] | None:
+def _screenshot_dir(project_path: str) -> Path:
+    root = Path(project_path).expanduser().resolve()
+    target = root / ".codeforge" / "cowork" / "screenshots"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+async def _run_browser_task_playwright(
+    url: str,
+    action: str,
+    *,
+    project_path: str | None = None,
+) -> dict[str, Any] | None:
     if os.getenv("CODEFORGE_DISABLE_PLAYWRIGHT", "").lower() in {"1", "true", "yes"}:
         return None
 
@@ -240,10 +252,40 @@ async def _run_browser_task_playwright(url: str, action: str) -> dict[str, Any] 
                     "a[href]",
                     "elements => elements.map(element => element.href).filter(Boolean).slice(0, 12)",
                 )
+
+            screenshot_path = None
+            screenshot_bytes = None
+            ocr_text = ""
+            ocr_method = ""
+            ocr_warnings: list[str] = []
+
+            if action in {"capture_screenshot", "screenshot_ocr", "vision_extract"} and project_path:
+                screenshot_bytes = await page.screenshot(full_page=True, type="png")
+                screenshot_file = _screenshot_dir(project_path) / f"shot_{uuid4().hex[:10]}.png"
+                screenshot_file.write_bytes(screenshot_bytes)
+                screenshot_path = screenshot_file.as_posix()
+
+            if action in {"screenshot_ocr", "vision_extract"} and screenshot_bytes:
+                from .vision_ocr import extract_text_from_image_bytes
+
+                vision_prompt = (
+                    "Extract visible UI text, labels, and key content from this browser screenshot."
+                    if action == "vision_extract"
+                    else "OCR this browser screenshot and return plain text."
+                )
+                ocr_result = await extract_text_from_image_bytes(screenshot_bytes, prompt=vision_prompt)
+                ocr_text = str(ocr_result.get("text", ""))
+                ocr_method = str(ocr_result.get("method", ""))
+                ocr_warnings = list(ocr_result.get("warnings") or [])
+
             await browser.close()
 
             if action == "extract_links":
                 summary = f"Playwright fetched {url} and captured {len(links)} link(s)"
+            elif action == "capture_screenshot":
+                summary = f"Playwright captured screenshot for {url}"
+            elif action in {"screenshot_ocr", "vision_extract"}:
+                summary = f"Playwright captured screenshot and extracted text ({ocr_method or 'none'})"
             else:
                 summary = f"Playwright fetched {url} and captured page title"
 
@@ -254,6 +296,10 @@ async def _run_browser_task_playwright(url: str, action: str) -> dict[str, Any] 
                 "title": title,
                 "links": links,
                 "engine": "playwright",
+                "screenshot_path": screenshot_path,
+                "ocr_text": ocr_text,
+                "ocr_method": ocr_method,
+                "ocr_warnings": ocr_warnings,
             }
     except Exception as exc:
         return {
@@ -266,8 +312,8 @@ async def _run_browser_task_playwright(url: str, action: str) -> dict[str, Any] 
         }
 
 
-async def _run_browser_task(url: str, action: str) -> dict[str, Any]:
-    playwright_result = await _run_browser_task_playwright(url, action)
+async def _run_browser_task(url: str, action: str, *, project_path: str | None = None) -> dict[str, Any]:
+    playwright_result = await _run_browser_task_playwright(url, action, project_path=project_path)
     if playwright_result is not None and playwright_result.get("status") == "completed":
         return playwright_result
     if playwright_result is not None and playwright_result.get("engine") == "playwright":
@@ -460,7 +506,24 @@ class CoworkService:
                     "invocation": {},
                 }
         else:
-            details = await _run_browser_task(str(plan["url"]), str(plan["browser_action"]))
+            details = await _run_browser_task(
+                str(plan["url"]),
+                str(plan["browser_action"]),
+                project_path=str(plan.get("project_path") or ""),
+            )
+            if details.get("screenshot_path") and details.get("ocr_text"):
+                extraction = {
+                    "extraction_id": f"ext_{uuid4().hex[:12]}",
+                    "source_path": str(details["screenshot_path"]),
+                    "method": str(details.get("ocr_method") or "screenshot_ocr"),
+                    "byte_size": 0,
+                    "text_excerpt": _safe_excerpt(str(details.get("ocr_text") or "")),
+                    "entities": _extract_entities(str(details.get("ocr_text") or "")),
+                    "warnings": list(details.get("ocr_warnings") or []),
+                    "created_at": utc_now().isoformat(),
+                }
+                store.save_extraction({**extraction, "user_id": user_id})
+                details["extraction_id"] = extraction["extraction_id"]
         return details
 
     def _is_transient_failure(self, details: dict[str, Any]) -> bool:

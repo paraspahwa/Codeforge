@@ -24,10 +24,10 @@ import {
   toggleCoworkJob,
 } from "./api";
 
-export default function CoworkWorkspace() {
-  const [userId, setUserId] = useState(import.meta.env.VITE_CODEFORGE_USER_ID || "dev-user");
+export default function CoworkWorkspace({ sharedToken = null, sharedUserId = null }) {
+  const [userId, setUserId] = useState(sharedUserId || import.meta.env.VITE_CODEFORGE_USER_ID || "dev-user");
   const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || "");
-  const [token, setToken] = useState(null);
+  const [token, setToken] = useState(sharedToken || null);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [plans, setPlans] = useState([]);
@@ -434,6 +434,15 @@ export default function CoworkWorkspace() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (sharedToken) {
+      setToken(sharedToken);
+    }
+    if (sharedUserId) {
+      setUserId(sharedUserId);
+    }
+  }, [sharedToken, sharedUserId]);
 
   useEffect(() => {
     if (!token) {

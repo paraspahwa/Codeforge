@@ -11,7 +11,12 @@ Close the workflow gaps with Claude Code-style looped execution and higher-order
 - T3.3 /ultrareview deep audit: **done (terminal, desktop, VS Code, web)** — backend ultrareview + terminal local audit
 - T3.4 multi-file planning and rollback: **done (terminal, desktop, VS Code, web)** — backend plan/execute/rollback APIs
 
-**Not started (PRD/plan):** parallel sessions on terminal, auto mode on terminal, artifacts/live preview, remote control/event channels, custom agents and task templates.
+- T3.5 session fork / parallel sessions: **done (terminal, desktop, web)** — `POST /sessions/{id}/fork`, `/fork` command, Fork button in Advanced Workflows
+- T3.6 auto mode on plan execution: **done (terminal, desktop, web)** — auto-approves plan steps when enabled; `/auto on|off|toggle` on terminal
+- T3.7 artifacts / live preview: **done (API, terminal, web, desktop)** — fenced `html`/`markdown`/`mermaid` extraction, list + preview endpoints, iframe preview in web/desktop
+- T3.8 custom agent templates: **done (API, terminal, web, desktop)** — CRUD templates, compose prefix, optional `template_id` on message send
+
+- T3.9 remote control / event channels: **done (API + terminal)** — `POST/GET /api/v1/remote/channels`, pair via code, SSE `/remote/channels/{id}/events`, push events; terminal `/team remote ...`
 
 ## Tickets
 

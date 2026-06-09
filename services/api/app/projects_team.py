@@ -370,6 +370,112 @@ class ProjectsTeamService:
             metadata={"access_level": share["access_level"]},
         )
 
+    def compose_style_context(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        limit: int = 3,
+    ) -> str:
+        guides: list[dict[str, Any]] = []
+        if workspace_id:
+            guides = store.list_style_guides_for_workspace(workspace_id)
+        else:
+            for workspace in self.list_workspaces(user_id=user_id):
+                guides.extend(store.list_style_guides_for_workspace(workspace["workspace_id"]))
+        if not guides:
+            return ""
+        selected = guides[:limit]
+        lines = ["Team style guides:"]
+        for guide in selected:
+            lines.append(f"- [{guide['guide_type']}] {guide['title']}: {guide['content'][:400]}")
+        return "\n".join(lines)
+
+    def create_style_guide(
+        self,
+        *,
+        actor_id: str,
+        workspace_id: str,
+        title: str,
+        guide_type: str,
+        content: str,
+    ) -> dict[str, Any]:
+        workspace = store.get_workspace(workspace_id)
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+        if not any(member["user_id"] == actor_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can create style guides")
+
+        now = utc_now().isoformat()
+        guide = {
+            "guide_id": f"style_{uuid4().hex[:10]}",
+            "workspace_id": workspace_id,
+            "title": title.strip(),
+            "guide_type": guide_type,
+            "content": content.strip(),
+            "updated_by": actor_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        store.save_style_guide(guide)
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.style_guide_created",
+            resource_type="style_guide",
+            resource_id=guide["guide_id"],
+            workspace_id=workspace_id,
+            metadata={"title": guide["title"], "guide_type": guide_type},
+        )
+        return guide
+
+    def update_style_guide(
+        self,
+        *,
+        actor_id: str,
+        guide_id: str,
+        title: str | None = None,
+        guide_type: str | None = None,
+        content: str | None = None,
+    ) -> dict[str, Any]:
+        guide = store.get_style_guide(guide_id)
+        if guide is None:
+            raise ProjectsTeamError("Style guide not found")
+        workspace = store.get_workspace(guide["workspace_id"])
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+        if not any(member["user_id"] == actor_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can update style guides")
+
+        next_title = title.strip() if title else guide["title"]
+        next_type = guide_type or guide["guide_type"]
+        next_content = content.strip() if content else guide["content"]
+        updated_at = utc_now().isoformat()
+        store.update_style_guide(
+            guide_id,
+            title=next_title,
+            guide_type=next_type,
+            content=next_content,
+            updated_by=actor_id,
+            updated_at=updated_at,
+        )
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.style_guide_updated",
+            resource_type="style_guide",
+            resource_id=guide_id,
+            workspace_id=guide["workspace_id"],
+            metadata={"title": next_title},
+        )
+        return store.get_style_guide(guide_id) or guide
+
+    def list_style_guides(self, *, user_id: str, workspace_id: str) -> list[dict[str, Any]]:
+        workspace = store.get_workspace(workspace_id)
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+        if not any(member["user_id"] == user_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can list style guides")
+        return store.list_style_guides_for_workspace(workspace_id)
+
     def create_delegation(
         self,
         *,
@@ -379,6 +485,9 @@ class ProjectsTeamService:
         assigned_role: str,
         task: str,
         priority: str,
+        orchestration_mode: str = "sequential",
+        agent_roles: list[str] | None = None,
+        require_step_approval: bool = False,
     ) -> dict[str, Any]:
         workspace = store.get_workspace(workspace_id)
         if workspace is None:
@@ -396,6 +505,11 @@ class ProjectsTeamService:
             "assigned_role": assigned_role,
             "task": task,
             "priority": priority,
+            "orchestration_mode": orchestration_mode,
+            "agent_roles": agent_roles or [],
+            "require_step_approval": require_step_approval,
+            "current_step_index": 0,
+            "steps": [],
             "status": "queued",
             "note": "Queued for agent-team execution",
             "created_at": utc_now().isoformat(),
@@ -420,6 +534,112 @@ class ProjectsTeamService:
         }
         return store.list_delegations_for_workspaces(visible_workspace_ids, workspace_id)
 
+    async def _run_delegation_orchestration(
+        self,
+        *,
+        actor_id: str,
+        delegation: dict[str, Any],
+        project_path: str,
+        start_at: int = 1,
+        prior_steps: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        from .delegation_orchestrator import execute_delegation_chain
+
+        task_id = delegation["task_id"]
+        orchestration_mode = str(delegation.get("orchestration_mode") or "single")
+        agent_roles = list(delegation.get("agent_roles") or [])
+        require_step_approval = bool(delegation.get("require_step_approval"))
+
+        style_context = self.compose_style_context(
+            user_id=actor_id,
+            workspace_id=delegation["workspace_id"],
+        )
+        knowledge_context = self.compose_knowledge_context(
+            user_id=actor_id,
+            session_id=delegation["session_id"],
+            query=delegation["task"],
+        )
+
+        if orchestration_mode == "single" and not agent_roles:
+            from .agent import build_agent_run
+
+            role_prefix = f"[Delegated to {delegation['assigned_role']}] "
+            prompt = f"{role_prefix}{delegation['task']}"
+            if style_context:
+                prompt = f"{prompt}\n\n{style_context}"
+            if knowledge_context:
+                prompt = f"{prompt}\n\n{knowledge_context}"
+            run = await build_agent_run(
+                prompt=prompt,
+                session_id=delegation["session_id"],
+                project_path=project_path,
+                current_file=None,
+            )
+            steps = [
+                {
+                    "step_index": 1,
+                    "role": delegation["assigned_role"],
+                    "status": "completed",
+                    "output": run.assistant_message[:2000],
+                    "started_at": utc_now().isoformat(),
+                    "completed_at": utc_now().isoformat(),
+                }
+            ]
+            note = f"Completed by {delegation['assigned_role']}: {run.assistant_message[:240]}"
+            paused = False
+        else:
+            steps, note, paused = await execute_delegation_chain(
+                actor_id=actor_id,
+                delegation=delegation,
+                project_path=project_path,
+                orchestration_mode=orchestration_mode,
+                agent_roles=agent_roles,
+                style_context=style_context,
+                knowledge_context=knowledge_context,
+                start_at=start_at,
+                prior_steps=prior_steps,
+                require_step_approval=require_step_approval,
+            )
+
+        current_step_index = steps[-1]["step_index"] if steps else 0
+        if paused:
+            store.update_delegation(
+                task_id,
+                status="awaiting_approval",
+                note=note,
+                steps=steps,
+                current_step_index=current_step_index,
+            )
+            audit_store.record_audit_event(
+                actor_id=actor_id,
+                event_type="team.delegation_awaiting_approval",
+                resource_type="delegation",
+                resource_id=task_id,
+                workspace_id=delegation["workspace_id"],
+                session_id=delegation["session_id"],
+                metadata={"step_index": current_step_index},
+            )
+            return store.get_delegation(task_id) or delegation
+
+        store.update_delegation(
+            task_id,
+            status="completed",
+            note=note,
+            completed_at=utc_now().isoformat(),
+            steps=steps,
+            current_step_index=current_step_index,
+        )
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.delegation_executed",
+            resource_type="delegation",
+            resource_id=task_id,
+            workspace_id=delegation["workspace_id"],
+            session_id=delegation["session_id"],
+            metadata={"status": "completed"},
+        )
+        return store.get_delegation(task_id) or delegation
+
     async def execute_delegation(self, *, actor_id: str, task_id: str, project_path: str) -> dict[str, Any]:
         delegation = store.get_delegation(task_id)
         if delegation is None:
@@ -432,41 +652,26 @@ class ProjectsTeamService:
         if not any(member["user_id"] == actor_id for member in workspace["members"]):
             raise ProjectsTeamError("Only workspace members can execute delegations")
 
+        if delegation["status"] == "awaiting_approval":
+            raise ProjectsTeamError("Delegation is awaiting step approval; use the approve-step endpoint")
+
         if delegation["status"] not in {"queued", "failed"}:
             raise ProjectsTeamError(f"Delegation is already {delegation['status']}")
 
+        orchestration_mode = str(delegation.get("orchestration_mode") or "single")
         store.update_delegation(
             task_id,
             status="in_progress",
-            note=f"Assigned role {delegation['assigned_role']} is executing the task",
+            note=f"Orchestration {orchestration_mode} started for {delegation['assigned_role']}",
         )
 
-        from .agent import build_agent_run
-
-        role_prefix = f"[Delegated to {delegation['assigned_role']}] "
-        prompt = f"{role_prefix}{delegation['task']}"
         try:
-            run = await build_agent_run(
-                prompt=prompt,
-                session_id=delegation["session_id"],
-                project_path=project_path,
-                current_file=None,
-            )
-            note = f"Completed by {delegation['assigned_role']}: {run.assistant_message[:240]}"
-            store.update_delegation(
-                task_id,
-                status="completed",
-                note=note,
-                completed_at=utc_now().isoformat(),
-            )
-            audit_store.record_audit_event(
+            return await self._run_delegation_orchestration(
                 actor_id=actor_id,
-                event_type="team.delegation_executed",
-                resource_type="delegation",
-                resource_id=task_id,
-                workspace_id=delegation["workspace_id"],
-                session_id=delegation["session_id"],
-                metadata={"status": "completed", "assigned_role": delegation["assigned_role"]},
+                delegation=delegation,
+                project_path=project_path,
+                start_at=1,
+                prior_steps=[],
             )
         except Exception as exc:
             store.update_delegation(
@@ -486,8 +691,71 @@ class ProjectsTeamService:
             )
             raise ProjectsTeamError(str(exc)) from exc
 
-        updated = store.get_delegation(task_id)
-        return updated or delegation
+    async def decide_delegation_step(
+        self,
+        *,
+        actor_id: str,
+        task_id: str,
+        project_path: str,
+        approved: bool,
+        note: str = "",
+    ) -> dict[str, Any]:
+        delegation = store.get_delegation(task_id)
+        if delegation is None:
+            raise ProjectsTeamError("Delegation not found")
+
+        workspace = store.get_workspace(delegation["workspace_id"])
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+
+        if not any(member["user_id"] == actor_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can approve delegation steps")
+
+        if delegation["status"] != "awaiting_approval":
+            raise ProjectsTeamError("Delegation is not awaiting step approval")
+
+        if not approved:
+            rejection_note = note.strip() or "Delegation step rejected by reviewer"
+            store.update_delegation(
+                task_id,
+                status="failed",
+                note=rejection_note,
+                completed_at=utc_now().isoformat(),
+            )
+            audit_store.record_audit_event(
+                actor_id=actor_id,
+                event_type="team.delegation_step_rejected",
+                resource_type="delegation",
+                resource_id=task_id,
+                workspace_id=delegation["workspace_id"],
+                session_id=delegation["session_id"],
+                metadata={"step_index": delegation.get("current_step_index", 0)},
+            )
+            return store.get_delegation(task_id) or delegation
+
+        next_start = int(delegation.get("current_step_index") or 0) + 1
+        prior_steps = list(delegation.get("steps") or [])
+        store.update_delegation(
+            task_id,
+            status="in_progress",
+            note=note.strip() or f"Continuing orchestration from step {next_start}",
+        )
+        try:
+            return await self._run_delegation_orchestration(
+                actor_id=actor_id,
+                delegation=delegation,
+                project_path=project_path,
+                start_at=next_start,
+                prior_steps=prior_steps,
+            )
+        except Exception as exc:
+            store.update_delegation(
+                task_id,
+                status="failed",
+                note=f"Delegation failed after approval: {exc}",
+                completed_at=utc_now().isoformat(),
+            )
+            raise ProjectsTeamError(str(exc)) from exc
 
 
 projects_team_service = ProjectsTeamService()

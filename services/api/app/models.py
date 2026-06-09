@@ -241,6 +241,7 @@ class ShellExecuteResponse(BaseModel):
 class MessageCreateRequest(BaseModel):
     content: str = Field(min_length=1)
     context: MessageContext | None = None
+    template_id: str | None = None
 
 
 class MessageCreateResponse(BaseModel):
@@ -450,7 +451,13 @@ class CoworkPlanRequest(BaseModel):
     command: str | None = None
     source_path: str | None = None
     url: str | None = None
-    browser_action: Literal["capture_title", "extract_links"] = "capture_title"
+    browser_action: Literal[
+        "capture_title",
+        "extract_links",
+        "capture_screenshot",
+        "screenshot_ocr",
+        "vision_extract",
+    ] = "capture_title"
     connector_id: str | None = None
     tool_name: str | None = None
     connector_arguments: dict[str, Any] = Field(default_factory=dict)
@@ -508,7 +515,13 @@ class CoworkJobCreateRequest(BaseModel):
     command: str | None = None
     source_path: str | None = None
     url: str | None = None
-    browser_action: Literal["capture_title", "extract_links"] = "capture_title"
+    browser_action: Literal[
+        "capture_title",
+        "extract_links",
+        "capture_screenshot",
+        "screenshot_ocr",
+        "vision_extract",
+    ] = "capture_title"
 
 
 class CoworkJobToggleRequest(BaseModel):
@@ -692,6 +705,18 @@ class TeamDelegationCreateRequest(BaseModel):
     assigned_role: str = Field(min_length=2)
     task: str = Field(min_length=4)
     priority: Literal["low", "normal", "high"] = "normal"
+    orchestration_mode: Literal["single", "sequential", "supervisor"] = "sequential"
+    agent_roles: list[str] = Field(default_factory=list)
+    require_step_approval: bool = False
+
+
+class TeamDelegationStepItem(BaseModel):
+    step_index: int
+    role: str
+    status: str
+    output: str = ""
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class TeamDelegationResponse(BaseModel):
@@ -704,7 +729,13 @@ class TeamDelegationResponse(BaseModel):
     priority: str
     status: str
     note: str
+    orchestration_mode: str = "single"
+    agent_roles: list[str] = Field(default_factory=list)
+    require_step_approval: bool = False
+    current_step_index: int = 0
+    steps: list[TeamDelegationStepItem] = Field(default_factory=list)
     created_at: datetime
+    completed_at: datetime | None = None
 
 
 class TeamDelegationListResponse(BaseModel):
@@ -890,6 +921,57 @@ class QualityBenchmarkBaselineSetRequest(BaseModel):
     total_estimated_cost_usd: float | None = None
 
 
+class SessionArtifactItem(BaseModel):
+    artifact_id: str
+    session_id: str
+    title: str
+    kind: str
+    content: str
+    source_message_id: str | None = None
+    created_at: datetime
+
+
+class SessionArtifactListResponse(BaseModel):
+    artifacts: list[SessionArtifactItem]
+
+
+class SessionArtifactCreateRequest(BaseModel):
+    title: str = Field(min_length=1)
+    kind: Literal["html", "markdown", "mermaid", "svg"] = "markdown"
+    content: str = Field(min_length=1)
+
+
+class AgentTemplateCreateRequest(BaseModel):
+    name: str = Field(min_length=2)
+    description: str = ""
+    prompt_prefix: str = Field(min_length=8)
+    verify_command: str | None = None
+
+
+class AgentTemplateResponse(BaseModel):
+    template_id: str
+    name: str
+    description: str
+    prompt_prefix: str
+    verify_command: str | None = None
+    created_at: datetime
+
+
+class AgentTemplateListResponse(BaseModel):
+    templates: list[AgentTemplateResponse]
+
+
+class AgentTemplateComposeRequest(BaseModel):
+    user_task: str = Field(min_length=1)
+
+
+class AgentTemplateComposeResponse(BaseModel):
+    template_id: str
+    name: str
+    composed_prompt: str
+    verify_command: str | None = None
+
+
 class SynthesisProviderStatus(BaseModel):
     provider: str
     configured: bool
@@ -977,6 +1059,97 @@ class CoworkReliabilitySnapshotItem(BaseModel):
 
 class CoworkReliabilityHistoryResponse(BaseModel):
     snapshots: list[CoworkReliabilitySnapshotItem]
+
+
+class OidcExchangeRequest(BaseModel):
+    id_token: str = Field(min_length=10)
+    subject: str | None = None
+
+
+class RemoteChannelCreateRequest(BaseModel):
+    label: str = Field(min_length=2)
+
+
+class RemoteChannelPairRequest(BaseModel):
+    pairing_code: str = Field(min_length=4)
+    client_id: str = Field(min_length=2)
+
+
+class RemoteChannelPushRequest(BaseModel):
+    event_type: str = Field(min_length=2)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemoteChannelResponse(BaseModel):
+    channel_id: str
+    owner_id: str
+    label: str
+    pairing_code: str
+    paired_client_id: str | None = None
+    created_at: datetime
+
+
+class RemoteChannelListResponse(BaseModel):
+    channels: list[RemoteChannelResponse]
+
+
+class TeamStyleGuideCreateRequest(BaseModel):
+    title: str = Field(min_length=2)
+    guide_type: Literal["style", "conventions", "architecture"] = "style"
+    content: str = Field(min_length=8)
+
+
+class TeamStyleGuideUpdateRequest(BaseModel):
+    title: str | None = None
+    guide_type: Literal["style", "conventions", "architecture"] | None = None
+    content: str | None = None
+
+
+class TeamStyleGuideResponse(BaseModel):
+    guide_id: str
+    workspace_id: str
+    title: str
+    guide_type: str
+    content: str
+    updated_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class TeamStyleGuideListResponse(BaseModel):
+    guides: list[TeamStyleGuideResponse]
+
+
+class OidcDiscoveryResponse(BaseModel):
+    issuer: str
+    jwks_uri: str
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
+
+
+class OidcConfigResponse(BaseModel):
+    enabled: bool
+    issuer: str = ""
+    client_id: str = ""
+    redirect_uri: str = ""
+    scopes: str = "openid profile email"
+
+
+class OidcAuthorizeUrlResponse(BaseModel):
+    authorize_url: str
+    state: str
+    redirect_uri: str
+
+
+class OidcCallbackRequest(BaseModel):
+    code: str = Field(min_length=4)
+    redirect_uri: str | None = None
+    state: str | None = None
+
+
+class TeamDelegationStepDecisionRequest(BaseModel):
+    approved: bool = True
+    note: str = ""
 
 
 def utc_now() -> datetime:

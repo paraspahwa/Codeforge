@@ -4,6 +4,7 @@ pydantic==2.11.7
 python-multipart==0.0.20
 psycopg[binary]==3.2.9
 PyJWT==2.9.0
+cryptography==44.0.0
 httpx==0.28.1
 celery==5.4.0
 redis==5.2.1

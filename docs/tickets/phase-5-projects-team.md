@@ -8,10 +8,14 @@ Support shared work, knowledge, and collaboration for teams.
 
 - T5.1 project knowledge base: **done** — DB-backed index rebuild/query/upload, vector merge, auto-inject into agent stream
 - T5.2 team sharing and permissions: **partial** — DB-backed workspaces with owner/admin/member/viewer roles; web `/team` UI; audit log for share/member/delegation/knowledge events; **no SSO** or session-level permission enforcement
-- T5.3 session export/share: **done (API + web)** — markdown/json export, web share links (`/share/[id]`) with resume-in-chat; desktop/terminal lack share UI
+- T5.3 session export/share: **done (API + web + desktop + terminal + VS Code)** — markdown/json export, share links (`/share/[id]`)
 - T5.4 team orchestration flows: **partial** — DB-backed delegations with `POST .../delegations/{id}/execute` (single-agent run with role prefix); not multi-agent orchestration
 
-**Surface gaps:** desktop and terminal have no Team workspace UI. **PRD stretch still open:** uploads, shared style guides, real-time team updates (WebSocket/SSE).
+- Team UI: **done (web, desktop Team mode, terminal `/team`, VS Code Team tab)** — workspaces, members, delegations, audit, share/export, knowledge upload/query
+- Real-time team updates: **done** — `GET /api/v1/team/events` SSE; subscribers on web `/team`, desktop Team, VS Code panel
+- T5.5 shared style guides: **done** — workspace-scoped `team_style_guides`, CRUD API, compose into session stream + delegations
+- T5.6 multi-agent delegation orchestration: **done** — `sequential` / `supervisor` modes, per-step outputs, agent template role mapping
+- **Still open:** client OIDC login UX; approval gates between delegation steps
 
 ## Tickets
 

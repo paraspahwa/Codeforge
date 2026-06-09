@@ -14,9 +14,19 @@ def dev_auth_enabled() -> bool:
     return os.getenv("CODEFORGE_ENV", "development").strip().lower() != "production"
 
 
+def oidc_auth_enabled() -> bool:
+    return os.getenv("CODEFORGE_OIDC_ENABLED", "").strip().lower() in {"1", "true", "yes"}
+
+
 def _token_to_user_id(token: str) -> str:
     if dev_auth_enabled() and token.startswith("dev_") and len(token) > 4:
         return token[4:]
+    if oidc_auth_enabled() and token.startswith("oidc_") and len(token) > 5:
+        return token[5:]
+    if oidc_auth_enabled() and token.count(".") == 2:
+        from .oidc import subject_from_id_token
+
+        return subject_from_id_token(token)
     supabase_secret = os.getenv("SUPABASE_JWT_SECRET")
     if supabase_secret:
         try:

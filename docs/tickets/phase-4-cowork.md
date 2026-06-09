@@ -8,10 +8,10 @@ Expand the product from coding assistance into safe desktop automation.
 
 - T4.1 cowork task runner: **done (API + web + desktop)** — preview-first plans for shell/extract/browser/connector tasks; DB-backed plans/runs
 - T4.2 watchers and scheduled jobs: **done** — interval and file-change jobs with circuit-breaking; Celery beat tick in ECS worker (`CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API in production)
-- T4.3 OCR and extraction pipeline: **partial** — text-file extraction + optional Tesseract on workspace paths; no screenshot capture or vision pipeline
+- T4.3 OCR and extraction pipeline: **done (API)** — workspace path OCR (Tesseract), Playwright screenshot capture, vision-model OCR via `screenshot_ocr` / `vision_extract` browser actions
 - T4.4 browser automation boundary: **done (API)** — explicit approval required; Playwright with httpx fallback; shareable run history
 
-**Surface gaps:** terminal and VS Code have shared API helpers but no cowork UI. **Ops gap:** `docker-compose.prod.yml` defines a worker service; ECS deploy workflow does not ship it yet.
+**Surface gaps:** terminal `/cowork browser` and VS Code browser task shipped; screenshot preview UI optional on desktop.
 
 ## Tickets
 

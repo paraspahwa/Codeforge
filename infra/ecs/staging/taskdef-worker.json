@@ -4,14 +4,14 @@
   "requiresCompatibilities": [
     "FARGATE"
   ],
-  "cpu": "512",
-  "memory": "1024",
+  "cpu": "1024",
+  "memory": "2048",
   "executionRoleArn": "arn:aws:iam::111111111111:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::111111111111:role/codeforgeApiTaskRoleStaging",
   "containerDefinitions": [
     {
       "name": "codeforge-worker",
-      "image": "111111111111.dkr.ecr.ap-south-1.amazonaws.com/codeforge-api:latest",
+      "image": "111111111111.dkr.ecr.ap-south-1.amazonaws.com/codeforge-worker:latest",
       "essential": true,
       "command": [
         "celery",
@@ -37,6 +37,14 @@
         {
           "name": "OTEL_ENVIRONMENT",
           "value": "staging"
+        },
+        {
+          "name": "CODEFORGE_DISABLE_PLAYWRIGHT",
+          "value": "false"
+        },
+        {
+          "name": "PLAYWRIGHT_BROWSERS_PATH",
+          "value": "/ms-playwright"
         }
       ],
       "secrets": [

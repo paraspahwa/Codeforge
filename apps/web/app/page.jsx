@@ -5,11 +5,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyGitConflictAssist,
   compactWorkflow,
+  createAgentTemplate,
   createSession,
   createWorkflowPlan,
   decideProposal,
   executeWorkflowPlan,
+  fetchSessionArtifactPreviewHtml,
   forkSession,
+  listAgentTemplates,
+  listSessionArtifacts,
   getGitConflictGuide,
   getProposal,
   getUsageSummary,
@@ -53,6 +57,15 @@ export default function ChatPage() {
   const [loopPrompt, setLoopPrompt] = useState("Fix verification failures with minimal safe edits.");
   const [loopMaxAttempts, setLoopMaxAttempts] = useState(3);
   const [loopRunning, setLoopRunning] = useState(false);
+  const [artifacts, setArtifacts] = useState([]);
+  const [selectedArtifactId, setSelectedArtifactId] = useState("");
+  const [artifactPreviewHtml, setArtifactPreviewHtml] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateName, setTemplateName] = useState("Code reviewer");
+  const [templatePrefix, setTemplatePrefix] = useState(
+    "You are a senior reviewer. Focus on correctness, security, and test coverage.",
+  );
   const chatEndRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -92,8 +105,23 @@ export default function ChatPage() {
         .catch((error) => toast.push(error.message));
     }
     // toast is stable; refresh only when auth changes
+    listAgentTemplates(token)
+      .then((result) => setTemplates(result.templates || []))
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, token]);
+
+  useEffect(() => {
+    if (!token || !sessionId) {
+      setArtifacts([]);
+      setSelectedArtifactId("");
+      setArtifactPreviewHtml("");
+      return;
+    }
+    listSessionArtifacts(sessionId, token)
+      .then((result) => setArtifacts(result.artifacts || []))
+      .catch(() => undefined);
+  }, [token, sessionId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -167,7 +195,7 @@ export default function ChatPage() {
     ]);
 
     try {
-      const sent = await sendMessage(sessionId, userText, token);
+      const sent = await sendMessage(sessionId, userText, token, null, selectedTemplateId || null);
       setLastModel(sent.model_used ?? "-");
       pushAgentEvents([
         `route: ${sent.intent ?? "unknown"} via ${sent.model_used ?? "unknown"}`,
@@ -235,9 +263,13 @@ export default function ChatPage() {
               ? `final confidence: ${evt.payload.confidence_label} (${Math.round((evt.payload.confidence_score ?? 0) * 100)}%)`
               : null,
             evt.payload?.review_required ? "final review: human review recommended" : null,
+            evt.payload?.artifact_ids?.length ? `artifacts: ${evt.payload.artifact_ids.join(", ")}` : null,
           ]);
           source.close();
           getUsageSummary(token).then(setUsage).catch(() => undefined);
+          listSessionArtifacts(sessionId, token)
+            .then((result) => setArtifacts(result.artifacts || []))
+            .catch(() => undefined);
           setLoading(false);
         }
       });
@@ -446,6 +478,45 @@ export default function ChatPage() {
     }
   }
 
+  async function handlePreviewArtifact(artifactId) {
+    if (!sessionId || !token || !artifactId) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const html = await fetchSessionArtifactPreviewHtml(sessionId, artifactId, token);
+      setSelectedArtifactId(artifactId);
+      setArtifactPreviewHtml(html);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateTemplate() {
+    if (!templateName.trim() || !templatePrefix.trim()) {
+      toast.push("Template name and prompt prefix are required");
+      return;
+    }
+    setLoading(true);
+    try {
+      await createAgentTemplate(token, {
+        name: templateName.trim(),
+        description: "Custom reusable agent template",
+        prompt_prefix: templatePrefix.trim(),
+        verify_command: loopVerify.trim() || null,
+      });
+      const result = await listAgentTemplates(token);
+      setTemplates(result.templates || []);
+      toast.push("Template saved", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleForkSession() {
     if (!sessionId || !token) {
       return;
@@ -641,6 +712,73 @@ export default function ChatPage() {
             </div>
             {activePlanId ? <p className="small">Active plan: {activePlanId}</p> : null}
             {workflowOutput ? <pre className="proposal-preview mt-8">{workflowOutput}</pre> : null}
+
+            <h4 className="small mt-8">Agent templates</h4>
+            <label className="small" htmlFor="template-select">
+              Apply template on send
+            </label>
+            <select
+              id="template-select"
+              value={selectedTemplateId}
+              onChange={(event) => setSelectedTemplateId(event.target.value)}
+              disabled={loading}
+            >
+              <option value="">None</option>
+              {templates.map((template) => (
+                <option key={template.template_id} value={template.template_id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+            <label className="small" htmlFor="template-name">
+              New template name
+            </label>
+            <input
+              id="template-name"
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+              disabled={loading}
+            />
+            <label className="small" htmlFor="template-prefix">
+              Prompt prefix
+            </label>
+            <textarea
+              id="template-prefix"
+              rows={3}
+              value={templatePrefix}
+              onChange={(event) => setTemplatePrefix(event.target.value)}
+              disabled={loading}
+            />
+            <button type="button" onClick={handleCreateTemplate} disabled={loading}>
+              Save template
+            </button>
+
+            <h4 className="small mt-8">Artifacts preview</h4>
+            {artifacts.length === 0 ? (
+              <p className="small">No artifacts yet. Assistant responses with fenced html/mermaid blocks are captured automatically.</p>
+            ) : (
+              <div className="replay-toolbar">
+                {artifacts.map((artifact) => (
+                  <button
+                    key={artifact.artifact_id}
+                    type="button"
+                    className={`ghost-btn ${selectedArtifactId === artifact.artifact_id ? "ghost-btn-active" : ""}`}
+                    onClick={() => handlePreviewArtifact(artifact.artifact_id)}
+                    disabled={loading}
+                  >
+                    {artifact.title}
+                  </button>
+                ))}
+              </div>
+            )}
+            {artifactPreviewHtml ? (
+              <iframe
+                title="Artifact preview"
+                className="artifact-preview-frame mt-8"
+                sandbox="allow-scripts"
+                srcDoc={artifactPreviewHtml}
+              />
+            ) : null}
           </div>
         ) : null}
 

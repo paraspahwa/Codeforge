@@ -42,12 +42,9 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 
 ## Backlog Areas (active)
 
-- Surface parity: team, cowork, and confidence UX on desktop Code, terminal, and VS Code
-- ECS worker deploy for background cowork jobs
-- SWE-bench-style internal quality eval harness
-- Enterprise: SSO, audit trail, knowledge uploads, real-time team sync
-- Phase 3 stretch: web loop UI, artifacts/live preview, remote channels, custom agents
-- Fail-closed routing regression deploy gates
+- Production IdP wiring and OIDC login UI on web/desktop clients
+- Screenshot OCR quality tuning and worker Playwright image deps in ECS
+- Delegation supervisor loops with human approval between steps
 
 ## Notes
 
