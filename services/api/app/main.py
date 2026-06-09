@@ -1166,7 +1166,6 @@ def add_team_workspace_member(
 @app.post("/api/v1/team/session-share", response_model=SessionShareResponse)
 def create_session_share(
     payload: SessionShareCreateRequest,
-    request: Request,
     user: AuthUser = Depends(get_current_user),
 ) -> SessionShareResponse:
     session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
@@ -1179,9 +1178,9 @@ def create_session_share(
         access_level=payload.access_level,
         expires_in_hours=payload.expires_in_hours,
     )
-    base_url = str(request.base_url).rstrip("/")
+    web_base = os.getenv("CODEFORGE_WEB_BASE_URL", "http://localhost:3000").rstrip("/")
     response_payload = dict(share)
-    response_payload["share_url"] = f"{base_url}/api/v1/team/session-share/{share['share_id']}"
+    response_payload["share_url"] = f"{web_base}/share/{share['share_id']}"
     return SessionShareResponse(**response_payload)
 
 
@@ -1270,6 +1269,41 @@ def list_team_delegations(
 ) -> TeamDelegationListResponse:
     items = projects_team_service.list_delegations(user_id=user.user_id, workspace_id=workspace_id)
     return TeamDelegationListResponse(delegations=[TeamDelegationResponse(**item) for item in items])
+
+
+@app.post("/api/v1/team/delegations/{task_id}/execute", response_model=TeamDelegationResponse)
+async def execute_team_delegation(
+    task_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamDelegationResponse:
+    delegation = projects_team_service.list_delegations(user_id=user.user_id)
+    match = next((item for item in delegation if item["task_id"] == task_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Delegation not found")
+
+    session = get_session_for_user(session_id=match["session_id"], user_id=user.user_id)
+    if session is None:
+        owner_session = None
+        for workspace in projects_team_service.list_workspaces(user_id=user.user_id):
+            owner_session = get_session_for_user(session_id=match["session_id"], user_id=workspace["owner_id"])
+            if owner_session:
+                break
+        session = owner_session
+
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found for delegation")
+
+    try:
+        result = await projects_team_service.execute_delegation(
+            actor_id=user.user_id,
+            task_id=task_id,
+            project_path=resolved_project_path(session),
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    add_span_event("team.delegation_executed", {"task_id": task_id, "status": result["status"]})
+    return TeamDelegationResponse(**result)
 
 
 @app.post("/api/v1/context/packs", response_model=ContextPackResponse)
@@ -1864,6 +1898,13 @@ async def stream_session(
             composed_prompt = user_prompt
             if session_context.get("composed_text"):
                 composed_prompt = f"{user_prompt}\n\nAttached context:\n{session_context['composed_text']}"
+            knowledge_context = projects_team_service.compose_knowledge_context(
+                user_id=user.user_id,
+                session_id=session_id,
+                query=user_prompt,
+            )
+            if knowledge_context:
+                composed_prompt = f"{composed_prompt}\n\n{knowledge_context}"
             run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,

@@ -135,6 +135,46 @@ export async function createSessionShare(token, sessionId, accessLevel = "view",
   return shared.createSessionShare(API_BASE, token, sessionId, accessLevel, expiresInHours);
 }
 
+export async function resolveSessionShare(token, shareId) {
+  return shared.resolveSessionShare(API_BASE, token, shareId);
+}
+
+export async function rebuildProjectKnowledge(token, payload) {
+  return shared.rebuildProjectKnowledge(API_BASE, token, payload);
+}
+
+export async function getProjectKnowledge(token, sessionId) {
+  return shared.getProjectKnowledge(API_BASE, token, sessionId);
+}
+
+export async function queryProjectKnowledge(token, payload) {
+  return shared.queryProjectKnowledge(API_BASE, token, payload);
+}
+
+export async function createTeamWorkspace(token, payload) {
+  return shared.createTeamWorkspace(API_BASE, token, payload);
+}
+
+export async function listTeamWorkspaces(token) {
+  return shared.listTeamWorkspaces(API_BASE, token);
+}
+
+export async function addTeamWorkspaceMember(token, workspaceId, payload) {
+  return shared.addTeamWorkspaceMember(API_BASE, token, workspaceId, payload);
+}
+
+export async function createTeamDelegation(token, payload) {
+  return shared.createTeamDelegation(API_BASE, token, payload);
+}
+
+export async function listTeamDelegations(token, workspaceId = null) {
+  return shared.listTeamDelegations(API_BASE, token, workspaceId);
+}
+
+export async function executeTeamDelegation(token, taskId) {
+  return shared.executeTeamDelegation(API_BASE, token, taskId);
+}
+
 export async function sendMessage(sessionId, content, token, context = null) {
   return shared.sendMessage(API_BASE, token, sessionId, { content, context });
 }

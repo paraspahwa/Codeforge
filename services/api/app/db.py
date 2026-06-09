@@ -23,6 +23,11 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_cowork_plans_user ON cowork_plans(user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_cowork_runs_user ON cowork_runs(user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_cowork_jobs_enabled ON cowork_jobs(enabled, circuit_broken)",
+    "CREATE INDEX IF NOT EXISTS idx_project_knowledge_session ON project_knowledge(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_team_workspaces_owner ON team_workspaces(owner_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_workspace_members(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_session_shares_session ON session_shares(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_team_delegations_workspace ON team_delegations(workspace_id, created_at)",
 )
 
 
@@ -325,6 +330,71 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_knowledge (
+                        knowledge_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL UNIQUE,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        project_path TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        items_json TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_workspaces (
+                        workspace_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        owner_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_workspace_members (
+                        workspace_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        added_at TEXT NOT NULL,
+                        PRIMARY KEY (workspace_id, user_id)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS session_shares (
+                        share_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        owner_id TEXT NOT NULL,
+                        access_level TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_delegations (
+                        task_id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        requester_id TEXT NOT NULL,
+                        assigned_role TEXT NOT NULL,
+                        task TEXT NOT NULL,
+                        priority TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        completed_at TEXT
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
         return
@@ -527,6 +597,56 @@ def init_db() -> None:
                 entities_json TEXT NOT NULL,
                 warnings_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS project_knowledge (
+                knowledge_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                items_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS team_workspaces (
+                workspace_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS team_workspace_members (
+                workspace_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS session_shares (
+                share_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                access_level TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS team_delegations (
+                task_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                requester_id TEXT NOT NULL,
+                assigned_role TEXT NOT NULL,
+                task TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                status TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
             );
             """
         )

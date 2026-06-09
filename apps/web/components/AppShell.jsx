@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Chat" },
   { href: "/sessions", label: "Sessions" },
   { href: "/cowork", label: "Cowork" },
+  { href: "/team", label: "Team" },
   { href: "/analytics", label: "Analytics" },
   { href: "/billing", label: "Billing" },
   { href: "/settings", label: "Settings" },

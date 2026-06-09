@@ -396,6 +396,71 @@ export async function createSessionShare(baseUrl, token, sessionId, accessLevel 
   });
 }
 
+export async function resolveSessionShare(baseUrl, token, shareId) {
+  return requestJson(baseUrl, `/api/v1/team/session-share/${shareId}`, { token });
+}
+
+export async function rebuildProjectKnowledge(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/projects/knowledge/rebuild", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getProjectKnowledge(baseUrl, token, sessionId) {
+  const query = new URLSearchParams({ session_id: sessionId }).toString();
+  return requestJson(baseUrl, `/api/v1/projects/knowledge?${query}`, { token });
+}
+
+export async function queryProjectKnowledge(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/projects/knowledge/query", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function createTeamWorkspace(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/team/workspaces", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listTeamWorkspaces(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/team/workspaces", { token });
+}
+
+export async function addTeamWorkspaceMember(baseUrl, token, workspaceId, payload) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/members`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function createTeamDelegation(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/team/delegations", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listTeamDelegations(baseUrl, token, workspaceId = null) {
+  const query = workspaceId ? `?${new URLSearchParams({ workspace_id: workspaceId }).toString()}` : "";
+  return requestJson(baseUrl, `/api/v1/team/delegations${query}`, { token });
+}
+
+export async function executeTeamDelegation(baseUrl, token, taskId) {
+  return requestJson(baseUrl, `/api/v1/team/delegations/${taskId}/execute`, {
+    method: "POST",
+    token,
+  });
+}
+
 export async function createContextPack(baseUrl, token, payload) {
   return requestJson(baseUrl, "/api/v1/context/packs", {
     method: "POST",

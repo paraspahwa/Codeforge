@@ -7,6 +7,8 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from . import projects_team_store as store
+
 
 _TEXT_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".css", ".html", ".rs", ".go", ".java", ".sh"}
 _MAX_INDEXED_FILES = 80
@@ -55,12 +57,6 @@ class KnowledgeItem:
 
 
 class ProjectsTeamService:
-    def __init__(self) -> None:
-        self._knowledge_by_session: dict[str, dict[str, Any]] = {}
-        self._workspaces: dict[str, dict[str, Any]] = {}
-        self._session_shares: dict[str, dict[str, Any]] = {}
-        self._delegations: list[dict[str, Any]] = []
-
     def rebuild_knowledge(self, *, user_id: str, session_id: str, project_path: str, title: str) -> dict[str, Any]:
         root = Path(project_path).expanduser().resolve()
         if not root.exists() or not root.is_dir():
@@ -105,11 +101,11 @@ class ProjectsTeamService:
             "items": [item.__dict__ for item in indexed_items],
             "updated_at": utc_now().isoformat(),
         }
-        self._knowledge_by_session[session_id] = state
+        store.save_knowledge(state)
         return state
 
     def get_knowledge(self, *, user_id: str, session_id: str) -> dict[str, Any]:
-        state = self._knowledge_by_session.get(session_id)
+        state = store.get_knowledge_by_session(session_id)
         if state is None or state["user_id"] != user_id:
             raise ProjectsTeamError("Knowledge base not found")
         return state
@@ -138,6 +134,21 @@ class ProjectsTeamService:
             "summary": f"Returned {len(top)} result(s) from {len(state['items'])} indexed files",
         }
 
+    def compose_knowledge_context(self, *, user_id: str, session_id: str, query: str, limit: int = 4) -> str:
+        state = store.get_knowledge_by_session(session_id)
+        if state is None or state["user_id"] != user_id or not state.get("items"):
+            return ""
+
+        result = self.query_knowledge(user_id=user_id, session_id=session_id, query=query, limit=limit)
+        snippets = result.get("results") or []
+        if not snippets:
+            return ""
+
+        lines = [f"Project knowledge ({state['title']}):"]
+        for item in snippets:
+            lines.append(f"- {item['path']}: {item['excerpt']}")
+        return "\n".join(lines)
+
     def create_workspace(self, *, owner_id: str, name: str, description: str) -> dict[str, Any]:
         workspace_id = f"ws_{uuid4().hex[:10]}"
         now = utc_now().isoformat()
@@ -155,18 +166,14 @@ class ProjectsTeamService:
                 }
             ],
         }
-        self._workspaces[workspace_id] = workspace
+        store.save_workspace(workspace)
         return workspace
 
     def list_workspaces(self, *, user_id: str) -> list[dict[str, Any]]:
-        items = []
-        for workspace in self._workspaces.values():
-            if any(member["user_id"] == user_id for member in workspace["members"]):
-                items.append(workspace)
-        return sorted(items, key=lambda entry: entry["created_at"], reverse=True)
+        return store.list_workspaces_for_user(user_id)
 
     def add_workspace_member(self, *, actor_id: str, workspace_id: str, member_user_id: str, role: str) -> dict[str, Any]:
-        workspace = self._workspaces.get(workspace_id)
+        workspace = store.get_workspace(workspace_id)
         if workspace is None:
             raise ProjectsTeamError("Workspace not found")
 
@@ -179,19 +186,13 @@ class ProjectsTeamService:
         if actor_role not in {"owner", "admin"}:
             raise ProjectsTeamError("Only owner/admin can add workspace members")
 
-        for member in workspace["members"]:
-            if member["user_id"] == member_user_id:
-                member["role"] = role
-                return workspace
-
-        workspace["members"].append(
-            {
-                "user_id": member_user_id,
-                "role": role,
-                "added_at": utc_now().isoformat(),
-            }
-        )
-        return workspace
+        member = {
+            "user_id": member_user_id,
+            "role": role,
+            "added_at": utc_now().isoformat(),
+        }
+        store.save_workspace_member(workspace_id, member)
+        return store.get_workspace(workspace_id) or workspace
 
     def create_session_share(
         self,
@@ -211,11 +212,11 @@ class ProjectsTeamService:
             "created_at": now.isoformat(),
             "expires_at": (now + timedelta(hours=expires_in_hours)).isoformat(),
         }
-        self._session_shares[share_id] = share
+        store.save_session_share(share)
         return share
 
     def resolve_session_share(self, *, share_id: str) -> dict[str, Any]:
-        share = self._session_shares.get(share_id)
+        share = store.get_session_share(share_id)
         if share is None:
             raise ProjectsTeamError("Share not found")
 
@@ -233,7 +234,7 @@ class ProjectsTeamService:
         task: str,
         priority: str,
     ) -> dict[str, Any]:
-        workspace = self._workspaces.get(workspace_id)
+        workspace = store.get_workspace(workspace_id)
         if workspace is None:
             raise ProjectsTeamError("Workspace not found")
 
@@ -250,10 +251,11 @@ class ProjectsTeamService:
             "task": task,
             "priority": priority,
             "status": "queued",
-            "note": "Delegation recorded; execution wiring is pending agent-team runtime",
+            "note": "Queued for agent-team execution",
             "created_at": utc_now().isoformat(),
+            "completed_at": None,
         }
-        self._delegations.append(delegation)
+        store.save_delegation(delegation)
         return delegation
 
     def list_delegations(self, *, user_id: str, workspace_id: str | None = None) -> list[dict[str, Any]]:
@@ -261,16 +263,58 @@ class ProjectsTeamService:
             workspace["workspace_id"]
             for workspace in self.list_workspaces(user_id=user_id)
         }
+        return store.list_delegations_for_workspaces(visible_workspace_ids, workspace_id)
 
-        rows = []
-        for item in self._delegations:
-            if item["workspace_id"] not in visible_workspace_ids:
-                continue
-            if workspace_id and item["workspace_id"] != workspace_id:
-                continue
-            rows.append(item)
+    async def execute_delegation(self, *, actor_id: str, task_id: str, project_path: str) -> dict[str, Any]:
+        delegation = store.get_delegation(task_id)
+        if delegation is None:
+            raise ProjectsTeamError("Delegation not found")
 
-        return sorted(rows, key=lambda entry: entry["created_at"], reverse=True)
+        workspace = store.get_workspace(delegation["workspace_id"])
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+
+        if not any(member["user_id"] == actor_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can execute delegations")
+
+        if delegation["status"] not in {"queued", "failed"}:
+            raise ProjectsTeamError(f"Delegation is already {delegation['status']}")
+
+        store.update_delegation(
+            task_id,
+            status="in_progress",
+            note=f"Assigned role {delegation['assigned_role']} is executing the task",
+        )
+
+        from .agent import build_agent_run
+
+        role_prefix = f"[Delegated to {delegation['assigned_role']}] "
+        prompt = f"{role_prefix}{delegation['task']}"
+        try:
+            run = await build_agent_run(
+                prompt=prompt,
+                session_id=delegation["session_id"],
+                project_path=project_path,
+                current_file=None,
+            )
+            note = f"Completed by {delegation['assigned_role']}: {run.assistant_message[:240]}"
+            store.update_delegation(
+                task_id,
+                status="completed",
+                note=note,
+                completed_at=utc_now().isoformat(),
+            )
+        except Exception as exc:
+            store.update_delegation(
+                task_id,
+                status="failed",
+                note=f"Delegation failed: {exc}",
+                completed_at=utc_now().isoformat(),
+            )
+            raise ProjectsTeamError(str(exc)) from exc
+
+        updated = store.get_delegation(task_id)
+        return updated or delegation
 
 
 projects_team_service = ProjectsTeamService()
