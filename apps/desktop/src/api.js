@@ -1,143 +1,87 @@
+import * as shared from "@codeforge/shared/api";
+
 const API_BASE = import.meta.env.VITE_CODEFORGE_API_BASE_URL || "http://localhost:8000";
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method || "GET",
-    headers: {
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  if (!response.ok) {
-    let detail = "Request failed";
-    try {
-      const payload = await response.json();
-      detail = payload?.detail || detail;
-    } catch {
-      // ignore non-json errors
-    }
-    throw new Error(detail);
-  }
-
-  return response.json();
-}
-
 export async function devLogin(userId) {
-  const data = await request("/api/v1/auth/dev-login", {
-    method: "POST",
-    body: { user_id: userId },
-  });
+  const data = await shared.devLogin(API_BASE, userId);
   return data.access_token;
 }
 
 export async function listSessions(token) {
-  return request("/api/v1/sessions", { token });
+  return shared.listSessions(API_BASE, token);
 }
 
 export async function createSession(token, projectPath) {
-  return request("/api/v1/sessions", {
-    method: "POST",
-    token,
-    body: { project_path: projectPath, model_preference: "auto" },
+  return shared.createSession(API_BASE, token, {
+    project_path: projectPath,
+    model_preference: "auto",
   });
 }
 
 export async function createCoworkPlan(token, payload) {
-  return request("/api/v1/cowork/plans", {
-    method: "POST",
-    token,
-    body: payload,
-  });
+  return shared.createCoworkPlan(API_BASE, token, payload);
 }
 
 export async function listCoworkPlans(token) {
-  return request("/api/v1/cowork/plans", { token });
+  return shared.listCoworkPlans(API_BASE, token);
 }
 
 export async function runCoworkPlan(token, planId, approved = false) {
-  return request(`/api/v1/cowork/plans/${planId}/run`, {
-    method: "POST",
-    token,
-    body: { approved },
-  });
+  return shared.runCoworkPlan(API_BASE, token, planId, approved);
 }
 
 export async function listCoworkRuns(token) {
-  return request("/api/v1/cowork/runs", { token });
+  return shared.listCoworkRuns(API_BASE, token);
 }
 
 export async function createCoworkJob(token, payload) {
-  return request("/api/v1/cowork/jobs", {
-    method: "POST",
-    token,
-    body: payload,
-  });
+  return shared.createCoworkJob(API_BASE, token, payload);
 }
 
 export async function listCoworkJobs(token) {
-  return request("/api/v1/cowork/jobs", { token });
+  return shared.listCoworkJobs(API_BASE, token);
 }
 
 export async function toggleCoworkJob(token, jobId, enabled) {
-  return request(`/api/v1/cowork/jobs/${jobId}/toggle`, {
-    method: "POST",
-    token,
-    body: { enabled },
-  });
+  return shared.toggleCoworkJob(API_BASE, token, jobId, enabled);
 }
 
 export async function extractCoworkData(token, payload) {
-  return request("/api/v1/cowork/extract", {
-    method: "POST",
-    token,
-    body: payload,
-  });
+  return shared.extractCoworkData(API_BASE, token, payload);
 }
 
 export async function listCoworkExtractions(token) {
-  return request("/api/v1/cowork/extract", { token });
+  return shared.listCoworkExtractions(API_BASE, token);
 }
 
 export async function getGitConflictGuide(token, sessionId, targetBranch) {
-  const query = new URLSearchParams({ target_branch: targetBranch }).toString();
-  return request(`/api/v1/sessions/${sessionId}/git/conflict-guide?${query}`, { token });
+  return shared.getGitConflictGuide(API_BASE, token, sessionId, targetBranch);
 }
 
 export async function applyGitConflictAssist(token, sessionId, payload) {
-  return request(`/api/v1/sessions/${sessionId}/git/conflict-assist/apply`, {
-    method: "POST",
-    token,
-    body: payload,
-  });
+  return shared.applyGitConflictAssist(API_BASE, token, sessionId, payload);
 }
 
 export async function getSynthesisRolloutPlan(token, environment = "local") {
-  const query = new URLSearchParams({ environment }).toString();
-  return request(`/api/v1/deploy/synthesis-rollout-plan?${query}`, { token });
+  return shared.getSynthesisRolloutPlan(API_BASE, token, environment);
 }
 
 export async function getSynthesisRolloutValidation(token, environment = "local") {
-  const query = new URLSearchParams({ environment }).toString();
-  return request(`/api/v1/deploy/synthesis-rollout-validate?${query}`, { token });
+  return shared.getSynthesisRolloutValidation(API_BASE, token, environment);
 }
 
 export async function getRoutingBenchmark(token, suite = "policy") {
-  const query = new URLSearchParams({ suite }).toString();
-  return request(`/api/v1/evals/routing-benchmark?${query}`, { token });
+  return shared.getRoutingBenchmark(API_BASE, token, suite);
 }
 
 export async function getRoutingBenchmarkTrends(token, suite = "policy", limit = 20) {
-  const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
-  return request(`/api/v1/evals/routing-benchmark/trends?${query}`, { token });
+  return shared.getRoutingBenchmarkTrends(API_BASE, token, suite, limit);
 }
 
 export async function getCoworkReliability(token) {
-  return request("/api/v1/cowork/reliability", { token });
+  return shared.getCoworkReliability(API_BASE, token);
 }
 
 export async function getCoworkReliabilityHistory(token, limit = 50) {
-  const query = new URLSearchParams({ limit: String(limit) }).toString();
-  return request(`/api/v1/cowork/reliability/history?${query}`, { token });
+  return shared.getCoworkReliabilityHistory(API_BASE, token, limit);
 }

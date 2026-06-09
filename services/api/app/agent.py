@@ -585,17 +585,17 @@ async def build_agent_run(
         timestamp = utc_now()
         input_tokens = max(1, len(prompt.split()))
 
-        active_file = infer_target_file(prompt, current_file=current_file)
-        original_content = read_file_content(active_file) if active_file else ""
+        active_file = infer_target_file(project_path, prompt, current_file=current_file)
+        original_content = read_file_content(project_path, active_file) if active_file else ""
         proposed_content = generate_proposed_content(active_file, prompt, original_content) if active_file else ""
-        excerpt = read_file_excerpt(active_file) if active_file else ""
+        excerpt = read_file_excerpt(project_path, active_file) if active_file else ""
 
         fallback_summary = (
             f"Intent routed as {decision.intent.replace('_', ' ')} using {decision.model_used}. "
             f"I will inspect the request, prepare a scoped change, emit a diff for approval, and then verify the result."
         )
 
-        diff_target = active_file or "services/api/app/main.py"
+        diff_target = active_file or "README.md"
         patch_preview = build_patch_preview(diff_target, prompt, excerpt, original_content, proposed_content)
         set_span_attributes(
             {

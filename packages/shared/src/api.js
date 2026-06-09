@@ -77,18 +77,18 @@ export async function decideProposal(baseUrl, token, sessionId, proposalId, acti
   });
 }
 
-export async function getFilePreview(baseUrl, token, path) {
+export async function getFilePreview(baseUrl, token, sessionId, path) {
   const query = new URLSearchParams({ path }).toString();
-  return requestJson(baseUrl, `/api/v1/files/preview?${query}`, { token });
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/preview?${query}`, { token });
 }
 
-export async function getFileContent(baseUrl, token, path) {
+export async function getFileContent(baseUrl, token, sessionId, path) {
   const query = new URLSearchParams({ path }).toString();
-  return requestJson(baseUrl, `/api/v1/files/content?${query}`, { token });
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/content?${query}`, { token });
 }
 
-export async function applyFile(baseUrl, token, payload) {
-  return requestJson(baseUrl, `/api/v1/files/apply`, {
+export async function applyFile(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/apply`, {
     method: "POST",
     token,
     body: payload,
@@ -239,6 +239,103 @@ export async function getSynthesisRolloutStatus(baseUrl, token) {
 export async function getSynthesisRolloutPlan(baseUrl, token, environment = "local") {
   const query = new URLSearchParams({ environment }).toString();
   return requestJson(baseUrl, `/api/v1/deploy/synthesis-rollout-plan?${query}`, { token });
+}
+
+export async function getSynthesisRolloutValidation(baseUrl, token, environment = "local") {
+  const query = new URLSearchParams({ environment }).toString();
+  return requestJson(baseUrl, `/api/v1/deploy/synthesis-rollout-validate?${query}`, { token });
+}
+
+export async function getRoutingBenchmark(baseUrl, token, suite = "policy") {
+  const query = new URLSearchParams({ suite }).toString();
+  return requestJson(baseUrl, `/api/v1/evals/routing-benchmark?${query}`, { token });
+}
+
+export async function getRoutingBenchmarkTrends(baseUrl, token, suite = "policy", limit = 20) {
+  const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/evals/routing-benchmark/trends?${query}`, { token });
+}
+
+export async function getCoworkReliability(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/cowork/reliability", { token });
+}
+
+export async function getCoworkReliabilityHistory(baseUrl, token, limit = 50) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/cowork/reliability/history?${query}`, { token });
+}
+
+export async function createCoworkPlan(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/plans", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listCoworkPlans(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/cowork/plans", { token });
+}
+
+export async function runCoworkPlan(baseUrl, token, planId, approved = false) {
+  return requestJson(baseUrl, `/api/v1/cowork/plans/${planId}/run`, {
+    method: "POST",
+    token,
+    body: { approved },
+  });
+}
+
+export async function listCoworkRuns(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/cowork/runs", { token });
+}
+
+export async function createCoworkJob(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/jobs", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listCoworkJobs(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/cowork/jobs", { token });
+}
+
+export async function toggleCoworkJob(baseUrl, token, jobId, enabled) {
+  return requestJson(baseUrl, `/api/v1/cowork/jobs/${jobId}/toggle`, {
+    method: "POST",
+    token,
+    body: { enabled },
+  });
+}
+
+export async function extractCoworkData(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/extract", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listCoworkExtractions(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/cowork/extract", { token });
+}
+
+export async function exportSession(baseUrl, token, sessionId, format = "json") {
+  const query = new URLSearchParams({ format }).toString();
+  return requestJson(baseUrl, `/api/v1/team/session-export/${sessionId}?${query}`, { token });
+}
+
+export async function createSessionShare(baseUrl, token, sessionId, accessLevel = "view", expiresInHours = 72) {
+  return requestJson(baseUrl, "/api/v1/team/session-share", {
+    method: "POST",
+    token,
+    body: {
+      session_id: sessionId,
+      access_level: accessLevel,
+      expires_in_hours: expiresInHours,
+    },
+  });
 }
 
 export async function createContextPack(baseUrl, token, payload) {

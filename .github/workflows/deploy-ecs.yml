@@ -34,6 +34,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build and start stack
+        env:
+          POSTGRES_PASSWORD: ci-test-password
+          SUPABASE_JWT_SECRET: ci-test-jwt-secret
         run: docker compose -f docker-compose.prod.yml up -d --build
 
       - name: API health check
@@ -50,63 +53,63 @@ jobs:
           docker compose -f docker-compose.prod.yml logs
           exit 1
 
-          - name: Platform stack health gate
-          shell: bash
-          run: |
-            set -euo pipefail
-            curl -fsS http://127.0.0.1:8000/api/v1/platform/stack-status >/tmp/stack-status.json
+      - name: Platform stack health gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:8000/api/v1/platform/stack-status >/tmp/stack-status.json
 
-            python - <<'PY'
-            import json
-            import sys
+          python - <<'PY'
+          import json
+          import sys
 
-            payload = json.load(open('/tmp/stack-status.json', encoding='utf-8'))
-            issues = []
+          payload = json.load(open('/tmp/stack-status.json', encoding='utf-8'))
+          issues = []
 
-            if not payload.get('redis', {}).get('healthy', False):
-              issues.append('redis unhealthy')
-            if not payload.get('vector_store', {}).get('healthy', False):
-              issues.append('vector_store unhealthy')
-            if not payload.get('task_queue', {}).get('healthy', False):
-              issues.append('task_queue unhealthy')
+          if not payload.get('redis', {}).get('healthy', False):
+            issues.append('redis unhealthy')
+          if not payload.get('vector_store', {}).get('healthy', False):
+            issues.append('vector_store unhealthy')
+          if not payload.get('task_queue', {}).get('healthy', False):
+            issues.append('task_queue unhealthy')
 
-            # Treat fallback backends as degraded in CI release gates.
-            if payload.get('redis', {}).get('backend') == 'memory':
-              issues.append('redis backend degraded: memory')
-            if payload.get('vector_store', {}).get('backend') == 'memory':
-              issues.append('vector backend degraded: memory')
-              if payload.get('vector_store', {}).get('embedding_source') != 'real':
-                issues.append("vector embedding degraded: expected 'real'")
-            if payload.get('task_queue', {}).get('backend') == 'inline':
-              issues.append('task queue degraded: inline backend')
-            if payload.get('generation', {}).get('backend') == 'deterministic':
-              issues.append('generation backend degraded: deterministic')
+          # Treat fallback backends as degraded in CI release gates.
+          if payload.get('redis', {}).get('backend') == 'memory':
+            issues.append('redis backend degraded: memory')
+          if payload.get('vector_store', {}).get('backend') == 'memory':
+            issues.append('vector backend degraded: memory')
+            if payload.get('vector_store', {}).get('embedding_source') != 'real':
+              issues.append("vector embedding degraded: expected 'real'")
+          if payload.get('task_queue', {}).get('backend') == 'inline':
+            issues.append('task queue degraded: inline backend')
+          if payload.get('generation', {}).get('backend') == 'deterministic':
+            issues.append('generation backend degraded: deterministic')
 
-            if issues:
-              print('Stack-status degraded:', '; '.join(issues))
-              sys.exit(1)
+          if issues:
+            print('Stack-status degraded:', '; '.join(issues))
+            sys.exit(1)
 
-            print('Stack-status gate passed')
-            PY
+          print('Stack-status gate passed')
+          PY
 
-          - name: Queue ping health gate
-          shell: bash
-          run: |
-            set -euo pipefail
-            curl -fsS -X POST http://127.0.0.1:8000/api/v1/platform/queue-ping >/tmp/queue-ping.json
+      - name: Queue ping health gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST http://127.0.0.1:8000/api/v1/platform/queue-ping >/tmp/queue-ping.json
 
-            python - <<'PY'
-            import json
-            import sys
+          python - <<'PY'
+          import json
+          import sys
 
-            payload = json.load(open('/tmp/queue-ping.json', encoding='utf-8'))
-            backend = payload.get('backend')
-            status = payload.get('status')
-            if backend != 'celery' or status != 'queued':
-              print(f'Queue ping degraded: backend={backend} status={status}')
-              sys.exit(1)
-            print('Queue ping gate passed')
-            PY
+          payload = json.load(open('/tmp/queue-ping.json', encoding='utf-8'))
+          backend = payload.get('backend')
+          status = payload.get('status')
+          if backend != 'celery' or status != 'queued':
+            print(f'Queue ping degraded: backend={backend} status={status}')
+            sys.exit(1)
+          print('Queue ping gate passed')
+          PY
 
       - name: Routing regression warning check
         shell: bash

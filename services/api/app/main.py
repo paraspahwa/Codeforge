@@ -773,45 +773,75 @@ def list_messages(
     return [MessageItem(**row) for row in rows]
 
 
-@app.get("/api/v1/files/preview", response_model=FilePreviewResponse)
-def preview_file(path: str, user: AuthUser = Depends(get_current_user)) -> FilePreviewResponse:
-    resolved = resolve_repo_path(path)
+def _session_project_path(session_id: str, user: AuthUser) -> str:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session["project_path"]
+
+
+@app.get("/api/v1/sessions/{session_id}/files/preview", response_model=FilePreviewResponse)
+def preview_session_file(
+    session_id: str,
+    path: str,
+    user: AuthUser = Depends(get_current_user),
+) -> FilePreviewResponse:
+    project_path = _session_project_path(session_id, user)
+    resolved = resolve_repo_path(project_path, path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    relative_path = repo_relative_path(path) or path
-    content = read_file_content(relative_path)
+    relative_path = repo_relative_path(project_path, path) or path
+    content = read_file_content(project_path, relative_path)
     return FilePreviewResponse(
         path=relative_path,
         exists=True,
-        line_count=read_file_line_count(relative_path),
-        excerpt=read_file_excerpt(relative_path),
+        line_count=read_file_line_count(project_path, relative_path),
+        excerpt=read_file_excerpt(project_path, relative_path),
         content=content,
     )
 
 
-@app.get("/api/v1/files/content", response_model=FileContentResponse)
-def file_content(path: str, user: AuthUser = Depends(get_current_user)) -> FileContentResponse:
-    resolved = resolve_repo_path(path)
+@app.get("/api/v1/sessions/{session_id}/files/content", response_model=FileContentResponse)
+def session_file_content(
+    session_id: str,
+    path: str,
+    user: AuthUser = Depends(get_current_user),
+) -> FileContentResponse:
+    project_path = _session_project_path(session_id, user)
+    resolved = resolve_repo_path(project_path, path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    relative_path = repo_relative_path(path) or path
-    return FileContentResponse(path=relative_path, exists=True, content=read_file_content(relative_path))
+    relative_path = repo_relative_path(project_path, path) or path
+    return FileContentResponse(
+        path=relative_path,
+        exists=True,
+        content=read_file_content(project_path, relative_path),
+    )
 
 
-@app.post("/api/v1/files/apply", response_model=FileApplyResponse)
-def apply_file(payload: FileApplyRequest, user: AuthUser = Depends(get_current_user)) -> FileApplyResponse:
-    resolved = resolve_repo_path(payload.path)
+@app.post("/api/v1/sessions/{session_id}/files/apply", response_model=FileApplyResponse)
+def apply_session_file(
+    session_id: str,
+    payload: FileApplyRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> FileApplyResponse:
+    project_path = _session_project_path(session_id, user)
+    resolved = resolve_repo_path(project_path, payload.path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    relative_path = repo_relative_path(payload.path) or payload.path
-    applied = apply_proposed_content(relative_path, payload.content)
+    relative_path = repo_relative_path(project_path, payload.path) or payload.path
+    applied = apply_proposed_content(project_path, relative_path, payload.content)
     if not applied:
         raise HTTPException(status_code=400, detail="Unable to apply file content")
 
-    return FileApplyResponse(path=relative_path, applied=True, line_count=read_file_line_count(relative_path))
+    return FileApplyResponse(
+        path=relative_path,
+        applied=True,
+        line_count=read_file_line_count(project_path, relative_path),
+    )
 
 
 @app.post("/api/v1/cowork/plans", response_model=CoworkPlanResponse)
@@ -1801,7 +1831,7 @@ def decide_proposal(
     if payload.action == "approve":
         if proposal["original_content"] == proposal["proposed_content"]:
             raise HTTPException(status_code=400, detail="Proposal does not contain an applicable change")
-        applied = apply_proposed_content(proposal["target_file"], proposal["proposed_content"])
+        applied = apply_proposed_content(session["project_path"], proposal["target_file"], proposal["proposed_content"])
         if not applied:
             raise HTTPException(status_code=400, detail="Unable to apply proposal safely")
         next_status = "approved"

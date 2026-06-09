@@ -6,40 +6,53 @@ import re
 from pathlib import Path
 
 
-def _detect_repo_root() -> Path:
+class FileOpsError(ValueError):
+    pass
+
+
+FILE_PATTERN = re.compile(r"[\w./\\-]+\.[A-Za-z0-9]+")
+
+
+def resolve_project_root(project_path: str) -> Path:
+    root = Path(project_path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise FileOpsError("Project path does not exist")
+    return root
+
+
+def _fallback_project_root() -> Path | None:
     configured = os.getenv("CODEFORGE_REPO_ROOT")
     if configured:
         configured_path = Path(configured).expanduser().resolve()
-        if configured_path.exists():
+        if configured_path.exists() and configured_path.is_dir():
             return configured_path
 
     here = Path(__file__).resolve()
-    # Prefer a parent that looks like the monorepo root in local development.
     for parent in here.parents:
         if (parent / "package.json").exists() and (parent / "services").exists():
             return parent
 
-    # In the API container image we run from /app with only app/ copied in.
-    if len(here.parents) > 1 and here.parents[1].name == "app":
-        return here.parents[1]
-
-    # Safe fallback to avoid import-time crashes when parent depth is shallow.
-    return here.parents[min(3, len(here.parents) - 1)]
+    return None
 
 
-REPO_ROOT = _detect_repo_root()
-FILE_PATTERN = re.compile(r"[\w./\\-]+\.[A-Za-z0-9]+")
+def _project_root(project_path: str | None) -> Path:
+    if project_path:
+        return resolve_project_root(project_path)
+    fallback = _fallback_project_root()
+    if fallback is not None:
+        return fallback
+    raise FileOpsError("Project path is required")
 
 
-def _safe_repo_path(candidate: str | None) -> Path | None:
+def _safe_project_path(project_root: Path, candidate: str | None) -> Path | None:
     if not candidate:
         return None
 
     normalized = candidate.replace("\\", "/").lstrip("/")
-    path = (REPO_ROOT / normalized).resolve()
+    path = (project_root / normalized).resolve()
 
     try:
-        path.relative_to(REPO_ROOT)
+        path.relative_to(project_root)
     except ValueError:
         return None
 
@@ -49,47 +62,74 @@ def _safe_repo_path(candidate: str | None) -> Path | None:
     return None
 
 
-def resolve_repo_path(candidate: str | None) -> Path | None:
-    return _safe_repo_path(candidate)
+def resolve_repo_path(project_path: str | None, candidate: str | None) -> Path | None:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return None
+    return _safe_project_path(project_root, candidate)
 
 
-def repo_relative_path(candidate: str | None) -> str | None:
-    path = _safe_repo_path(candidate)
+def repo_relative_path(project_path: str | None, candidate: str | None) -> str | None:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return None
+    path = _safe_project_path(project_root, candidate)
     if not path:
         return None
-    return path.relative_to(REPO_ROOT).as_posix()
+    return path.relative_to(project_root).as_posix()
 
 
-def infer_target_file(prompt: str, current_file: str | None = None) -> str | None:
-    explicit = _safe_repo_path(current_file)
+def _find_entry_file(project_root: Path, prompt: str) -> str | None:
+    lowered = prompt.lower()
+    candidates = [
+        ("readme", "README.md"),
+        ("package", "package.json"),
+        ("main", "main.py"),
+        ("index", "index.js"),
+        ("app", "app.py"),
+    ]
+    for keyword, relative_path in candidates:
+        if keyword in lowered and _safe_project_path(project_root, relative_path):
+            return relative_path
+
+    for relative_path in ("README.md", "package.json", "src/main.py", "main.py", "index.js", "index.ts"):
+        if _safe_project_path(project_root, relative_path):
+            return relative_path
+
+    return None
+
+
+def infer_target_file(
+    project_path: str | None,
+    prompt: str,
+    current_file: str | None = None,
+) -> str | None:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return None
+
+    explicit = _safe_project_path(project_root, current_file)
     if explicit:
-        return explicit.relative_to(REPO_ROOT).as_posix()
+        return explicit.relative_to(project_root).as_posix()
 
     for match in FILE_PATTERN.findall(prompt):
-        candidate = _safe_repo_path(match)
+        candidate = _safe_project_path(project_root, match)
         if candidate:
-            return candidate.relative_to(REPO_ROOT).as_posix()
+            return candidate.relative_to(project_root).as_posix()
 
-    lowered = prompt.lower()
-    heuristics = [
-        ("billing", "services/api/app/main.py"),
-        ("api", "services/api/app/main.py"),
-        ("auth", "services/api/app/auth.py"),
-        ("terminal", "apps/terminal/src/cli.jsx"),
-        ("desktop", "apps/desktop/src/App.jsx"),
-        ("web", "apps/web/app/page.jsx"),
-        ("ui", "apps/web/app/page.jsx"),
-    ]
-
-    for keyword, path in heuristics:
-        if keyword in lowered:
-            return path
-
-    return "services/api/app/main.py"
+    return _find_entry_file(project_root, prompt)
 
 
-def read_file_excerpt(relative_path: str, max_lines: int = 12) -> str:
-    path = _safe_repo_path(relative_path)
+def read_file_excerpt(project_path: str | None, relative_path: str, max_lines: int = 12) -> str:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return ""
+
+    path = _safe_project_path(project_root, relative_path)
     if not path:
         return ""
 
@@ -100,15 +140,25 @@ def read_file_excerpt(relative_path: str, max_lines: int = 12) -> str:
     return "\n".join(excerpt)
 
 
-def read_file_content(relative_path: str) -> str:
-    path = _safe_repo_path(relative_path)
+def read_file_content(project_path: str | None, relative_path: str) -> str:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return ""
+
+    path = _safe_project_path(project_root, relative_path)
     if not path:
         return ""
     return path.read_text(encoding="utf-8")
 
 
-def read_file_line_count(relative_path: str) -> int:
-    path = _safe_repo_path(relative_path)
+def read_file_line_count(project_path: str | None, relative_path: str) -> int:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return 0
+
+    path = _safe_project_path(project_root, relative_path)
     if not path:
         return 0
     return len(path.read_text(encoding="utf-8").splitlines())
@@ -148,7 +198,13 @@ def generate_proposed_content(relative_path: str, prompt: str, original_content:
     return "\n".join(next_lines) + trailing_newline
 
 
-def build_patch_preview(relative_path: str, prompt: str, excerpt: str, original_content: str | None = None, proposed_content: str | None = None) -> str:
+def build_patch_preview(
+    relative_path: str,
+    prompt: str,
+    excerpt: str,
+    original_content: str | None = None,
+    proposed_content: str | None = None,
+) -> str:
     if original_content is not None and proposed_content is not None and original_content != proposed_content:
         diff = list(
             difflib.unified_diff(
@@ -171,9 +227,26 @@ def build_patch_preview(relative_path: str, prompt: str, excerpt: str, original_
     )
 
 
-def apply_proposed_content(relative_path: str, proposed_content: str) -> bool:
-    path = _safe_repo_path(relative_path)
-    if not path:
+def apply_proposed_content(project_path: str | None, relative_path: str, proposed_content: str) -> bool:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
         return False
+
+    path = _safe_project_path(project_root, relative_path)
+    if not path:
+        # Allow creating a new file inside the project when the parent directory exists.
+        normalized = relative_path.replace("\\", "/").lstrip("/")
+        target = (project_root / normalized).resolve()
+        try:
+            target.relative_to(project_root)
+        except ValueError:
+            return False
+        if target.exists() and not target.is_file():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(proposed_content, encoding="utf-8")
+        return True
+
     path.write_text(proposed_content, encoding="utf-8")
     return True
