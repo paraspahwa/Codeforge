@@ -4,15 +4,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   applyGitConflictAssist,
+  compactWorkflow,
   createSession,
+  createWorkflowPlan,
   decideProposal,
+  executeWorkflowPlan,
+  forkSession,
   getGitConflictGuide,
   getProposal,
   getUsageSummary,
   listMessages,
   listSessions,
+  rollbackWorkflowPlan,
   sendMessage,
   streamSession,
+  ultrareviewWorkflow,
 } from "../lib/api";
 import { useAuth } from "../lib/auth-context";
 import { useToast } from "../lib/toast-context";
@@ -37,6 +43,11 @@ export default function ChatPage() {
   const [conflictStrategy, setConflictStrategy] = useState("ours");
   const [conflictPaths, setConflictPaths] = useState("");
   const [conflictApplyResult, setConflictApplyResult] = useState(null);
+  const [showWorkflows, setShowWorkflows] = useState(false);
+  const [planTargets, setPlanTargets] = useState("");
+  const [activePlanId, setActivePlanId] = useState("");
+  const [workflowOutput, setWorkflowOutput] = useState("");
+  const [autoMode, setAutoMode] = useState(false);
   const chatEndRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -266,6 +277,125 @@ export default function ChatPage() {
     }
   }
 
+  async function handleCompact() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await compactWorkflow(sessionId, token);
+      setWorkflowOutput(result.summary);
+      setPrompt(result.summary);
+      pushAgentEvents(["workflow: compact summary ready"]);
+      toast.push("Compact summary generated", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUltrareview() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await ultrareviewWorkflow(sessionId, token, {});
+      setWorkflowOutput(result.report);
+      pushAgentEvents([`workflow: ultrareview risk=${result.risk_level}`]);
+      toast.push(`Ultrareview complete (${result.risk_level} risk)`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePlan() {
+    if (!sessionId || !token) {
+      return;
+    }
+    const targets = planTargets
+      .split(/[\s,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (targets.length === 0) {
+      toast.push("Enter one or more file paths for the plan");
+      return;
+    }
+    setLoading(true);
+    try {
+      const plan = await createWorkflowPlan(sessionId, token, targets);
+      setActivePlanId(plan.plan_id);
+      setWorkflowOutput(`Plan ${plan.plan_id} ready for ${plan.targets.join(", ")}`);
+      pushAgentEvents([`workflow: plan ${plan.plan_id}`]);
+      toast.push(`Plan ${plan.plan_id} created`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExecutePlan() {
+    if (!sessionId || !token || !activePlanId) {
+      toast.push("Create a plan first");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await executeWorkflowPlan(sessionId, token, activePlanId, {
+        prompt: prompt.trim() || "Apply grouped updates safely.",
+        auto_mode: autoMode,
+      });
+      setWorkflowOutput(result.message);
+      pushAgentEvents([`workflow: plan ${result.status}`]);
+      toast.push(result.message, result.status === "applied" ? "success" : undefined);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRollbackPlan() {
+    if (!sessionId || !token || !activePlanId) {
+      toast.push("No active plan to rollback");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await rollbackWorkflowPlan(sessionId, token, activePlanId);
+      setWorkflowOutput(result.message);
+      pushAgentEvents([`workflow: rollback ${result.restored_paths.length} file(s)`]);
+      toast.push(result.message, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForkSession() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const forked = await forkSession(sessionId, token);
+      setSessionId(forked.session_id);
+      setMessages([]);
+      setPendingProposal(null);
+      await refreshSessions();
+      toast.push(`Forked parallel session ${forked.session_id}`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleApplyConflictAssist() {
     setLoading(true);
     try {
@@ -349,6 +479,58 @@ export default function ChatPage() {
             </button>
           ))}
         </div>
+
+        <hr className="divider" />
+        <button type="button" className="ghost-btn" onClick={() => setShowWorkflows((prev) => !prev)}>
+          {showWorkflows ? "Hide" : "Show"} Advanced Workflows
+        </button>
+        {showWorkflows ? (
+          <div className="mt-8">
+            <div className="replay-toolbar">
+              <button type="button" onClick={handleCompact} disabled={!sessionId || loading}>
+                Compact
+              </button>
+              <button type="button" onClick={handleUltrareview} disabled={!sessionId || loading}>
+                Ultrareview
+              </button>
+              <button type="button" onClick={handleForkSession} disabled={!sessionId || loading}>
+                Fork Session
+              </button>
+            </div>
+            <label className="small" htmlFor="plan-targets">
+              Plan targets (space-separated paths)
+            </label>
+            <input
+              id="plan-targets"
+              value={planTargets}
+              onChange={(event) => setPlanTargets(event.target.value)}
+              disabled={loading}
+              placeholder="src/main.py tests/test_main.py"
+            />
+            <label className="small">
+              <input
+                type="checkbox"
+                checked={autoMode}
+                onChange={(event) => setAutoMode(event.target.checked)}
+                disabled={loading}
+              />{" "}
+              Auto mode (skip high-risk applies)
+            </label>
+            <div className="replay-toolbar mt-8">
+              <button type="button" onClick={handleCreatePlan} disabled={!sessionId || loading}>
+                Create Plan
+              </button>
+              <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading}>
+                Run Plan
+              </button>
+              <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading}>
+                Rollback
+              </button>
+            </div>
+            {activePlanId ? <p className="small">Active plan: {activePlanId}</p> : null}
+            {workflowOutput ? <pre className="proposal-preview mt-8">{workflowOutput}</pre> : null}
+          </div>
+        ) : null}
 
         <hr className="divider" />
         <button

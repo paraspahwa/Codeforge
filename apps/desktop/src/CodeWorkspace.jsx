@@ -12,10 +12,16 @@ import {
   getUsageSummary,
   listMessages,
   listSessions,
+  compactWorkflow,
+  createWorkflowPlan,
+  executeWorkflowPlan,
+  forkSession,
+  rollbackWorkflowPlan,
   runAgentLoop,
   sendMessage,
   streamSessionEvents,
   streamShellCommand,
+  ultrareviewWorkflow,
 } from "./api";
 
 const STORAGE_KEY = "codeforge.desktop.code";
@@ -56,6 +62,10 @@ export default function CodeWorkspace() {
   const [shellOutput, setShellOutput] = useState("");
   const [loopVerify, setLoopVerify] = useState("pytest -q");
   const [loopRunning, setLoopRunning] = useState(false);
+  const [planTargets, setPlanTargets] = useState("");
+  const [activePlanId, setActivePlanId] = useState("");
+  const [workflowOutput, setWorkflowOutput] = useState("");
+  const [autoMode, setAutoMode] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const chatEndRef = useRef(null);
@@ -330,6 +340,124 @@ export default function CodeWorkspace() {
     }
   }
 
+  async function handleCompact() {
+    if (!token || !sessionId) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await compactWorkflow(token, sessionId);
+      setWorkflowOutput(result.summary);
+      setPrompt(result.summary);
+      pushActivity(["workflow: compact"]);
+      setStatusMessage("Compact summary ready");
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUltrareview() {
+    if (!token || !sessionId) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await ultrareviewWorkflow(token, sessionId, {});
+      setWorkflowOutput(result.report);
+      pushActivity([`workflow: ultrareview ${result.risk_level}`]);
+      setStatusMessage(`Ultrareview complete (${result.risk_level})`);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForkSession() {
+    if (!token || !sessionId) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const forked = await forkSession(token, sessionId);
+      setSessionId(forked.session_id);
+      saveStoredState({ sessionId: forked.session_id });
+      setMessages([]);
+      await refreshSessions(token);
+      setStatusMessage(`Forked session ${forked.session_id}`);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePlan() {
+    if (!token || !sessionId) {
+      return;
+    }
+    const targets = planTargets
+      .split(/[\s,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (targets.length === 0) {
+      setErrorMessage("Enter plan target file paths");
+      return;
+    }
+    setLoading(true);
+    try {
+      const plan = await createWorkflowPlan(token, sessionId, targets);
+      setActivePlanId(plan.plan_id);
+      setWorkflowOutput(`Plan ${plan.plan_id}: ${plan.targets.join(", ")}`);
+      pushActivity([`workflow: plan ${plan.plan_id}`]);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExecutePlan() {
+    if (!token || !sessionId || !activePlanId) {
+      setErrorMessage("Create a plan first");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await executeWorkflowPlan(token, sessionId, activePlanId, {
+        prompt: prompt.trim() || "Apply grouped updates safely.",
+        auto_mode: autoMode,
+      });
+      setWorkflowOutput(result.message);
+      pushActivity([`workflow: plan ${result.status}`]);
+      await refreshGit();
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRollbackPlan() {
+    if (!token || !sessionId || !activePlanId) {
+      setErrorMessage("No active plan");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await rollbackWorkflowPlan(token, sessionId, activePlanId);
+      setWorkflowOutput(result.message);
+      pushActivity([`workflow: rollback ${result.restored_paths.length} file(s)`]);
+      await refreshGit();
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleRunLoop() {
     if (!token || !sessionId || !loopVerify.trim()) {
       return;
@@ -342,6 +470,7 @@ export default function CodeWorkspace() {
         prompt: "Fix verification failures with minimal safe edits.",
         max_attempts: 3,
         auto_apply: true,
+        auto_mode: autoMode,
         current_file: selectedFile || null,
       });
       pushActivity([
@@ -583,7 +712,48 @@ export default function CodeWorkspace() {
         </aside>
       </div>
 
-      <section className="workspace-tools card">
+      <section className="workspace-tools card workspace-tools-wide">
+        <div className="tool-panel">
+          <h3>Workflows</h3>
+          <div className="button-row">
+            <button type="button" onClick={handleCompact} disabled={!token || !sessionId || loading}>
+              Compact
+            </button>
+            <button type="button" onClick={handleUltrareview} disabled={!token || !sessionId || loading}>
+              Ultrareview
+            </button>
+            <button type="button" onClick={handleForkSession} disabled={!token || !sessionId || loading}>
+              Fork
+            </button>
+          </div>
+          <input
+            value={planTargets}
+            onChange={(event) => setPlanTargets(event.target.value)}
+            placeholder="plan targets: file1.py file2.py"
+            disabled={loading}
+          />
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={autoMode}
+              onChange={(event) => setAutoMode(event.target.checked)}
+              disabled={loading}
+            />{" "}
+            Auto mode
+          </label>
+          <div className="button-row">
+            <button type="button" onClick={handleCreatePlan} disabled={!token || !sessionId || loading}>
+              Plan
+            </button>
+            <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading}>
+              Run Plan
+            </button>
+            <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading}>
+              Rollback
+            </button>
+          </div>
+          {workflowOutput ? <pre className="shell-output">{workflowOutput}</pre> : null}
+        </div>
         <div className="tool-panel">
           <h3>Shell</h3>
           <div className="button-row">

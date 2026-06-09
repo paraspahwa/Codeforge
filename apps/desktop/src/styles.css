@@ -207,6 +207,10 @@ body {
   gap: 0.8rem;
 }
 
+.workspace-tools-wide {
+  grid-template-columns: 1.1fr 1fr 1fr;
+}
+
 .tool-panel {
   display: grid;
   gap: 0.5rem;
@@ -318,7 +322,8 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .workspace-tools {
+  .workspace-tools,
+  .workspace-tools-wide {
     grid-template-columns: 1fr;
   }
 

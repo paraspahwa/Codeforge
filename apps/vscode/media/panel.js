@@ -13,6 +13,10 @@ const state = {
   chatMessages: [],
   loopVerify: "pytest -q",
   loopSummary: "",
+  planTargets: "",
+  activePlanId: "",
+  workflowOutput: "",
+  autoMode: false,
   proposalId: "",
   proposalStatus: "",
   proposal: null,
@@ -102,6 +106,27 @@ function render() {
         </div>
         <p class="hint">${escapeHtml(state.lastRoutingReason || "")}</p>
         ${state.lastError ? `<p class="error">${escapeHtml(state.lastError)}</p>` : ""}
+      </section>
+
+      <section class="card">
+        <h2>Workflows</h2>
+        <div class="actions">
+          <button data-action="compactWorkflow" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Compact</button>
+          <button data-action="ultrareviewWorkflow" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Ultrareview</button>
+          <button data-action="forkSession" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Fork</button>
+        </div>
+        <input id="planTargets" value="${escapeHtml(state.planTargets)}" placeholder="plan targets" ${state.busy ? "disabled" : ""} />
+        <label class="hint">
+          <input id="autoMode" type="checkbox" ${state.autoMode ? "checked" : ""} ${state.busy ? "disabled" : ""} />
+          Auto mode
+        </label>
+        <div class="actions">
+          <button data-action="createWorkflowPlan" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Plan</button>
+          <button data-action="executeWorkflowPlan" ${state.busy || !state.activePlanId ? "disabled" : ""}>Run Plan</button>
+          <button data-action="rollbackWorkflowPlan" ${state.busy || !state.activePlanId ? "disabled" : ""}>Rollback</button>
+        </div>
+        ${state.activePlanId ? `<p class="hint">Plan: ${escapeHtml(state.activePlanId)}</p>` : ""}
+        ${state.workflowOutput ? `<pre class="diff-view">${escapeHtml(state.workflowOutput)}</pre>` : ""}
       </section>
 
       <section class="card">
@@ -204,6 +229,31 @@ function render() {
           type: "runAgentLoop",
           verifyCommand: document.getElementById("loopVerify").value.trim(),
         });
+      }
+      if (action === "compactWorkflow") {
+        vscode.postMessage({ type: "compactWorkflow" });
+      }
+      if (action === "ultrareviewWorkflow") {
+        vscode.postMessage({ type: "ultrareviewWorkflow" });
+      }
+      if (action === "forkSession") {
+        vscode.postMessage({ type: "forkSession" });
+      }
+      if (action === "createWorkflowPlan") {
+        vscode.postMessage({
+          type: "createWorkflowPlan",
+          targets: document.getElementById("planTargets").value.trim(),
+        });
+      }
+      if (action === "executeWorkflowPlan") {
+        vscode.postMessage({
+          type: "executeWorkflowPlan",
+          prompt: document.getElementById("prompt").value.trim(),
+          autoMode: document.getElementById("autoMode").checked,
+        });
+      }
+      if (action === "rollbackWorkflowPlan") {
+        vscode.postMessage({ type: "rollbackWorkflowPlan" });
       }
     });
   });

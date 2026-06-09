@@ -17,6 +17,7 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_billing_orders_user ON billing_orders(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_proposals_session ON agent_proposals(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_proposals_user ON agent_proposals(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_session_file_plans_session ON session_file_plans(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_created ON routing_benchmark_runs(suite, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_cowork_snapshots_created ON cowork_reliability_snapshots(created_at)",
 )
@@ -178,6 +179,20 @@ def init_db() -> None:
                 )
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS session_file_plans (
+                        plan_id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                        user_id TEXT NOT NULL,
+                        targets_json TEXT NOT NULL,
+                        snapshot_json TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        executed_at TEXT
+                    )
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS routing_benchmark_baselines (
                         suite TEXT PRIMARY KEY,
                         pass_rate DOUBLE PRECISION NOT NULL,
@@ -303,6 +318,18 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 resolved_at TEXT,
                 resolution_note TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions (session_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS session_file_plans (
+                plan_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                targets_json TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                executed_at TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions (session_id)
             );
 
@@ -623,6 +650,48 @@ def insert_agent_proposal(
             status,
             created_at,
         ),
+    )
+
+
+def insert_session_file_plan(
+    *,
+    plan_id: str,
+    session_id: str,
+    user_id: str,
+    targets_json: str,
+    snapshot_json: str,
+    status: str,
+    created_at: str,
+) -> None:
+    _execute(
+        """
+        INSERT INTO session_file_plans(
+            plan_id, session_id, user_id, targets_json, snapshot_json, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (plan_id, session_id, user_id, targets_json, snapshot_json, status, created_at),
+    )
+
+
+def get_session_file_plan(plan_id: str, session_id: str, user_id: str) -> dict[str, Any] | None:
+    return _fetchone(
+        """
+        SELECT plan_id, session_id, user_id, targets_json, snapshot_json, status, created_at, executed_at
+        FROM session_file_plans
+        WHERE plan_id = ? AND session_id = ? AND user_id = ?
+        """,
+        (plan_id, session_id, user_id),
+    )
+
+
+def update_session_file_plan_status(*, plan_id: str, status: str, executed_at: str | None = None) -> None:
+    _execute(
+        """
+        UPDATE session_file_plans
+        SET status = ?, executed_at = ?
+        WHERE plan_id = ?
+        """,
+        (status, executed_at, plan_id),
     )
 
 

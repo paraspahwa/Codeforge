@@ -18,8 +18,10 @@ import {
   listMessages,
   listSessions,
   listGitWorktrees,
+  compactWorkflow,
   runAgentLoop,
   sendMessage,
+  ultrareviewWorkflow,
   stageGitFiles,
   createGitWorktree,
   streamSessionEvents,
@@ -827,18 +829,53 @@ function App() {
     }
 
     if (name === "compact") {
-      setReviewTitle("Compact summary");
-      setDiffPreview(buildCompactSummary());
-      setGitSummary("Session compacted for continuation");
-      pushEvent("Context compacted");
+      if (token && currentSessionId) {
+        setBusy(true);
+        try {
+          const sessionId = await ensureSession(token);
+          const result = await compactWorkflow(baseUrl, token, sessionId);
+          setReviewTitle("Compact summary");
+          setDiffPreview(result.summary);
+          setGitSummary("Session compacted for continuation");
+          pushEvent("Context compacted (backend)");
+        } catch (compactError) {
+          setReviewTitle("Compact summary");
+          setDiffPreview(buildCompactSummary());
+          pushEvent(`compact fallback: ${compactError.message}`);
+        } finally {
+          setBusy(false);
+        }
+      } else {
+        setReviewTitle("Compact summary");
+        setDiffPreview(buildCompactSummary());
+        setGitSummary("Session compacted for continuation");
+        pushEvent("Context compacted");
+      }
       return;
     }
 
     if (name === "ultrareview") {
       setActiveMode("review");
-      setReviewTitle("Ultrareview findings");
-      setDiffPreview(buildUltrareviewAudit());
-      pushEvent("Ultrareview generated");
+      if (token && currentSessionId) {
+        setBusy(true);
+        try {
+          const sessionId = await ensureSession(token);
+          const result = await ultrareviewWorkflow(baseUrl, token, sessionId, {});
+          setReviewTitle(`Ultrareview (${result.risk_level})`);
+          setDiffPreview(result.report);
+          pushEvent("Ultrareview generated (backend)");
+        } catch (auditError) {
+          setReviewTitle("Ultrareview findings");
+          setDiffPreview(buildUltrareviewAudit());
+          pushEvent(`ultrareview fallback: ${auditError.message}`);
+        } finally {
+          setBusy(false);
+        }
+      } else {
+        setReviewTitle("Ultrareview findings");
+        setDiffPreview(buildUltrareviewAudit());
+        pushEvent("Ultrareview generated");
+      }
       return;
     }
 

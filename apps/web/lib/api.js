@@ -122,3 +122,27 @@ export async function listMessages(sessionId, token) {
 export function streamSession(sessionId, token, onData) {
   return createSessionStream(API_BASE, token, sessionId, onData);
 }
+
+export async function forkSession(sessionId, token) {
+  return shared.forkSession(API_BASE, token, sessionId);
+}
+
+export async function compactWorkflow(sessionId, token) {
+  return shared.compactWorkflow(API_BASE, token, sessionId);
+}
+
+export async function ultrareviewWorkflow(sessionId, token, payload = {}) {
+  return shared.ultrareviewWorkflow(API_BASE, token, sessionId, payload);
+}
+
+export async function createWorkflowPlan(sessionId, token, targets) {
+  return shared.createWorkflowPlan(API_BASE, token, sessionId, targets);
+}
+
+export async function executeWorkflowPlan(sessionId, token, planId, payload = {}) {
+  return shared.executeWorkflowPlan(API_BASE, token, sessionId, planId, payload);
+}
+
+export async function rollbackWorkflowPlan(sessionId, token, planId) {
+  return shared.rollbackWorkflowPlan(API_BASE, token, sessionId, planId);
+}

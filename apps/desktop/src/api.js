@@ -140,3 +140,27 @@ export function streamSessionEvents(token, sessionId) {
 export function streamShellCommand(token, sessionId, payload) {
   return shared.streamShellCommand(API_BASE, token, sessionId, payload);
 }
+
+export async function forkSession(token, sessionId) {
+  return shared.forkSession(API_BASE, token, sessionId);
+}
+
+export async function compactWorkflow(token, sessionId) {
+  return shared.compactWorkflow(API_BASE, token, sessionId);
+}
+
+export async function ultrareviewWorkflow(token, sessionId, payload = {}) {
+  return shared.ultrareviewWorkflow(API_BASE, token, sessionId, payload);
+}
+
+export async function createWorkflowPlan(token, sessionId, targets) {
+  return shared.createWorkflowPlan(API_BASE, token, sessionId, targets);
+}
+
+export async function executeWorkflowPlan(token, sessionId, planId, payload = {}) {
+  return shared.executeWorkflowPlan(API_BASE, token, sessionId, planId, payload);
+}
+
+export async function rollbackWorkflowPlan(token, sessionId, planId) {
+  return shared.rollbackWorkflowPlan(API_BASE, token, sessionId, planId);
+}

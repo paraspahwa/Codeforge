@@ -1,4 +1,12 @@
-import { sendMessage, streamSessionEvents } from "./api.js";
+import {
+  compactWorkflow,
+  createWorkflowPlan,
+  executeWorkflowPlan,
+  rollbackWorkflowPlan,
+  sendMessage,
+  streamSessionEvents,
+  ultrareviewWorkflow,
+} from "./api.js";
 
 function normalizeBaseUrl(baseUrl) {
   return String(baseUrl || "http://127.0.0.1:8000").replace(/\/+$/, "");
@@ -93,4 +101,25 @@ export function createSessionStream(baseUrl, token, sessionId, onEvent) {
   });
 
   return handle;
+}
+
+export async function runCompact(baseUrl, token, sessionId) {
+  return compactWorkflow(baseUrl, token, sessionId);
+}
+
+export async function runUltrareview(baseUrl, token, sessionId, payload = {}) {
+  return ultrareviewWorkflow(baseUrl, token, sessionId, payload);
+}
+
+export async function runMultiFilePlan(baseUrl, token, sessionId, { targets, prompt, autoMode = false }) {
+  const plan = await createWorkflowPlan(baseUrl, token, sessionId, targets);
+  const result = await executeWorkflowPlan(baseUrl, token, sessionId, plan.plan_id, {
+    prompt,
+    auto_mode: autoMode,
+  });
+  return { plan, result };
+}
+
+export async function rollbackPlan(baseUrl, token, sessionId, planId) {
+  return rollbackWorkflowPlan(baseUrl, token, sessionId, planId);
 }

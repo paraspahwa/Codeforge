@@ -59,6 +59,13 @@ from .db import (
 from .file_ops import apply_proposed_content
 from .project_paths import normalize_project_path, resolved_project_path
 from .usage_policy import get_usage_policy
+from .workflow_ops import (
+    build_compact_summary,
+    build_ultrareview_audit,
+    create_multi_file_plan,
+    execute_multi_file_plan,
+    rollback_multi_file_plan,
+)
 from .file_ops import read_file_content, read_file_excerpt, read_file_line_count, repo_relative_path, resolve_repo_path
 from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_log, git_merge_assist, git_stage, git_status, git_worktree_create, git_worktree_list
 from .shell_ops import ShellError, prepare_shell_execution, stream_shell_execution
@@ -68,6 +75,7 @@ from .models import (
     AgentLoopRequest,
     AgentLoopResponse,
     AgentProposal,
+    CompactWorkflowResponse,
     BillingPlan,
     BillingWebhookResponse,
     CoworkExtractRequest,
@@ -92,6 +100,12 @@ from .models import (
     ContextPackResponse,
     CreateOrderRequest,
     CreateOrderResponse,
+    PlanCreateRequest,
+    PlanExecuteRequest,
+    PlanExecuteResponse,
+    PlanExecuteResultItem,
+    PlanResponse,
+    PlanRollbackResponse,
     DevLoginRequest,
     DevLoginResponse,
     DeploymentRolloutPlanResponse,
@@ -140,6 +154,7 @@ from .models import (
     McpConnectorToggleRequest,
     McpInvokeResponse,
     SessionExportResponse,
+    SessionForkResponse,
     SessionShareCreateRequest,
     SessionShareResolveResponse,
     SessionShareResponse,
@@ -157,6 +172,8 @@ from .models import (
     TeamWorkspaceListResponse,
     TeamWorkspaceMemberRequest,
     TeamWorkspaceResponse,
+    UltrareviewRequest,
+    UltrareviewResponse,
     UsageSummary,
     VerifyPaymentRequest,
     VerifyPaymentResponse,
@@ -300,6 +317,32 @@ def create_session(payload: SessionCreateRequest, response: Response, user: Auth
     return SessionCreateResponse(
         session_id=session_id,
         stream_url=f"{api_base}/api/v1/sessions/{session_id}/stream",
+        created_at=created_at,
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/fork", response_model=SessionForkResponse)
+def fork_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> SessionForkResponse:
+    _enforce_rate_limit("fork-session", user.user_id, 20)
+    parent = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    new_session_id = f"sess_{uuid4().hex[:12]}"
+    created_at = utc_now()
+    insert_session(
+        session_id=new_session_id,
+        user_id=user.user_id,
+        project_path=parent["project_path"],
+        model_preference=parent["model_preference"],
+        created_at=created_at.isoformat(),
+    )
+    api_base = os.getenv("CODEFORGE_PUBLIC_API_BASE", "http://localhost:8000").rstrip("/")
+    return SessionForkResponse(
+        session_id=new_session_id,
+        parent_session_id=session_id,
+        project_path=parent["project_path"],
+        stream_url=f"{api_base}/api/v1/sessions/{new_session_id}/stream",
         created_at=created_at,
     )
 
@@ -1646,6 +1689,119 @@ async def session_shell_stream(
     return _attach_trace_id(StreamingResponse(event_generator(), media_type="text/event-stream"))
 
 
+@app.post("/api/v1/sessions/{session_id}/workflows/compact", response_model=CompactWorkflowResponse)
+def session_workflow_compact(session_id: str, user: AuthUser = Depends(get_current_user)) -> CompactWorkflowResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = build_compact_summary(
+        session_id=session_id,
+        project_path=resolved_project_path(session),
+        user_id=user.user_id,
+    )
+    return CompactWorkflowResponse(**result)
+
+
+@app.post("/api/v1/sessions/{session_id}/workflows/ultrareview", response_model=UltrareviewResponse)
+def session_workflow_ultrareview(
+    session_id: str,
+    payload: UltrareviewRequest = UltrareviewRequest(),
+    user: AuthUser = Depends(get_current_user),
+) -> UltrareviewResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = build_ultrareview_audit(
+        session_id=session_id,
+        project_path=resolved_project_path(session),
+        user_id=user.user_id,
+        target_file=payload.target_file,
+    )
+    return UltrareviewResponse(**result)
+
+
+@app.post("/api/v1/sessions/{session_id}/workflows/plan", response_model=PlanResponse)
+def session_workflow_create_plan(
+    session_id: str,
+    payload: PlanCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> PlanResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        result = create_multi_file_plan(
+            session_id=session_id,
+            user_id=user.user_id,
+            project_path=resolved_project_path(session),
+            targets=payload.targets,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return PlanResponse(
+        plan_id=result["plan_id"],
+        session_id=result["session_id"],
+        targets=result["targets"],
+        status=result["status"],
+        created_at=datetime.fromisoformat(result["created_at"].replace("Z", "+00:00")),
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/workflows/plan/{plan_id}/execute", response_model=PlanExecuteResponse)
+async def session_workflow_execute_plan(
+    session_id: str,
+    plan_id: str,
+    payload: PlanExecuteRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> PlanExecuteResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await execute_multi_file_plan(
+        plan_id=plan_id,
+        session_id=session_id,
+        user_id=user.user_id,
+        project_path=resolved_project_path(session),
+        prompt=payload.prompt,
+        auto_mode=payload.auto_mode,
+    )
+    return PlanExecuteResponse(
+        plan_id=result["plan_id"],
+        status=result["status"],
+        applied=[PlanExecuteResultItem(**item) for item in result["applied"]],
+        message=result["message"],
+        rolled_back_paths=result.get("rolled_back_paths", []),
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/workflows/plan/{plan_id}/rollback", response_model=PlanRollbackResponse)
+def session_workflow_rollback_plan(
+    session_id: str,
+    plan_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> PlanRollbackResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        result = rollback_multi_file_plan(
+            plan_id=plan_id,
+            session_id=session_id,
+            user_id=user.user_id,
+            project_path=resolved_project_path(session),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return PlanRollbackResponse(**result)
+
+
 @app.post("/api/v1/sessions/{session_id}/agent/loop", response_model=AgentLoopResponse)
 async def session_agent_loop(
     session_id: str,
@@ -1670,6 +1826,7 @@ async def session_agent_loop(
         fix_prompt=payload.prompt,
         max_attempts=payload.max_attempts,
         auto_apply=payload.auto_apply,
+        auto_mode=payload.auto_mode,
         current_file=payload.current_file,
     )
 

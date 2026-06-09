@@ -40,6 +40,7 @@ async def run_verify_fix_loop(
     fix_prompt: str | None = None,
     max_attempts: int = 3,
     auto_apply: bool = True,
+    auto_mode: bool = False,
     current_file: str | None = None,
 ) -> AgentLoopResult:
     prompt_seed = fix_prompt or "Fix the failing verification command with minimal, safe changes."
@@ -105,7 +106,7 @@ async def run_verify_fix_loop(
                 None,
             )
 
-            if auto_apply:
+            if auto_apply and (not auto_mode or not run.review_required):
                 applied = apply_proposed_content(project_path, run.target_file, run.proposed_content)
                 if applied:
                     update_agent_proposal_status(

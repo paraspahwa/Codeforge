@@ -82,6 +82,51 @@ export async function runAgentLoop(baseUrl, token, sessionId, payload) {
   });
 }
 
+export async function forkSession(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/fork`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function compactWorkflow(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/workflows/compact`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function ultrareviewWorkflow(baseUrl, token, sessionId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/workflows/ultrareview`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function createWorkflowPlan(baseUrl, token, sessionId, targets) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/workflows/plan`, {
+    method: "POST",
+    token,
+    body: { targets },
+  });
+}
+
+export async function executeWorkflowPlan(baseUrl, token, sessionId, planId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/workflows/plan/${planId}/execute`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function rollbackWorkflowPlan(baseUrl, token, sessionId, planId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/workflows/plan/${planId}/rollback`, {
+    method: "POST",
+    token,
+  });
+}
+
 export async function decideProposal(baseUrl, token, sessionId, proposalId, action) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}/decision`, {
     method: "POST",

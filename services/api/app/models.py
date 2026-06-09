@@ -285,6 +285,7 @@ class AgentLoopRequest(BaseModel):
     prompt: str | None = None
     max_attempts: int = Field(default=3, ge=1, le=10)
     auto_apply: bool = True
+    auto_mode: bool = False
     current_file: str | None = None
 
 
@@ -304,6 +305,77 @@ class AgentLoopResponse(BaseModel):
     passed: bool
     message: str
     attempts: list[AgentLoopAttemptResponse]
+
+
+class CompactWorkflowResponse(BaseModel):
+    session_id: str
+    summary: str
+    message_count: int
+    proposal_count: int
+
+
+class UltrareviewFindingItem(BaseModel):
+    severity: str
+    message: str
+
+
+class UltrareviewResponse(BaseModel):
+    session_id: str
+    risk_level: str
+    findings: list[UltrareviewFindingItem]
+    suggested_checks: list[str]
+    report: str
+
+
+class PlanCreateRequest(BaseModel):
+    targets: list[str] = Field(min_length=1)
+
+
+class PlanResponse(BaseModel):
+    plan_id: str
+    session_id: str
+    targets: list[str]
+    status: str
+    created_at: datetime
+
+
+class PlanExecuteRequest(BaseModel):
+    prompt: str | None = None
+    auto_mode: bool = False
+
+
+class PlanExecuteResultItem(BaseModel):
+    target: str
+    proposal_id: str | None = None
+    applied: bool = False
+    review_required: bool = False
+    confidence_label: str = ""
+
+
+class PlanExecuteResponse(BaseModel):
+    plan_id: str
+    status: str
+    applied: list[PlanExecuteResultItem]
+    message: str
+    rolled_back_paths: list[str] = Field(default_factory=list)
+
+
+class PlanRollbackResponse(BaseModel):
+    plan_id: str
+    restored_paths: list[str]
+    message: str
+
+
+class UltrareviewRequest(BaseModel):
+    target_file: str | None = None
+
+
+class SessionForkResponse(BaseModel):
+    session_id: str
+    parent_session_id: str
+    project_path: str
+    stream_url: str
+    created_at: datetime
 
 
 class BillingPlan(BaseModel):

@@ -30,6 +30,10 @@ function initialState(context) {
     chatMessages: [],
     loopVerify: "pytest -q",
     loopSummary: "",
+    planTargets: "",
+    activePlanId: "",
+    workflowOutput: "",
+    autoMode: false,
     proposalId: "",
     proposalStatus: "",
     proposal: null,
@@ -542,6 +546,99 @@ function ensurePanel(context) {
         setError("");
         panelState.loopVerify = message.verifyCommand || panelState.loopVerify || "pytest -q";
         await runAgentLoop(context, panelState.loopVerify);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "compactWorkflow") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const result = await api.compactWorkflow(panelState.baseUrl, panelState.token, sessionId);
+        panelState.workflowOutput = result.summary;
+        panelState.prompt = result.summary;
+        pushEvent("workflow:compact");
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "ultrareviewWorkflow") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const result = await api.ultrareviewWorkflow(panelState.baseUrl, panelState.token, sessionId, {});
+        panelState.workflowOutput = result.report;
+        pushEvent(`workflow:ultrareview:${result.risk_level}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "createWorkflowPlan") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const targets = String(message.targets || "")
+          .split(/[\s,]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+        const plan = await api.createWorkflowPlan(panelState.baseUrl, panelState.token, sessionId, targets);
+        panelState.activePlanId = plan.plan_id;
+        panelState.workflowOutput = `Plan ${plan.plan_id}: ${plan.targets.join(", ")}`;
+        pushEvent(`workflow:plan:${plan.plan_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "executeWorkflowPlan") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const result = await api.executeWorkflowPlan(
+          panelState.baseUrl,
+          panelState.token,
+          sessionId,
+          panelState.activePlanId,
+          {
+            prompt: message.prompt || panelState.prompt,
+            auto_mode: Boolean(message.autoMode ?? panelState.autoMode),
+          },
+        );
+        panelState.workflowOutput = result.message;
+        pushEvent(`workflow:plan:${result.status}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "rollbackWorkflowPlan") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const result = await api.rollbackWorkflowPlan(
+          panelState.baseUrl,
+          panelState.token,
+          sessionId,
+          panelState.activePlanId,
+        );
+        panelState.workflowOutput = result.message;
+        pushEvent(`workflow:rollback:${result.restored_paths.length}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "forkSession") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const forked = await api.forkSession(panelState.baseUrl, panelState.token, sessionId);
+        panelState.currentSessionId = forked.session_id;
+        await refreshSessions(context);
+        pushEvent(`workflow:fork:${forked.session_id}`);
         setBusy(false);
       }
     } catch (error) {
