@@ -39,6 +39,42 @@ export async function getCoworkReliabilityHistory(token, limit = 50) {
   return shared.getCoworkReliabilityHistory(API_BASE, token, limit);
 }
 
+export async function createCoworkPlan(token, payload) {
+  return shared.createCoworkPlan(API_BASE, token, payload);
+}
+
+export async function listCoworkPlans(token) {
+  return shared.listCoworkPlans(API_BASE, token);
+}
+
+export async function runCoworkPlan(token, planId, approved = false) {
+  return shared.runCoworkPlan(API_BASE, token, planId, approved);
+}
+
+export async function listCoworkRuns(token) {
+  return shared.listCoworkRuns(API_BASE, token);
+}
+
+export async function createCoworkJob(token, payload) {
+  return shared.createCoworkJob(API_BASE, token, payload);
+}
+
+export async function listCoworkJobs(token) {
+  return shared.listCoworkJobs(API_BASE, token);
+}
+
+export async function toggleCoworkJob(token, jobId, enabled) {
+  return shared.toggleCoworkJob(API_BASE, token, jobId, enabled);
+}
+
+export async function extractCoworkData(token, payload) {
+  return shared.extractCoworkData(API_BASE, token, payload);
+}
+
+export async function listCoworkExtractions(token) {
+  return shared.listCoworkExtractions(API_BASE, token);
+}
+
 export async function getSynthesisRolloutPlan(token, environment = "local") {
   return shared.getSynthesisRolloutPlan(API_BASE, token, environment);
 }

@@ -10,6 +10,7 @@ import { useToast } from "../lib/toast-context";
 const NAV_ITEMS = [
   { href: "/", label: "Chat" },
   { href: "/sessions", label: "Sessions" },
+  { href: "/cowork", label: "Cowork" },
   { href: "/analytics", label: "Analytics" },
   { href: "/billing", label: "Billing" },
   { href: "/settings", label: "Settings" },

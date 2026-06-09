@@ -20,6 +20,9 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_session_file_plans_session ON session_file_plans(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_created ON routing_benchmark_runs(suite, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_cowork_snapshots_created ON cowork_reliability_snapshots(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_cowork_plans_user ON cowork_plans(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_cowork_runs_user ON cowork_runs(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_cowork_jobs_enabled ON cowork_jobs(enabled, circuit_broken)",
 )
 
 
@@ -239,6 +242,89 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cowork_plans (
+                        plan_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        project_path TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        task_type TEXT NOT NULL,
+                        command TEXT,
+                        source_path TEXT,
+                        url TEXT,
+                        browser_action TEXT,
+                        connector_id TEXT,
+                        tool_name TEXT,
+                        connector_arguments_json TEXT,
+                        requires_approval INTEGER NOT NULL,
+                        preview_steps_json TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cowork_runs (
+                        run_id TEXT PRIMARY KEY,
+                        plan_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        task_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        details_json TEXT NOT NULL,
+                        trigger_type TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        completed_at TEXT
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cowork_jobs (
+                        job_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        project_path TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        trigger_type TEXT NOT NULL,
+                        interval_seconds INTEGER NOT NULL,
+                        watch_path TEXT,
+                        watch_absolute TEXT,
+                        watch_mtime DOUBLE PRECISION,
+                        task_type TEXT NOT NULL,
+                        command TEXT,
+                        source_path TEXT,
+                        url TEXT,
+                        browser_action TEXT,
+                        enabled INTEGER NOT NULL,
+                        consecutive_failures INTEGER NOT NULL,
+                        circuit_broken INTEGER NOT NULL,
+                        circuit_broken_reason TEXT,
+                        next_run_at TEXT,
+                        last_run_at TEXT,
+                        last_status TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cowork_extractions (
+                        extraction_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        source_path TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        byte_size INTEGER NOT NULL,
+                        text_excerpt TEXT NOT NULL,
+                        entities_json TEXT NOT NULL,
+                        warnings_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
         return
@@ -369,6 +455,77 @@ def init_db() -> None:
                 recent_failure_rate REAL NOT NULL,
                 reliability_alert INTEGER NOT NULL,
                 alert_reason TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cowork_plans (
+                plan_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                command TEXT,
+                source_path TEXT,
+                url TEXT,
+                browser_action TEXT,
+                connector_id TEXT,
+                tool_name TEXT,
+                connector_arguments_json TEXT,
+                requires_approval INTEGER NOT NULL,
+                preview_steps_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cowork_runs (
+                run_id TEXT PRIMARY KEY,
+                plan_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                details_json TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS cowork_jobs (
+                job_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                interval_seconds INTEGER NOT NULL,
+                watch_path TEXT,
+                watch_absolute TEXT,
+                watch_mtime REAL,
+                task_type TEXT NOT NULL,
+                command TEXT,
+                source_path TEXT,
+                url TEXT,
+                browser_action TEXT,
+                enabled INTEGER NOT NULL,
+                consecutive_failures INTEGER NOT NULL,
+                circuit_broken INTEGER NOT NULL,
+                circuit_broken_reason TEXT,
+                next_run_at TEXT,
+                last_run_at TEXT,
+                last_status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cowork_extractions (
+                extraction_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                method TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                text_excerpt TEXT NOT NULL,
+                entities_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
             """

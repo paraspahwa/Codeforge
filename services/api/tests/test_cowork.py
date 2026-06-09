@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app import cowork_store as store
 from app.db import init_db
 
 
@@ -240,6 +241,37 @@ def test_cowork_connector_task_boundary(client, tmp_path: Path) -> None:
     run_body = approved.json()
     assert run_body["status"] == "completed"
     assert run_body["details"]["invocation"]["tool_name"] == "ping"
+
+
+def test_cowork_plan_persists_in_database(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "cowork-persist"
+    project.mkdir()
+
+    _, headers = _auth_headers(client)
+    session_id = _create_session(client, headers, project)
+
+    plan = client.post(
+        "/api/v1/cowork/plans",
+        headers=headers,
+        json={
+            "session_id": session_id,
+            "title": "Persist test",
+            "task_type": "shell",
+            "command": "echo persist",
+        },
+    )
+    assert plan.status_code == 200
+    plan_id = plan.json()["plan_id"]
+
+    loaded = store.get_plan(plan_id)
+    assert loaded is not None
+    assert loaded["title"] == "Persist test"
+    assert loaded["user_id"] == "cowork-user"
+
+    listed = client.get("/api/v1/cowork/plans", headers=headers)
+    assert listed.status_code == 200
+    assert any(item["plan_id"] == plan_id for item in listed.json()["plans"])
 
 
 def test_cowork_reliability_snapshot(client, tmp_path: Path) -> None:

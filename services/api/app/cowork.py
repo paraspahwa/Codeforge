@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import httpx
 
+from . import cowork_store as store
 from .shell_ops import ShellError, stream_shell_execution
 
 
@@ -184,7 +185,7 @@ def _collect_links(html: str, limit: int = 12) -> list[str]:
     return links
 
 
-async def _run_browser_task(url: str, action: str) -> dict[str, Any]:
+async def _run_browser_task_httpx(url: str, action: str) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             response = await client.get(url)
@@ -195,6 +196,7 @@ async def _run_browser_task(url: str, action: str) -> dict[str, Any]:
             "http_status": None,
             "title": "",
             "links": [],
+            "engine": "httpx",
         }
 
     body = response.text
@@ -213,15 +215,68 @@ async def _run_browser_task(url: str, action: str) -> dict[str, Any]:
         "http_status": response.status_code,
         "title": title,
         "links": links,
+        "engine": "httpx",
     }
+
+
+async def _run_browser_task_playwright(url: str, action: str) -> dict[str, Any] | None:
+    if os.getenv("CODEFORGE_DISABLE_PLAYWRIGHT", "").lower() in {"1", "true", "yes"}:
+        return None
+
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return None
+
+    try:
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            title = await page.title()
+            links: list[str] = []
+            if action == "extract_links":
+                links = await page.eval_on_selector_all(
+                    "a[href]",
+                    "elements => elements.map(element => element.href).filter(Boolean).slice(0, 12)",
+                )
+            await browser.close()
+
+            if action == "extract_links":
+                summary = f"Playwright fetched {url} and captured {len(links)} link(s)"
+            else:
+                summary = f"Playwright fetched {url} and captured page title"
+
+            return {
+                "status": "completed",
+                "summary": summary,
+                "http_status": response.status if response else None,
+                "title": title,
+                "links": links,
+                "engine": "playwright",
+            }
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "summary": f"Playwright browser task failed: {exc}",
+            "http_status": None,
+            "title": "",
+            "links": [],
+            "engine": "playwright",
+        }
+
+
+async def _run_browser_task(url: str, action: str) -> dict[str, Any]:
+    playwright_result = await _run_browser_task_playwright(url, action)
+    if playwright_result is not None and playwright_result.get("status") == "completed":
+        return playwright_result
+    if playwright_result is not None and playwright_result.get("engine") == "playwright":
+        return playwright_result
+    return await _run_browser_task_httpx(url, action)
 
 
 class CoworkService:
     def __init__(self) -> None:
-        self._plans: dict[str, dict[str, Any]] = {}
-        self._runs: list[dict[str, Any]] = []
-        self._jobs: dict[str, dict[str, Any]] = {}
-        self._extractions: list[dict[str, Any]] = []
         self._worker_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._max_concurrent_runs = max(1, int(os.getenv("CODEFORGE_COWORK_MAX_CONCURRENT_RUNS", "3")))
@@ -240,20 +295,16 @@ class CoworkService:
             await self._worker_task
 
     def list_plans(self, user_id: str) -> list[dict[str, Any]]:
-        plans = [plan for plan in self._plans.values() if plan["user_id"] == user_id]
-        return sorted(plans, key=lambda item: item["created_at"], reverse=True)
+        return store.list_plans(user_id)
 
     def list_runs(self, user_id: str) -> list[dict[str, Any]]:
-        runs = [run for run in self._runs if run["user_id"] == user_id]
-        return sorted(runs, key=lambda item: item["created_at"], reverse=True)[:100]
+        return store.list_runs(user_id)
 
     def list_jobs(self, user_id: str) -> list[dict[str, Any]]:
-        jobs = [job for job in self._jobs.values() if job["user_id"] == user_id]
-        return sorted(jobs, key=lambda item: item["created_at"], reverse=True)
+        return store.list_jobs(user_id)
 
     def list_extractions(self, user_id: str) -> list[dict[str, Any]]:
-        items = [item for item in self._extractions if item["user_id"] == user_id]
-        return sorted(items, key=lambda item: item["created_at"], reverse=True)[:100]
+        return store.list_extractions(user_id)
 
     def create_plan(
         self,
@@ -333,11 +384,11 @@ class CoworkService:
             "status": "planned",
             "created_at": utc_now().isoformat(),
         }
-        self._plans[plan_id] = plan
+        store.save_plan(plan)
         return plan
 
     async def run_plan(self, *, user_id: str, plan_id: str, approved: bool, trigger: str = "manual") -> dict[str, Any]:
-        plan = self._plans.get(plan_id)
+        plan = store.get_plan(plan_id)
         if plan is None or plan["user_id"] != user_id:
             raise CoworkError("Plan not found")
 
@@ -360,7 +411,7 @@ class CoworkService:
             "completed_at": None,
             "trigger": trigger,
         }
-        self._runs.append(run)
+        store.save_run(run)
 
         async with self._run_semaphore:
             details = await self._execute_plan_with_retries(plan=plan, user_id=user_id, trigger=trigger)
@@ -369,7 +420,14 @@ class CoworkService:
         run["summary"] = str(details.get("summary", "Task completed"))
         run["details"] = details
         run["completed_at"] = utc_now().isoformat()
-        plan["status"] = "completed" if run["status"] == "completed" else "failed"
+        store.update_run(
+            run["run_id"],
+            status=run["status"],
+            summary=run["summary"],
+            details=details,
+            completed_at=run["completed_at"],
+        )
+        store.update_plan_status(plan_id, "completed" if run["status"] == "completed" else "failed")
         return run
 
     async def _execute_plan_once(self, *, plan: dict[str, Any], user_id: str) -> dict[str, Any]:
@@ -379,7 +437,7 @@ class CoworkService:
         elif plan["task_type"] == "extract":
             details = extract_structured_data(plan["project_path"], str(plan["source_path"]))
             details["status"] = "completed"
-            self._extractions.append({**details, "user_id": user_id})
+            store.save_extraction({**details, "user_id": user_id})
         elif plan["task_type"] == "connector":
             from .context_mcp import ContextMcpError, context_mcp_service
 
@@ -502,11 +560,11 @@ class CoworkService:
             "last_status": "never",
             "created_at": now.isoformat(),
         }
-        self._jobs[job_id] = job
+        store.save_job(job)
         return job
 
     def toggle_job(self, *, user_id: str, job_id: str, enabled: bool) -> dict[str, Any]:
-        job = self._jobs.get(job_id)
+        job = store.get_job(job_id)
         if job is None or job["user_id"] != user_id:
             raise CoworkError("Job not found")
 
@@ -518,15 +576,14 @@ class CoworkService:
         if enabled and job["trigger_type"] == "interval":
             interval = int(job["interval_seconds"])
             job["next_run_at"] = (utc_now() + timedelta(seconds=interval)).isoformat()
+        store.update_job(job_id, job)
         return job
 
     def reliability_snapshot(self) -> dict[str, Any]:
-        total_jobs = len(self._jobs)
-        enabled_jobs = sum(1 for item in self._jobs.values() if item.get("enabled"))
-        circuit_broken_jobs = sum(1 for item in self._jobs.values() if item.get("circuit_broken"))
-        running_jobs = sum(1 for item in self._runs if item.get("status") == "running")
+        total_jobs, enabled_jobs, circuit_broken_jobs = store.count_jobs()
+        running_jobs = store.count_running_runs()
 
-        recent = sorted(self._runs, key=lambda item: item.get("created_at", ""), reverse=True)[:50]
+        recent = store.list_recent_runs(50)
         recent_runs = len(recent)
         recent_failed_runs = sum(1 for item in recent if item.get("status") != "completed")
         recent_failure_rate = (recent_failed_runs / recent_runs) if recent_runs else 0.0
@@ -562,11 +619,7 @@ class CoworkService:
     async def _tick_jobs(self) -> None:
         now = utc_now()
 
-        for job in list(self._jobs.values()):
-            if not job.get("enabled"):
-                continue
-            if job.get("circuit_broken"):
-                continue
+        for job in store.list_enabled_jobs():
 
             should_run = False
 
@@ -582,6 +635,7 @@ class CoworkService:
                     mtime = Path(watch_absolute).stat().st_mtime
                     if job.get("watch_mtime") is None:
                         job["watch_mtime"] = mtime
+                        store.update_job(job["job_id"], job)
                     elif mtime > float(job.get("watch_mtime", 0)):
                         should_run = True
                         job["watch_mtime"] = mtime
@@ -623,6 +677,8 @@ class CoworkService:
             if job["trigger_type"] == "interval":
                 interval = int(job["interval_seconds"])
                 job["next_run_at"] = (utc_now() + timedelta(seconds=interval)).isoformat()
+
+            store.update_job(job["job_id"], job)
 
 
 cowork_service = CoworkService()
