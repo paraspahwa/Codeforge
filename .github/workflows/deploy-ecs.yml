@@ -27,6 +27,27 @@ env:
   QUALITY_BENCHMARK_SUITE: swe-fixtures
 
 jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run API unit tests
+        run: |
+          set -euo pipefail
+          pip install -r services/api/requirements.txt
+          cd services/api
+          pytest -q
+
   smoke-test:
     runs-on: ubuntu-latest
     permissions:
@@ -40,6 +61,9 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-test-password
           SUPABASE_JWT_SECRET: ci-test-jwt-secret
+          RAZORPAY_KEY_ID: rzp_test_ci
+          RAZORPAY_KEY_SECRET: ci_test_razorpay_secret
+          CODEFORGE_ALLOW_DEV_LOGIN: "true"
         run: docker compose -f docker-compose.prod.yml up -d --build
 
       - name: API health check
@@ -55,6 +79,87 @@ jobs:
           echo "API health check failed"
           docker compose -f docker-compose.prod.yml logs
           exit 1
+
+      - name: Deploy readiness gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:8000/api/v1/platform/deploy-readiness >/tmp/deploy-readiness.json
+
+          python - <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open('/tmp/deploy-readiness.json', encoding='utf-8'))
+          if not payload.get('ready', False):
+            failed = [c['name'] for c in payload.get('checks', []) if c.get('required', True) and not c.get('ok')]
+            print('Deploy readiness failed:', ', '.join(failed) or 'unknown')
+            sys.exit(1)
+          print('Deploy readiness gate passed')
+          PY
+
+      - name: Billing webhook smoke gate
+        shell: bash
+        env:
+          RAZORPAY_KEY_SECRET: ci_test_razorpay_secret
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/dev-login \
+            -H 'Content-Type: application/json' \
+            -d '{"user_id":"billing-ci"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+          curl -fsS -X POST http://127.0.0.1:8000/api/v1/billing/create-order \
+            -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            -d '{"plan_id":"pro","amount_inr":499,"currency":"INR"}' >/tmp/billing-order.json
+
+          order_id=$(python -c "import json; print(json.load(open('/tmp/billing-order.json', encoding='utf-8'))['order_id'])")
+
+          python - <<'PY'
+          import hashlib
+          import hmac
+          import json
+          import os
+          import urllib.request
+
+          order_id = json.load(open("/tmp/billing-order.json", encoding="utf-8"))["order_id"]
+          event = {
+              "event": "payment.captured",
+              "payload": {
+                  "payment": {"entity": {"id": "pay_ci_smoke", "order_id": order_id}},
+                  "order": {
+                      "entity": {
+                          "id": order_id,
+                          "notes": {
+                              "plan_id": "pro",
+                              "user_id": "billing-ci",
+                              "amount_inr": "499",
+                          },
+                      }
+                  },
+              },
+          }
+          body = json.dumps(event).encode("utf-8")
+          signature = hmac.new(
+              os.environ["RAZORPAY_KEY_SECRET"].encode("utf-8"),
+              body,
+              hashlib.sha256,
+          ).hexdigest()
+          request = urllib.request.Request(
+              "http://127.0.0.1:8000/api/v1/billing/webhook",
+              data=body,
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Razorpay-Signature": signature,
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request) as response:
+              payload = json.load(response)
+          if payload.get("status") != "processed":
+              raise SystemExit(f"Billing webhook smoke failed: {payload}")
+          print("Billing webhook smoke gate passed")
+          PY
 
       - name: Platform stack health gate
         shell: bash
@@ -113,6 +218,45 @@ jobs:
             sys.exit(1)
           print('Queue ping gate passed')
           PY
+
+      - name: Worker consume health gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          job_id="$(python - <<'PY'
+          import json
+          payload = json.load(open('/tmp/queue-ping.json', encoding='utf-8'))
+          print(payload.get('job_id', ''))
+          PY
+          )"
+          if [ -z "$job_id" ]; then
+            echo "Queue ping did not return a job_id"
+            exit 1
+          fi
+
+          for i in {1..30}; do
+            curl -fsS "http://127.0.0.1:8000/api/v1/platform/queue-ping/${job_id}" >/tmp/queue-status.json
+            python - <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open('/tmp/queue-status.json', encoding='utf-8'))
+          status = str(payload.get('status', '')).lower()
+          if status in {'success', 'ok'}:
+              result = payload.get('result') or {}
+              if result.get('status') == 'ok':
+                  print('Worker consume gate passed')
+                  sys.exit(0)
+          if status in {'failure', 'failed', 'error'}:
+              print(f"Worker job failed: {payload}")
+              sys.exit(1)
+          PY
+            sleep 2
+          done
+
+          echo "Worker did not consume queue ping in time"
+          docker compose -f docker-compose.prod.yml logs worker
+          exit 1
 
       - name: Routing regression fail-closed gate
         shell: bash
@@ -269,7 +413,7 @@ jobs:
 
   deploy-staging:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
-    needs: [smoke-test, rollout-policy-gate]
+    needs: [api-tests, smoke-test, rollout-policy-gate]
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -319,6 +463,11 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Ensure worker ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY_WORKER" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$ECR_REPOSITORY_WORKER"
+
       - name: Build and push Worker image
         id: build-worker
         env:
@@ -328,6 +477,21 @@ jobs:
           docker build -f Dockerfile.worker -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG services/api
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Patch public URLs in ECS task definitions
+        env:
+          WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL_STAGING }}
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_STAGING }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${WEB_PUBLIC_URL}" || -z "${API_PUBLIC_URL}" ]]; then
+            echo "Set WEB_PUBLIC_URL_STAGING and NEXT_PUBLIC_API_BASE_STAGING repository variables."
+            exit 1
+          fi
+          python scripts/patch_ecs_public_urls.py \
+            --environment staging \
+            --web-url "${WEB_PUBLIC_URL}" \
+            --api-url "${API_PUBLIC_URL}"
 
       - name: Render API task definition
         id: render-api
@@ -361,6 +525,19 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Patch worker task definition EFS filesystem id
+        env:
+          EFS_FILE_SYSTEM_ID: ${{ vars.EFS_FILE_SYSTEM_ID_STAGING }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${EFS_FILE_SYSTEM_ID}" || "${EFS_FILE_SYSTEM_ID}" == "fs-PLACEHOLDER" ]]; then
+            echo "Set repository variable EFS_FILE_SYSTEM_ID_STAGING before deploying the worker service."
+            exit 1
+          fi
+          python scripts/patch_ecs_worker_efs.py \
+            --environment staging \
+            --efs-file-system-id "${EFS_FILE_SYSTEM_ID}"
+
       - name: Render Worker task definition
         id: render-worker
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -377,9 +554,17 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Post-deploy public smoke checks
+        env:
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_STAGING }}
+          WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL_STAGING }}
+        run: |
+          set -euo pipefail
+          bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"
+
   deploy-production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
-    needs: [smoke-test, rollout-policy-gate]
+    needs: [api-tests, smoke-test, rollout-policy-gate]
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -429,6 +614,11 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WEB:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Ensure worker ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY_WORKER" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$ECR_REPOSITORY_WORKER"
+
       - name: Build and push Worker image
         id: build-worker
         env:
@@ -438,6 +628,21 @@ jobs:
           docker build -f Dockerfile.worker -t $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG services/api
           docker push $ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_WORKER:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Patch public URLs in ECS task definitions
+        env:
+          WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL_PRODUCTION }}
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${WEB_PUBLIC_URL}" || -z "${API_PUBLIC_URL}" ]]; then
+            echo "Set WEB_PUBLIC_URL_PRODUCTION and NEXT_PUBLIC_API_BASE_PRODUCTION repository variables."
+            exit 1
+          fi
+          python scripts/patch_ecs_public_urls.py \
+            --environment production \
+            --web-url "${WEB_PUBLIC_URL}" \
+            --api-url "${API_PUBLIC_URL}"
 
       - name: Render API task definition
         id: render-api
@@ -471,6 +676,19 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Patch worker task definition EFS filesystem id
+        env:
+          EFS_FILE_SYSTEM_ID: ${{ vars.EFS_FILE_SYSTEM_ID_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${EFS_FILE_SYSTEM_ID}" || "${EFS_FILE_SYSTEM_ID}" == "fs-PLACEHOLDER" ]]; then
+            echo "Set repository variable EFS_FILE_SYSTEM_ID_PRODUCTION before deploying the worker service."
+            exit 1
+          fi
+          python scripts/patch_ecs_worker_efs.py \
+            --environment production \
+            --efs-file-system-id "${EFS_FILE_SYSTEM_ID}"
+
       - name: Render Worker task definition
         id: render-worker
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -486,3 +704,11 @@ jobs:
           service: ${{ env.ECS_SERVICE_WORKER }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
+
+      - name: Post-deploy public smoke checks
+        env:
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }}
+          WEB_PUBLIC_URL: ${{ vars.WEB_PUBLIC_URL_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"

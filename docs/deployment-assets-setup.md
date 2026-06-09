@@ -75,6 +75,10 @@ Required repository variables:
 
 1. `NEXT_PUBLIC_API_BASE_STAGING` (example: `https://api-staging.yourdomain.com`)
 2. `NEXT_PUBLIC_API_BASE_PRODUCTION` (example: `https://api.yourdomain.com`)
+3. `EFS_FILE_SYSTEM_ID_STAGING` (example: `fs-abc123def456`)
+4. `EFS_FILE_SYSTEM_ID_PRODUCTION` (example: `fs-xyz789ghi012`)
+5. `WEB_PUBLIC_URL_STAGING` (example: `https://staging.yourdomain.com`)
+6. `WEB_PUBLIC_URL_PRODUCTION` (example: `https://yourdomain.com`)
 
 Notes:
 
@@ -93,11 +97,34 @@ The workflow expects these names by default:
 6. Production API service: `codeforge-api-service`
 7. Production Web service: `codeforge-web-service`
 8. Production Worker service: `codeforge-worker-service`
-9. ECR repos: `codeforge-api`, `codeforge-web`
+9. ECR repos: `codeforge-api`, `codeforge-web`, `codeforge-worker` (created automatically on first deploy if missing)
 
-The worker ECS service reuses the API image and runs `celery worker --beat` so scheduled cowork jobs tick outside the API process. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API tasks in production.
+The worker ECS service uses the dedicated `codeforge-worker` image (`Dockerfile.worker`) and runs `celery worker --beat` so scheduled cowork jobs tick outside the API process. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API tasks in production.
 
-Before the first worker deploy, create the ECS services in each cluster (Fargate, awsvpc, desired count >= 1) and CloudWatch log groups `/ecs/codeforge-worker-staging` and `/ecs/codeforge-worker-prod`.
+Worker task definitions keep `fs-PLACEHOLDER` in git; the deploy workflow injects the environment-specific EFS filesystem id from GitHub variables before registering the task definition.
+
+## Deploy readiness preflight
+
+Before shipping to ECS, verify runtime configuration:
+
+1. API health: `GET /health`
+2. Stack status: `GET /api/v1/platform/stack-status`
+3. Deploy readiness: `GET /api/v1/platform/deploy-readiness`
+4. Optional OIDC discovery probe: `GET /api/v1/platform/deploy-readiness?probe_discovery=true`
+
+CI smoke tests now fail closed when deploy readiness reports missing required configuration.
+
+## OIDC SSM bootstrap
+
+1. Copy `.env.oidc.example` to `.env.oidc` and fill IdP values.
+2. Run `python scripts/bootstrap_oidc_ssm.py --environment staging --env-file .env.oidc`.
+3. Follow [oidc-idp-checklist.md](oidc-idp-checklist.md) to register redirect URIs at the IdP.
+
+## Public URL patching
+
+The deploy workflow runs `scripts/patch_ecs_public_urls.py` before registering API/web task definitions. See [production-domains.md](production-domains.md) for ACM, ALB, and DNS setup.
+
+Prefer Terraform `enable_ecs_services = true` (see `infra/terraform/README.md`) to create API/web/worker Fargate services. Manual fallback: create ECS services in each cluster (Fargate, awsvpc, desired count >= 1) and CloudWatch log groups `/ecs/codeforge-worker-staging` and `/ecs/codeforge-worker-prod`.
 
 If your names differ, update `.github/workflows/deploy-ecs.yml` env section.
 
@@ -122,4 +149,4 @@ Before deployment, CI now runs a smoke-test stage:
 
 1. Add test/lint build gates before deploy steps.
 2. Add environment protection rules in GitHub for production approvals.
-3. Add post-deploy synthetic checks against staging/production URLs.
+3. Post-deploy synthetic checks run automatically via `scripts/post_deploy_public_smoke.sh` after ECS deploy (health, deploy-readiness with probes, stack-status, web origin).

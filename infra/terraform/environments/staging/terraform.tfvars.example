@@ -1,0 +1,29 @@
+aws_region          = "ap-south-1"
+name_prefix         = "codeforge-staging"
+vpc_id              = "vpc-xxxxxxxx"
+public_subnet_ids   = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
+certificate_arn     = "arn:aws:acm:ap-south-1:111111111111:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+api_host_headers    = ["api-staging.yourdomain.com"]
+
+# Optional ECS service wiring (set true after first task definition revision exists)
+enable_ecs_services      = false
+cluster_arn              = "arn:aws:ecs:ap-south-1:111111111111:cluster/codeforge-staging"
+private_subnet_ids       = ["subnet-private-aaaa", "subnet-private-bbbb"]
+api_task_definition_arn  = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-api-staging-task:1"
+web_task_definition_arn  = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-web-staging-task:1"
+worker_task_definition_arn = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-worker-staging-task:1"
+efs_file_system_id       = "fs-abc123def456"
+efs_security_group_id    = ""
+
+# Match deploy-ecs.yml ECS_SERVICE_* names (defaults already aligned)
+api_service_name    = "codeforge-api-staging-service"
+web_service_name    = "codeforge-web-staging-service"
+worker_service_name = "codeforge-worker-staging-service"
+
+# After first GitHub deploy, fetch task definition ARNs:
+# aws ecs describe-task-definition --task-definition codeforge-api-staging-task --query 'taskDefinition.taskDefinitionArn' --output text
+
+# Optional self-hosted Qdrant (after registering taskdef-qdrant.json via deploy)
+enable_qdrant_service       = false
+qdrant_task_definition_arn  = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-qdrant-staging-task:1"
+# After apply: terraform output qdrant_url → bootstrap_qdrant_ssm.py --internal-url

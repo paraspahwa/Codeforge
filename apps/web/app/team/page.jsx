@@ -10,11 +10,17 @@ import {
   executeTeamDelegation,
   getProjectKnowledge,
   listSessions,
+  addOrganizationMember,
+  createOrganization,
   createTeamStyleGuide,
+  createWorkspaceSessionGrant,
+  linkWorkspaceOrg,
+  listOrganizations,
   listTeamAuditLog,
   listTeamDelegations,
   listTeamStyleGuides,
   listTeamWorkspaces,
+  listWorkspaceSessionGrants,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
   streamTeamEvents,
@@ -56,6 +62,15 @@ export default function TeamPage() {
   const [styleGuideContent, setStyleGuideContent] = useState(
     "Use concise headings, accessible contrast, and consistent component spacing.",
   );
+  const [organizations, setOrganizations] = useState([]);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const [orgName, setOrgName] = useState("Startup org");
+  const [orgPlanId, setOrgPlanId] = useState("team");
+  const [orgMemberUserId, setOrgMemberUserId] = useState("");
+  const [orgMemberRole, setOrgMemberRole] = useState("member");
+  const [sessionGrants, setSessionGrants] = useState([]);
+  const [grantUserId, setGrantUserId] = useState("");
+  const [grantAccessLevel, setGrantAccessLevel] = useState("delegate");
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((entry) => entry.workspace_id === selectedWorkspaceId) || null,
@@ -66,20 +81,28 @@ export default function TeamPage() {
     if (!activeToken) {
       return;
     }
-    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides] = await Promise.all([
+    const workspaceId = selectedWorkspaceId || null;
+    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides, nextOrgs, nextGrants] =
+      await Promise.all([
       listTeamWorkspaces(activeToken),
-      listTeamDelegations(activeToken, selectedWorkspaceId || null),
+      listTeamDelegations(activeToken, workspaceId),
       listSessions(activeToken),
-      listTeamAuditLog(activeToken, selectedWorkspaceId || null, 30),
-      selectedWorkspaceId
-        ? listTeamStyleGuides(activeToken, selectedWorkspaceId).catch(() => ({ guides: [] }))
+      listTeamAuditLog(activeToken, workspaceId, 30),
+      workspaceId
+        ? listTeamStyleGuides(activeToken, workspaceId).catch(() => ({ guides: [] }))
         : Promise.resolve({ guides: [] }),
+      listOrganizations(activeToken).catch(() => ({ organizations: [] })),
+      workspaceId
+        ? listWorkspaceSessionGrants(activeToken, workspaceId).catch(() => ({ grants: [] }))
+        : Promise.resolve({ grants: [] }),
     ]);
     setWorkspaces(nextWorkspaces.workspaces || []);
     setDelegations(nextDelegations.delegations || []);
     setSessions(nextSessions);
     setAuditEvents(nextAudit.events || []);
     setStyleGuides(nextGuides.guides || []);
+    setOrganizations(nextOrgs.organizations || []);
+    setSessionGrants(nextGrants.grants || []);
     if (!selectedWorkspaceId && nextWorkspaces.workspaces?.length) {
       setSelectedWorkspaceId(nextWorkspaces.workspaces[0].workspace_id);
     }
@@ -283,6 +306,83 @@ export default function TeamPage() {
     }
   }
 
+  async function handleCreateOrganization() {
+    setLoading(true);
+    try {
+      const org = await createOrganization(token, {
+        name: orgName.trim(),
+        plan_id: orgPlanId,
+      });
+      toast.push(`Organization ${org.org_id} created`, "success");
+      setSelectedOrgId(org.org_id);
+      await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAddOrgMember() {
+    if (!selectedOrgId || !orgMemberUserId.trim()) {
+      toast.push("Select an organization and enter a member user ID");
+      return;
+    }
+    setLoading(true);
+    try {
+      await addOrganizationMember(token, selectedOrgId, {
+        user_id: orgMemberUserId.trim(),
+        role: orgMemberRole,
+      });
+      toast.push("Organization member added", "success");
+      setOrgMemberUserId("");
+      await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLinkWorkspaceOrg() {
+    if (!selectedWorkspaceId || !selectedOrgId) {
+      toast.push("Select a workspace and organization to link");
+      return;
+    }
+    setLoading(true);
+    try {
+      await linkWorkspaceOrg(token, selectedWorkspaceId, selectedOrgId);
+      toast.push("Workspace linked to organization", "success");
+      await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateSessionGrant() {
+    if (!selectedWorkspaceId || !sessionId || !grantUserId.trim()) {
+      toast.push("Workspace, session, and granted user ID are required");
+      return;
+    }
+    setLoading(true);
+    try {
+      const grant = await createWorkspaceSessionGrant(token, selectedWorkspaceId, {
+        session_id: sessionId,
+        granted_to_user_id: grantUserId.trim(),
+        access_level: grantAccessLevel,
+      });
+      toast.push(`Session grant ${grant.grant_id} created`, "success");
+      setGrantUserId("");
+      await refreshTeamData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleCreateStyleGuide() {
     if (!selectedWorkspaceId || !styleGuideTitle.trim() || !styleGuideContent.trim()) {
       toast.push("Workspace, title, and content are required");
@@ -353,6 +453,67 @@ export default function TeamPage() {
 
       <div className="grid">
         <section className="panel">
+          <h3>Organizations</h3>
+          <p className="small">Billing-tier org entities for plan-aware usage policy.</p>
+          <label className="small" htmlFor="orgName">
+            Name
+          </label>
+          <input id="orgName" value={orgName} onChange={(event) => setOrgName(event.target.value)} />
+          <label className="small" htmlFor="orgPlanId">
+            Plan
+          </label>
+          <select id="orgPlanId" value={orgPlanId} onChange={(event) => setOrgPlanId(event.target.value)}>
+            <option value="lite">Lite</option>
+            <option value="pro">Pro</option>
+            <option value="team">Team</option>
+          </select>
+          <button type="button" onClick={handleCreateOrganization} disabled={loading}>
+            Create organization
+          </button>
+          <hr className="divider" />
+          {organizations.length === 0 ? <p className="small">No organizations yet.</p> : null}
+          {organizations.map((org) => (
+            <button
+              key={org.org_id}
+              type="button"
+              className={`ghost-btn ${org.org_id === selectedOrgId ? "ghost-btn-active" : ""}`}
+              onClick={() => setSelectedOrgId(org.org_id)}
+            >
+              {org.name}
+              <span className="small block">
+                {org.org_id} · {org.plan_id}
+              </span>
+            </button>
+          ))}
+          {selectedOrgId ? (
+            <>
+              <hr className="divider" />
+              <label className="small" htmlFor="orgMemberUserId">
+                Add org member user ID
+              </label>
+              <input
+                id="orgMemberUserId"
+                value={orgMemberUserId}
+                onChange={(event) => setOrgMemberUserId(event.target.value)}
+              />
+              <select value={orgMemberRole} onChange={(event) => setOrgMemberRole(event.target.value)}>
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+                <option value="viewer">Viewer</option>
+              </select>
+              <button type="button" onClick={handleAddOrgMember} disabled={loading}>
+                Add org member
+              </button>
+              {selectedWorkspaceId ? (
+                <button type="button" className="ghost-btn" onClick={handleLinkWorkspaceOrg} disabled={loading}>
+                  Link selected workspace to org
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+
+        <section className="panel">
           <h3>Workspaces</h3>
           <label className="small" htmlFor="workspaceName">
             Name
@@ -387,6 +548,13 @@ export default function TeamPage() {
           {selectedWorkspace ? (
             <>
               <hr className="divider" />
+              {selectedWorkspace.org_id ? (
+                <p className="small">
+                  Linked org: <strong>{selectedWorkspace.org_id}</strong>
+                </p>
+              ) : (
+                <p className="small">No organization linked yet.</p>
+              )}
               <h4>Members</h4>
               {(selectedWorkspace.members || []).map((member) => (
                 <p key={member.user_id} className="small">
@@ -500,6 +668,37 @@ export default function TeamPage() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="panel">
+        <h3>Session grants</h3>
+        <p className="small">Grant workspace members delegated access to your session for team workflows.</p>
+        {sessionGrants.length === 0 ? <p className="small">No session grants for this workspace.</p> : null}
+        <ul className="small">
+          {sessionGrants.map((grant) => (
+            <li key={grant.grant_id}>
+              <strong>{grant.granted_to_user_id}</strong> · {grant.session_id} · {grant.access_level}
+            </li>
+          ))}
+        </ul>
+        <label className="small" htmlFor="grantUserId">
+          Grant to user ID
+        </label>
+        <input id="grantUserId" value={grantUserId} onChange={(event) => setGrantUserId(event.target.value)} />
+        <label className="small" htmlFor="grantAccessLevel">
+          Access level
+        </label>
+        <select
+          id="grantAccessLevel"
+          value={grantAccessLevel}
+          onChange={(event) => setGrantAccessLevel(event.target.value)}
+        >
+          <option value="view">View</option>
+          <option value="delegate">Delegate</option>
+        </select>
+        <button type="button" onClick={handleCreateSessionGrant} disabled={loading || !selectedWorkspaceId || !sessionId}>
+          Grant session access
+        </button>
       </section>
 
       <section className="panel">

@@ -83,6 +83,12 @@ export default function AppShell({ children }) {
                 Logout
               </button>
             </div>
+          ) : oidcEnabled ? (
+            <div className="topbar-login">
+              <button type="button" onClick={handleOidcLogin} disabled={oidcLoading}>
+                {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
+              </button>
+            </div>
           ) : (
             <form className="topbar-login" onSubmit={handleLogin}>
               <input
@@ -90,16 +96,11 @@ export default function AppShell({ children }) {
                 placeholder="Dev user ID"
                 value={loginInput}
                 onChange={(event) => setLoginInput(event.target.value)}
-                disabled={loggingIn || oidcLoading}
+                disabled={loggingIn}
               />
-              <button type="submit" disabled={loggingIn || oidcLoading || !loginInput.trim()}>
+              <button type="submit" disabled={loggingIn || !loginInput.trim()}>
                 {loggingIn ? "Logging in..." : "Login"}
               </button>
-              {oidcEnabled ? (
-                <button type="button" className="ghost-btn inline-btn" onClick={handleOidcLogin} disabled={oidcLoading}>
-                  {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
-                </button>
-              ) : null}
             </form>
           )}
         </header>

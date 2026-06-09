@@ -173,21 +173,14 @@ class ContextMcpService:
         if tool_name not in allowed_tools:
             raise ContextMcpError("Tool is not registered on this MCP connector")
 
-        # This is a safe local stub for MCP v1 wiring until remote transport is enabled.
-        if tool_name == "ping":
-            result_payload: dict[str, Any] = {
-                "ok": True,
-                "tool": "ping",
-                "message": "pong",
-                "echo": arguments,
-            }
-        else:
-            result_payload = {
-                "ok": True,
-                "tool": tool_name,
-                "message": "stubbed MCP invocation",
-                "echo": arguments,
-            }
+        from .mcp_transport import invoke_remote_tool
+
+        result_payload = invoke_remote_tool(
+            endpoint=str(connector["endpoint"]),
+            transport=str(connector.get("transport") or "http"),
+            tool_name=tool_name,
+            arguments=arguments,
+        )
 
         connector["last_result"] = f"{tool_name} invoked"
         connector["updated_at"] = utc_now_iso()

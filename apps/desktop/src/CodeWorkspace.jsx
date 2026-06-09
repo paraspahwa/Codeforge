@@ -6,10 +6,10 @@ import {
   routingSignalFromMessageResponse,
   routingSignalFromPayload,
 } from "@codeforge/shared/sse";
+import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   createSession,
   decideProposal,
-  devLogin,
   getFilePreview,
   getGitDiff,
   getGitStatus,
@@ -48,14 +48,11 @@ function saveStoredState(patch) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
 }
 
-export default function CodeWorkspace({ sharedToken = null, sharedUserId = null }) {
+export default function CodeWorkspace() {
+  const { token } = useDesktopAuth();
   const stored = useMemo(() => loadStoredState(), []);
 
-  const [userId, setUserId] = useState(
-    sharedUserId || import.meta.env.VITE_CODEFORGE_USER_ID || stored.userId || "dev-user",
-  );
   const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || stored.projectPath || "");
-  const [token, setToken] = useState(sharedToken || stored.token || null);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState(stored.sessionId || "");
   const [messages, setMessages] = useState([]);
@@ -99,15 +96,16 @@ export default function CodeWorkspace({ sharedToken = null, sharedUserId = null 
   const canSend = Boolean(token && sessionId && prompt.trim() && !loading);
 
   useEffect(() => {
-    if (sharedToken) {
-      setToken(sharedToken);
-      saveStoredState({ token: sharedToken });
+    if (!token) {
+      setSessions([]);
+      setMessages([]);
+      setUsage(null);
+      return;
     }
-    if (sharedUserId) {
-      setUserId(sharedUserId);
-      saveStoredState({ userId: sharedUserId });
-    }
-  }, [sharedToken, sharedUserId]);
+    refreshSessions(token).catch(() => undefined);
+    refreshUsage(token).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const pushActivity = (entries) => {
     setActivity((previous) => [...entries.filter(Boolean), ...previous].slice(0, 16));
@@ -150,23 +148,6 @@ export default function CodeWorkspace({ sharedToken = null, sharedUserId = null 
     if (!sessionId && list.length > 0) {
       setSessionId(list[0].session_id);
       saveStoredState({ sessionId: list[0].session_id });
-    }
-  }
-
-  async function handleLogin() {
-    setLoading(true);
-    setErrorMessage("");
-    try {
-      const nextToken = await devLogin(userId.trim());
-      setToken(nextToken);
-      saveStoredState({ userId: userId.trim(), token: nextToken });
-      await refreshSessions(nextToken);
-      await refreshUsage(nextToken);
-      setStatusMessage(`Logged in as ${userId.trim()}`);
-    } catch (error) {
-      setErrorMessage(error.message);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -624,8 +605,8 @@ export default function CodeWorkspace({ sharedToken = null, sharedUserId = null 
   }, [token, sessionId]);
 
   useEffect(() => {
-    saveStoredState({ userId, projectPath, sessionId });
-  }, [userId, projectPath, sessionId]);
+    saveStoredState({ projectPath, sessionId });
+  }, [projectPath, sessionId]);
 
   const changedFiles = [
     ...(gitStatus?.changed_files || []).map((item) => item.path),
@@ -664,13 +645,6 @@ export default function CodeWorkspace({ sharedToken = null, sharedUserId = null 
       {errorMessage ? <div className="status error">{errorMessage}</div> : null}
 
       <section className="workspace-toolbar card">
-        <div className="toolbar-group">
-          <label htmlFor="code-uid">User</label>
-          <input id="code-uid" value={userId} onChange={(event) => setUserId(event.target.value)} disabled={loading} />
-          <button type="button" onClick={handleLogin} disabled={!userId.trim() || loading}>
-            {token ? "Re-login" : "Login"}
-          </button>
-        </div>
         <div className="toolbar-group toolbar-grow">
           <label htmlFor="code-path">Project</label>
           <input

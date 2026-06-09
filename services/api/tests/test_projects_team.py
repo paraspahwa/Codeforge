@@ -131,3 +131,88 @@ def test_session_share_resolve_and_web_url(client, tmp_path: Path) -> None:
     assert resolved.status_code == 200
     assert resolved.json()["session_id"] == session_id
     assert resolved.json()["project_path"]
+
+
+def test_session_export_returns_messages(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "team-export"
+    project.mkdir()
+
+    _, headers = _auth_headers(client)
+    session_id = _create_session(client, headers, project)
+
+    exported = client.get(f"/api/v1/team/session-export/{session_id}", headers=headers)
+    assert exported.status_code == 200
+    body = exported.json()
+    assert body["format"] == "json"
+    assert session_id in body["content"]
+
+
+def test_delegation_rejects_foreign_member_session(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "team-perms"
+    project.mkdir()
+
+    owner_login = client.post("/api/v1/auth/dev-login", json={"user_id": "owner-user"})
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+    owner_session_id = _create_session(client, owner_headers, project)
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Permissions team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    for member_id in ("member-a", "member-b"):
+        client.post(
+            f"/api/v1/team/workspaces/{workspace_id}/members",
+            headers=owner_headers,
+            json={"user_id": member_id, "role": "member"},
+        )
+
+    member_a_login = client.post("/api/v1/auth/dev-login", json={"user_id": "member-a"})
+    member_a_headers = {"Authorization": f"Bearer {member_a_login.json()['access_token']}"}
+    member_a_session_id = _create_session(client, member_a_headers, project)
+
+    member_b_login = client.post("/api/v1/auth/dev-login", json={"user_id": "member-b"})
+    member_b_headers = {"Authorization": f"Bearer {member_b_login.json()['access_token']}"}
+
+    denied = client.post(
+        "/api/v1/team/delegations",
+        headers=member_b_headers,
+        json={
+            "workspace_id": workspace_id,
+            "session_id": member_a_session_id,
+            "assigned_role": "reviewer",
+            "task": "Should be denied",
+            "priority": "normal",
+        },
+    )
+    assert denied.status_code == 403
+
+    allowed = client.post(
+        "/api/v1/team/delegations",
+        headers=member_a_headers,
+        json={
+            "workspace_id": workspace_id,
+            "session_id": member_a_session_id,
+            "assigned_role": "reviewer",
+            "task": "Allowed on own session",
+            "priority": "normal",
+        },
+    )
+    assert allowed.status_code == 200
+
+    owner_allowed = client.post(
+        "/api/v1/team/delegations",
+        headers=owner_headers,
+        json={
+            "workspace_id": workspace_id,
+            "session_id": owner_session_id,
+            "assigned_role": "reviewer",
+            "task": "Owner session",
+            "priority": "normal",
+        },
+    )
+    assert owner_allowed.status_code == 200

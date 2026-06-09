@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, Newline, render, useApp, useInput } from "ink";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,8 +12,12 @@ import {
   branchGitRepo,
   commitGitChanges,
   decideProposal,
+  completeOidcCallback,
+  createTeamStyleGuide,
   devLogin,
   getGitDiff,
+  getOidcAuthorizeUrl,
+  getOidcConfig,
   getGitConflictGuide,
   getGitLog,
   getGitMergeAssist,
@@ -27,10 +31,14 @@ import {
   createCoworkPlan,
   createRemoteChannel,
   createSessionShare,
+  approveTeamDelegationStep,
   createTeamDelegation,
   createTeamWorkspace,
   addTeamWorkspaceMember,
   executeTeamDelegation,
+  listTeamStyleGuides,
+  updateTeamStyleGuide,
+  streamTeamEvents,
   exportSession,
   extractCoworkData,
   listCoworkJobs,
@@ -57,6 +65,8 @@ import {
 import { formatEvent } from "@codeforge/shared/sse";
 
 const DEFAULT_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
+const TERMINAL_OIDC_REDIRECT_URI =
+  process.env.CODEFORGE_OIDC_REDIRECT_URI || "http://127.0.0.1:4583/auth/callback";
 const DEFAULT_USER_ID = process.env.CODEFORGE_USER_ID || "dev-user";
 const DEFAULT_PROJECT_PATH = process.cwd();
 const DEFAULT_MODEL = process.env.CODEFORGE_MODEL || "deepseek-v4-flash";
@@ -315,6 +325,8 @@ function App() {
   const [baseUrl] = useState(DEFAULT_BASE_URL);
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [token, setToken] = useState("");
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+  const oidcPendingRef = useRef(null);
   const [projectPath, setProjectPath] = useState(DEFAULT_PROJECT_PATH);
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState("");
@@ -914,6 +926,79 @@ function App() {
     }
   };
 
+  const beginOidcLogin = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const config = await getOidcConfig(baseUrl);
+      if (!config.enabled) {
+        throw new Error("OIDC is not enabled on this API");
+      }
+      const state = `cf_${Math.random().toString(36).slice(2, 14)}`;
+      const result = await getOidcAuthorizeUrl(baseUrl, TERMINAL_OIDC_REDIRECT_URI, state);
+      oidcPendingRef.current = {
+        state: result.state || state,
+        redirectUri: result.redirect_uri || TERMINAL_OIDC_REDIRECT_URI,
+      };
+      setReviewTitle("OIDC sign-in");
+      setDiffPreview(
+        [
+          "Open this URL in your browser:",
+          result.authorize_url,
+          "",
+          `After redirect, copy the code query param and run:`,
+          `/sso complete <code>`,
+          "",
+          `Redirect URI: ${oidcPendingRef.current.redirectUri}`,
+        ].join("\n"),
+      );
+      setBootStatus("OIDC sign-in started");
+      pushEvent("OIDC: open authorize URL in browser");
+    } catch (oidcError) {
+      setError(oidcError.message);
+      setBootStatus("OIDC sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const completeOidcLogin = async (code, stateOverride = "") => {
+    const pending = oidcPendingRef.current;
+    if (!pending) {
+      throw new Error("Start OIDC first with /sso or /login oidc");
+    }
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      throw new Error("Usage: /sso complete <authorization_code>");
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await completeOidcCallback(baseUrl, {
+        code: trimmedCode,
+        state: stateOverride || pending.state,
+        redirect_uri: pending.redirectUri,
+      });
+      const accessToken = response.access_token;
+      const resolvedUserId = accessToken.startsWith("oidc_") ? accessToken.slice(5) : accessToken;
+      setUserId(resolvedUserId);
+      setToken(accessToken);
+      oidcPendingRef.current = null;
+      setBootStatus(`Signed in as ${resolvedUserId}`);
+      pushEvent(`OIDC authenticated as ${resolvedUserId}`);
+      const nextSessions = await refreshSessions(accessToken);
+      if (nextSessions.length > 0) {
+        setCurrentSessionId(nextSessions[0].session_id);
+        await refreshMessages(nextSessions[0].session_id, accessToken);
+      }
+    } catch (oidcError) {
+      setError(oidcError.message);
+      setBootStatus("OIDC sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleCommand = async (input) => {
     const command = input.slice(1).trim();
     const [name, ...rest] = command.split(/\s+/);
@@ -1255,11 +1340,40 @@ function App() {
           pushEvent(`team: ${lines.length} delegation(s)`);
         } else if (sub === "delegate") {
           const tokens = splitShellWords(subArg).map(stripQuotes);
-          const workspaceId = tokens[0];
-          const role = tokens[1] || "reviewer";
-          const task = tokens.slice(2).join(" ");
+          const flags = {
+            mode: "sequential",
+            roles: [],
+            requireApproval: false,
+          };
+          const positional = [];
+          for (let index = 0; index < tokens.length; index += 1) {
+            const entry = tokens[index];
+            if (entry === "--require-approval") {
+              flags.requireApproval = true;
+              continue;
+            }
+            if (entry === "--mode" && tokens[index + 1]) {
+              flags.mode = tokens[index + 1];
+              index += 1;
+              continue;
+            }
+            if (entry === "--roles" && tokens[index + 1]) {
+              flags.roles = tokens[index + 1]
+                .split(",")
+                .map((role) => role.trim())
+                .filter(Boolean);
+              index += 1;
+              continue;
+            }
+            positional.push(entry);
+          }
+          const workspaceId = positional[0];
+          const role = positional[1] || "reviewer";
+          const task = positional.slice(2).join(" ");
           if (!workspaceId || !task) {
-            throw new Error("Usage: /team delegate <workspace_id> <role> <task>");
+            throw new Error(
+              "Usage: /team delegate <workspace_id> <role> <task> [--mode sequential|supervisor|single] [--roles reviewer,implementer] [--require-approval]",
+            );
           }
           const delegation = await createTeamDelegation(baseUrl, token, {
             workspace_id: workspaceId,
@@ -1267,10 +1381,107 @@ function App() {
             assigned_role: role,
             task,
             priority: "normal",
+            orchestration_mode: flags.mode,
+            agent_roles: flags.roles,
+            require_step_approval: flags.requireApproval,
           });
           setReviewTitle("Delegation queued");
           setDiffPreview(`${delegation.task_id}: ${delegation.status}`);
           pushEvent(`team: delegation ${delegation.task_id}`);
+        } else if (sub === "approve") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const taskId = tokens[0];
+          const reject = tokens.includes("--reject");
+          const noteIndex = tokens.indexOf("--note");
+          const note = noteIndex >= 0 ? tokens.slice(noteIndex + 1).join(" ") : "";
+          if (!taskId || taskId.startsWith("--")) {
+            throw new Error("Usage: /team approve <task_id> [--reject] [--note text]");
+          }
+          const result = await approveTeamDelegationStep(baseUrl, token, taskId, {
+            approved: !reject,
+            note,
+          });
+          setReviewTitle(`Delegation ${taskId}`);
+          setDiffPreview(`${result.status}: ${result.note || ""}`);
+          pushEvent(`team: approve ${result.status}`);
+        } else if (sub === "style-guide") {
+          const guideTokens = splitShellWords(subArg).map(stripQuotes);
+          const guideAction = (guideTokens[0] || "").toLowerCase();
+          if (guideAction === "create") {
+            const workspaceId = guideTokens[1];
+            const title = guideTokens[2];
+            const typeIndex = guideTokens.indexOf("--type");
+            const guideType = typeIndex >= 0 ? guideTokens[typeIndex + 1] || "style" : "style";
+            const contentStart = typeIndex >= 0 ? typeIndex + 2 : 3;
+            const content = guideTokens.slice(contentStart).join(" ");
+            if (!workspaceId || !title || content.length < 8) {
+              throw new Error(
+                "Usage: /team style-guide create <workspace_id> <title> [--type style|conventions|architecture] <content>",
+              );
+            }
+            const created = await createTeamStyleGuide(baseUrl, token, workspaceId, {
+              title,
+              guide_type: guideType,
+              content,
+            });
+            setReviewTitle("Style guide created");
+            setDiffPreview(`${created.guide_id}: ${created.title}`);
+            pushEvent(`team: style guide ${created.guide_id} created`);
+          } else if (guideAction === "update") {
+            const workspaceId = guideTokens[1];
+            const guideId = guideTokens[2];
+            const titleIndex = guideTokens.indexOf("--title");
+            const contentIndex = guideTokens.indexOf("--content");
+            const payload = {};
+            if (titleIndex >= 0) {
+              payload.title = guideTokens[titleIndex + 1];
+            }
+            if (contentIndex >= 0) {
+              payload.content = guideTokens.slice(contentIndex + 1).join(" ");
+            }
+            if (!workspaceId || !guideId || !Object.keys(payload).length) {
+              throw new Error(
+                "Usage: /team style-guide update <workspace_id> <guide_id> [--title text] [--content text]",
+              );
+            }
+            const updated = await updateTeamStyleGuide(baseUrl, token, workspaceId, guideId, payload);
+            setReviewTitle("Style guide updated");
+            setDiffPreview(`${updated.guide_id}: ${updated.title}`);
+            pushEvent(`team: style guide ${updated.guide_id} updated`);
+          } else {
+            throw new Error(
+              "Usage: /team style-guide create <workspace_id> <title> [--type ...] <content> | update <workspace_id> <guide_id> [--title ...] [--content ...]",
+            );
+          }
+        } else if (sub === "style-guides") {
+          let workspaceId = subArg || null;
+          if (!workspaceId) {
+            const workspaces = await listTeamWorkspaces(baseUrl, token);
+            workspaceId = workspaces.workspaces?.[0]?.workspace_id || null;
+          }
+          if (!workspaceId) {
+            throw new Error("Usage: /team style-guides [workspace_id]");
+          }
+          const result = await listTeamStyleGuides(baseUrl, token, workspaceId);
+          const lines = (result.guides || []).map(
+            (guide) => `${guide.guide_id}: ${guide.title} (${guide.guide_type})`,
+          );
+          setReviewTitle("Style guides");
+          setDiffPreview(lines.length ? lines.join("\n") : "No style guides yet.");
+          pushEvent(`team: ${lines.length} style guide(s)`);
+        } else if (sub === "events") {
+          const lines = [];
+          const iterator = streamTeamEvents(baseUrl, token);
+          const timeout = Date.now() + 5000;
+          for await (const event of iterator) {
+            lines.push(`${event.type || "event"}: ${JSON.stringify(event).slice(0, 120)}`);
+            if (lines.length >= 5 || Date.now() > timeout) {
+              break;
+            }
+          }
+          setReviewTitle("Team live events");
+          setDiffPreview(lines.length ? lines.join("\n") : "No events in the last few seconds.");
+          pushEvent(`team: ${lines.length} live event(s)`);
         } else if (sub === "execute") {
           if (!subArg) {
             throw new Error("Usage: /team execute <task_id>");
@@ -1347,7 +1558,7 @@ function App() {
           }
         } else {
           throw new Error(
-            "Usage: /team workspaces | create <name> | kb [title] | query <text> | delegations [workspace] | delegate <ws> <role> <task> | execute <task_id> | audit [workspace] | member <ws> <user> [role] | share | export [json|markdown] | remote ...",
+            "Usage: /team workspaces | create <name> | kb [title] | query <text> | delegations [workspace] | delegate <ws> <role> <task> [--mode ...] [--roles ...] [--require-approval] | execute <task_id> | approve <task_id> [--reject] | style-guides [workspace] | events | audit [workspace] | member <ws> <user> [role] | share | export [json|markdown] | remote ...",
           );
         }
       } catch (teamError) {
@@ -1489,7 +1700,29 @@ function App() {
       return;
     }
 
+    if (name === "sso") {
+      const action = (argument || "start").toLowerCase();
+      if (action === "start" || action === "login") {
+        await beginOidcLogin();
+        return;
+      }
+      if (action === "complete") {
+        await completeOidcLogin(rest.join(" ").trim());
+        return;
+      }
+      setError("Usage: /sso | /sso complete <code>");
+      return;
+    }
+
     if (name === "login") {
+      if ((argument || "").toLowerCase() === "oidc") {
+        await beginOidcLogin();
+        return;
+      }
+      if ((argument || "").toLowerCase() === "oidc-complete") {
+        await completeOidcLogin(rest.join(" ").trim());
+        return;
+      }
       await login(argument || DEFAULT_USER_ID);
       return;
     }
@@ -1880,7 +2113,15 @@ function App() {
   useEffect(() => {
     pushEvent(`Base URL ${baseUrl}`);
     pushEvent(`Type /login ${DEFAULT_USER_ID} to start`);
-  }, []);
+    getOidcConfig(baseUrl)
+      .then((config) => {
+        setOidcEnabled(Boolean(config.enabled));
+        if (config.enabled) {
+          pushEvent("OIDC enabled — use /sso to sign in");
+        }
+      })
+      .catch(() => setOidcEnabled(false));
+  }, [baseUrl]);
 
   useInput(async (input, key) => {
     if (paletteOpen) {

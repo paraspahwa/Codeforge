@@ -72,6 +72,15 @@ from .db import (
 )
 from .file_ops import apply_proposed_content
 from .project_paths import normalize_project_path, resolved_project_path
+from .org_service import OrgError, org_service
+from .session_access import resolve_team_session
+from .billing_context import build_billing_context
+from .billing_service import (
+    BillingError,
+    apply_verified_payment,
+    derive_webhook_event_id,
+    process_razorpay_webhook_event,
+)
 from .usage_policy import get_usage_policy
 from .workflow_ops import (
     build_compact_summary,
@@ -95,6 +104,7 @@ from .models import (
     AgentTemplateListResponse,
     AgentTemplateResponse,
     CompactWorkflowResponse,
+    BillingContextResponse,
     BillingPlan,
     BillingWebhookResponse,
     CoworkExtractRequest,
@@ -205,7 +215,16 @@ from .models import (
     OidcConfigResponse,
     OidcDiscoveryResponse,
     OidcExchangeRequest,
+    OrganizationCreateRequest,
+    OrganizationListResponse,
+    OrganizationMemberRequest,
+    OrganizationPlanUpgradeRequest,
+    OrganizationResponse,
     TeamDelegationStepDecisionRequest,
+    WorkspaceOrgLinkRequest,
+    WorkspaceSessionGrantListResponse,
+    WorkspaceSessionGrantRequest,
+    WorkspaceSessionGrantResponse,
     RemoteChannelCreateRequest,
     TeamStyleGuideCreateRequest,
     TeamStyleGuideListResponse,
@@ -387,8 +406,11 @@ async def oidc_authorize_url(
         raise HTTPException(status_code=501, detail="OIDC is not enabled")
     from .oidc import build_authorize_url, default_redirect_uri
 
+    from .oidc_state import register_oidc_state
+
     resolved_redirect = (redirect_uri or default_redirect_uri()).strip()
     resolved_state = (state or f"cf_{uuid4().hex[:12]}").strip()
+    register_oidc_state(resolved_state, redirect_uri=resolved_redirect)
     authorize_url = await build_authorize_url(redirect_uri=resolved_redirect, state=resolved_state)
     return OidcAuthorizeUrlResponse(
         authorize_url=authorize_url,
@@ -402,8 +424,11 @@ async def oidc_callback(payload: OidcCallbackRequest) -> DevLoginResponse:
     if not oidc_auth_enabled():
         raise HTTPException(status_code=501, detail="OIDC is not enabled")
     from .oidc import default_redirect_uri, exchange_authorization_code
+    from .oidc_state import consume_oidc_state
 
     redirect_uri = (payload.redirect_uri or default_redirect_uri()).strip()
+    if not payload.state or not consume_oidc_state(payload.state, redirect_uri=redirect_uri):
+        raise HTTPException(status_code=400, detail="OIDC state is invalid or expired")
     user_id = await exchange_authorization_code(code=payload.code, redirect_uri=redirect_uri)
     return DevLoginResponse(access_token=f"oidc_{user_id}")
 
@@ -501,6 +526,13 @@ def billing_plans() -> list[BillingPlan]:
     return BILLING_PLANS
 
 
+@app.get("/api/v1/billing/context", response_model=BillingContextResponse)
+def billing_context(user: AuthUser = Depends(get_current_user)) -> BillingContextResponse:
+    payload = build_billing_context(user.user_id)
+    payload["billing_period_start"] = _parse_period_start(payload["billing_period_start"])
+    return BillingContextResponse(**payload)
+
+
 @app.get("/api/v1/billing/subscription", response_model=SubscriptionStatus)
 def billing_subscription(user: AuthUser = Depends(get_current_user)) -> SubscriptionStatus:
     subscription = get_user_subscription(user.user_id)
@@ -540,6 +572,8 @@ async def billing_create_order(
                     "notes": {
                         "plan_id": payload.plan_id,
                         "user_id": user.user_id,
+                        "amount_inr": str(payload.amount_inr),
+                        **({"org_id": payload.org_id} if payload.org_id else {}),
                     },
                 },
             )
@@ -556,6 +590,7 @@ async def billing_create_order(
         provider=provider,
         status="created",
         created_at=created_at,
+        org_id=payload.org_id,
     )
 
     return CreateOrderResponse(
@@ -580,21 +615,18 @@ def billing_verify_payment(
         if not hmac.compare_digest(expected, payload.signature):
             raise HTTPException(status_code=401, detail="Invalid payment signature")
 
-    update_billing_order_status(payload.order_id, "paid")
-    upsert_user_subscription(
-        user_id=user.user_id,
-        plan_id=payload.plan_id,
-        status="active",
-        amount_inr=payload.amount_inr,
-        order_id=payload.order_id,
-        updated_at=utc_now().isoformat(),
-    )
-
-    return VerifyPaymentResponse(
-        status="verified",
-        subscription_plan=payload.plan_id,
-        order_id=payload.order_id,
-    )
+    try:
+        result = apply_verified_payment(
+            user_id=user.user_id,
+            order_id=payload.order_id,
+            plan_id=payload.plan_id,
+            amount_inr=payload.amount_inr,
+            org_id=payload.org_id,
+            payment_id=payload.payment_id,
+        )
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return VerifyPaymentResponse(**result)
 
 
 @app.post("/api/v1/billing/webhook", response_model=BillingWebhookResponse)
@@ -610,24 +642,33 @@ async def billing_webhook(request: Request) -> BillingWebhookResponse:
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     event = json.loads(payload_text or "{}")
-    event_id = str(event.get("payload", {}).get("payment", {}).get("entity", {}).get("id") or uuid4().hex)
+    event_id = derive_webhook_event_id(event)
     event_type = str(event.get("event", "unknown"))
 
-    if get_billing_webhook(f"evt_{event_id}") is not None:
-        return BillingWebhookResponse(status="duplicate")
+    if get_billing_webhook(event_id) is not None:
+        return BillingWebhookResponse(status="duplicate", event_type=event_type)
 
     try:
         insert_billing_webhook(
-            event_id=f"evt_{event_id}",
+            event_id=event_id,
             event_type=event_type,
             payload_json=payload_text,
             created_at=utc_now().isoformat(),
         )
     except Exception:
         # Concurrent retry inserted the same event between our check and insert.
-        return BillingWebhookResponse(status="duplicate")
+        return BillingWebhookResponse(status="duplicate", event_type=event_type)
 
-    return BillingWebhookResponse(status="received")
+    processed = process_razorpay_webhook_event(event)
+    return BillingWebhookResponse(
+        status=processed.get("status", "received"),
+        order_id=processed.get("order_id"),
+        event_type=processed.get("event_type", event_type),
+        org_plan_updated=bool(processed.get("org_plan_updated")),
+        organization_plan_id=processed.get("organization_plan_id"),
+        downgraded_org_ids=list(processed.get("downgraded_org_ids") or []),
+        synced_org_ids=list(processed.get("synced_org_ids") or []),
+    )
 
 
 @app.post("/api/v1/sessions/{session_id}/messages", response_model=MessageCreateResponse)
@@ -1429,6 +1470,81 @@ def query_project_knowledge(
     return ProjectKnowledgeQueryResponse(**result)
 
 
+@app.post("/api/v1/orgs", response_model=OrganizationResponse)
+def create_organization(
+    payload: OrganizationCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> OrganizationResponse:
+    try:
+        org = org_service.create_organization(
+            owner_id=user.user_id,
+            name=payload.name,
+            plan_id=payload.plan_id,
+        )
+    except OrgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OrganizationResponse(**org)
+
+
+@app.get("/api/v1/orgs", response_model=OrganizationListResponse)
+def list_organizations(user: AuthUser = Depends(get_current_user)) -> OrganizationListResponse:
+    orgs = org_service.list_organizations(user_id=user.user_id)
+    return OrganizationListResponse(organizations=[OrganizationResponse(**item) for item in orgs])
+
+
+@app.post("/api/v1/orgs/{org_id}/members", response_model=OrganizationResponse)
+def add_organization_member(
+    org_id: str,
+    payload: OrganizationMemberRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> OrganizationResponse:
+    try:
+        org = org_service.add_member(
+            actor_id=user.user_id,
+            org_id=org_id,
+            member_user_id=payload.user_id,
+            role=payload.role,
+        )
+    except OrgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OrganizationResponse(**org)
+
+
+@app.post("/api/v1/orgs/{org_id}/plan", response_model=OrganizationResponse)
+def upgrade_organization_plan(
+    org_id: str,
+    payload: OrganizationPlanUpgradeRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> OrganizationResponse:
+    try:
+        org = org_service.upgrade_organization_plan(
+            actor_id=user.user_id,
+            org_id=org_id,
+            plan_id=payload.plan_id,
+            require_active_subscription=True,
+        )
+    except OrgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return OrganizationResponse(**org)
+
+
+@app.post("/api/v1/team/workspaces/{workspace_id}/org", response_model=TeamWorkspaceResponse)
+def link_workspace_org(
+    workspace_id: str,
+    payload: WorkspaceOrgLinkRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> TeamWorkspaceResponse:
+    try:
+        workspace = org_service.link_workspace(
+            actor_id=user.user_id,
+            org_id=payload.org_id,
+            workspace_id=workspace_id,
+        )
+    except OrgError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TeamWorkspaceResponse(**workspace)
+
+
 @app.post("/api/v1/team/workspaces", response_model=TeamWorkspaceResponse)
 def create_team_workspace(
     payload: TeamWorkspaceCreateRequest,
@@ -1468,6 +1584,42 @@ def add_team_workspace_member(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return TeamWorkspaceResponse(**workspace)
+
+
+@app.post("/api/v1/team/workspaces/{workspace_id}/session-grants", response_model=WorkspaceSessionGrantResponse)
+def create_workspace_session_grant(
+    workspace_id: str,
+    payload: WorkspaceSessionGrantRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> WorkspaceSessionGrantResponse:
+    try:
+        grant = projects_team_service.grant_workspace_session(
+            actor_id=user.user_id,
+            workspace_id=workspace_id,
+            session_id=payload.session_id,
+            granted_to_user_id=payload.granted_to_user_id,
+            access_level=payload.access_level,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WorkspaceSessionGrantResponse(**grant)
+
+
+@app.get("/api/v1/team/workspaces/{workspace_id}/session-grants", response_model=WorkspaceSessionGrantListResponse)
+def list_workspace_session_grants(
+    workspace_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> WorkspaceSessionGrantListResponse:
+    try:
+        grants = projects_team_service.list_workspace_session_grants(
+            user_id=user.user_id,
+            workspace_id=workspace_id,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WorkspaceSessionGrantListResponse(
+        grants=[WorkspaceSessionGrantResponse(**item) for item in grants],
+    )
 
 
 @app.post("/api/v1/team/session-share", response_model=SessionShareResponse)
@@ -1546,15 +1698,13 @@ def create_team_delegation(
     user: AuthUser = Depends(get_current_user),
 ) -> TeamDelegationResponse:
     _enforce_workspace_rate_limit("team-delegation-create", payload.workspace_id, user.user_id)
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
+    session = resolve_team_session(
+        actor_id=user.user_id,
+        session_id=payload.session_id,
+        workspace_id=payload.workspace_id,
+    )
     if session is None:
-        owner_session = None
-        for workspace in projects_team_service.list_workspaces(user_id=user.user_id):
-            owner_session = get_session_for_user(session_id=payload.session_id, user_id=workspace["owner_id"])
-            if owner_session:
-                break
-        if owner_session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=403, detail="Session is not accessible in this workspace")
 
     try:
         delegation = projects_team_service.create_delegation(
@@ -1607,17 +1757,13 @@ async def execute_team_delegation(
     if match is None:
         raise HTTPException(status_code=404, detail="Delegation not found")
 
-    session = get_session_for_user(session_id=match["session_id"], user_id=user.user_id)
+    session = resolve_team_session(
+        actor_id=user.user_id,
+        session_id=match["session_id"],
+        workspace_id=match["workspace_id"],
+    )
     if session is None:
-        owner_session = None
-        for workspace in projects_team_service.list_workspaces(user_id=user.user_id):
-            owner_session = get_session_for_user(session_id=match["session_id"], user_id=workspace["owner_id"])
-            if owner_session:
-                break
-        session = owner_session
-
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found for delegation")
+        raise HTTPException(status_code=403, detail="Session is not accessible for this delegation")
 
     try:
         result = await projects_team_service.execute_delegation(
@@ -1643,17 +1789,13 @@ async def approve_team_delegation_step(
     if match is None:
         raise HTTPException(status_code=404, detail="Delegation not found")
 
-    session = get_session_for_user(session_id=match["session_id"], user_id=user.user_id)
+    session = resolve_team_session(
+        actor_id=user.user_id,
+        session_id=match["session_id"],
+        workspace_id=match["workspace_id"],
+    )
     if session is None:
-        owner_session = None
-        for workspace in projects_team_service.list_workspaces(user_id=user.user_id):
-            owner_session = get_session_for_user(session_id=match["session_id"], user_id=workspace["owner_id"])
-            if owner_session:
-                break
-        session = owner_session
-
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found for delegation")
+        raise HTTPException(status_code=403, detail="Session is not accessible for this delegation")
 
     try:
         result = await projects_team_service.decide_delegation_step(

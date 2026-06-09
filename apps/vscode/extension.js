@@ -6,6 +6,7 @@ let panelRef = null;
 let panelState = null;
 let sessionStatusBarItem = null;
 let proposalStatusBarItem = null;
+const VSCODE_OIDC_REDIRECT_URI = "http://127.0.0.1:4584/auth/callback";
 
 function getExtensionConfig() {
   return vscode.workspace.getConfiguration("codeforge");
@@ -59,7 +60,18 @@ function initialState(context) {
     teamKnowledgeQuery: "",
     teamMemberUserId: "",
     teamDelegationTask: "Review recent changes",
+    teamDelegationMode: "sequential",
+    teamDelegationRoles: "reviewer, implementer",
+    teamRequireStepApproval: false,
+    teamStyleGuides: [],
+    teamStyleGuideTitle: "API conventions",
+    teamStyleGuideType: "style",
+    teamStyleGuideContent: "Use snake_case for Python modules and keep handlers thin.",
     teamLiveEvents: [],
+    oidcEnabled: false,
+    oidcPendingState: "",
+    oidcPendingRedirectUri: "",
+    oidcAuthMessage: "",
     coworkPlans: [],
     coworkRuns: [],
     coworkJobs: [],
@@ -349,14 +361,65 @@ async function ensureSession(context) {
   return created.session_id;
 }
 
+async function refreshOidcConfig(context) {
+  const api = await loadSharedModule(context, "api.js");
+  try {
+    const config = await api.getOidcConfig(panelState.baseUrl);
+    panelState.oidcEnabled = Boolean(config.enabled);
+  } catch {
+    panelState.oidcEnabled = false;
+  }
+}
+
 async function login(context, baseUrl, userId) {
   const api = await loadSharedModule(context, "api.js");
   panelState.baseUrl = baseUrl || panelState.baseUrl;
   panelState.userId = userId || panelState.userId;
   panelState.token = (await api.devLogin(panelState.baseUrl, panelState.userId)).access_token;
+  panelState.oidcAuthMessage = "";
   await refreshSessions(context);
   await refreshUsage(context);
+  await refreshOidcConfig(context);
   pushEvent(`auth:${panelState.userId}`);
+}
+
+async function loginWithOidc(context) {
+  const api = await loadSharedModule(context, "api.js");
+  panelState.oidcAuthMessage = "";
+  const state = `cf_${Math.random().toString(36).slice(2, 14)}`;
+  const result = await api.getOidcAuthorizeUrl(panelState.baseUrl, VSCODE_OIDC_REDIRECT_URI, state);
+  panelState.oidcPendingState = result.state || state;
+  panelState.oidcPendingRedirectUri = result.redirect_uri || VSCODE_OIDC_REDIRECT_URI;
+  const opened = await vscode.env.openExternal(vscode.Uri.parse(result.authorize_url));
+  if (!opened) {
+    throw new Error("Could not open the OIDC authorize URL");
+  }
+  panelState.oidcAuthMessage = "Complete sign-in in the browser, then paste the authorization code below.";
+  pushEvent("auth:oidc-started");
+}
+
+async function completeOidcLogin(context, code) {
+  const api = await loadSharedModule(context, "api.js");
+  if (!panelState.oidcPendingState) {
+    throw new Error("Start SSO first");
+  }
+  const trimmedCode = String(code || "").trim();
+  if (!trimmedCode) {
+    throw new Error("Authorization code is required");
+  }
+  const response = await api.completeOidcCallback(panelState.baseUrl, {
+    code: trimmedCode,
+    state: panelState.oidcPendingState,
+    redirect_uri: panelState.oidcPendingRedirectUri || VSCODE_OIDC_REDIRECT_URI,
+  });
+  panelState.token = response.access_token;
+  panelState.userId = panelState.token.startsWith("oidc_") ? panelState.token.slice(5) : panelState.userId;
+  panelState.oidcPendingState = "";
+  panelState.oidcPendingRedirectUri = "";
+  panelState.oidcAuthMessage = `Signed in as ${panelState.userId}`;
+  await refreshSessions(context);
+  await refreshUsage(context);
+  pushEvent(`auth:oidc:${panelState.userId}`);
 }
 
 async function streamPrompt(context, prompt, currentFile) {
@@ -436,14 +499,18 @@ async function streamPrompt(context, prompt, currentFile) {
 async function refreshTeamData(context) {
   const api = await loadSharedModule(context, "api.js");
   const workspaceId = panelState.teamWorkspaces[0]?.workspace_id || null;
-  const [workspaces, delegations, audit] = await Promise.all([
+  const [workspaces, delegations, audit, guides] = await Promise.all([
     api.listTeamWorkspaces(panelState.baseUrl, panelState.token),
     api.listTeamDelegations(panelState.baseUrl, panelState.token, workspaceId),
     api.listTeamAuditLog(panelState.baseUrl, panelState.token, workspaceId, 20),
+    workspaceId
+      ? api.listTeamStyleGuides(panelState.baseUrl, panelState.token, workspaceId).catch(() => ({ guides: [] }))
+      : Promise.resolve({ guides: [] }),
   ]);
   panelState.teamWorkspaces = workspaces.workspaces || [];
   panelState.teamDelegations = delegations.delegations || [];
   panelState.teamAuditEvents = audit.events || [];
+  panelState.teamStyleGuides = guides.guides || [];
 }
 
 async function refreshCoworkData(context) {
@@ -581,6 +648,7 @@ function ensurePanel(context) {
   panelRef.webview.onDidReceiveMessage(async (message) => {
     try {
       if (message.type === "ready") {
+        await refreshOidcConfig(context);
         postState();
         return;
       }
@@ -588,7 +656,33 @@ function ensurePanel(context) {
       if (message.type === "login") {
         setBusy(true);
         setError("");
+        panelState.baseUrl = message.baseUrl || panelState.baseUrl;
         await login(context, message.baseUrl, message.userId);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "loginOidc") {
+        setBusy(true);
+        setError("");
+        panelState.baseUrl = message.baseUrl || panelState.baseUrl;
+        try {
+          await loginWithOidc(context);
+        } catch (oidcError) {
+          setError(oidcError.message);
+        }
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "completeOidc") {
+        setBusy(true);
+        setError("");
+        try {
+          await completeOidcLogin(context, message.code);
+        } catch (oidcError) {
+          setError(oidcError.message);
+        }
         setBusy(false);
         return;
       }
@@ -877,6 +971,30 @@ function ensurePanel(context) {
         return;
       }
 
+      if (message.type === "teamCreateStyleGuide") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const workspaceId = panelState.teamWorkspaces[0]?.workspace_id;
+        if (!workspaceId) {
+          setError("Create/refresh a workspace first");
+          setBusy(false);
+          return;
+        }
+        const guide = await api.createTeamStyleGuide(panelState.baseUrl, panelState.token, workspaceId, {
+          title: message.title || panelState.teamStyleGuideTitle,
+          guide_type: message.guideType || panelState.teamStyleGuideType,
+          content: message.content || panelState.teamStyleGuideContent,
+        });
+        panelState.teamStyleGuideTitle = guide.title;
+        panelState.teamStyleGuideContent = guide.content;
+        await refreshTeamData(context);
+        panelState.teamOutput = `Style guide ${guide.guide_id} saved`;
+        pushEvent(`team:style-guide:${guide.guide_id}`);
+        setBusy(false);
+        return;
+      }
+
       if (message.type === "teamCreateDelegation") {
         setBusy(true);
         setError("");
@@ -894,6 +1012,12 @@ function ensurePanel(context) {
           assigned_role: "reviewer",
           task: message.task || panelState.teamDelegationTask,
           priority: "normal",
+          orchestration_mode: message.mode || panelState.teamDelegationMode || "sequential",
+          agent_roles: (message.roles || panelState.teamDelegationRoles || "")
+            .split(",")
+            .map((role) => role.trim())
+            .filter(Boolean),
+          require_step_approval: Boolean(message.requireStepApproval ?? panelState.teamRequireStepApproval),
         });
         await refreshTeamData(context);
         panelState.teamOutput = `Delegation ${delegation.task_id} queued`;
@@ -910,6 +1034,21 @@ function ensurePanel(context) {
         await refreshTeamData(context);
         panelState.teamOutput = `${message.taskId}: ${result.status}`;
         pushEvent(`team:execute:${result.status}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamApproveDelegation") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const result = await api.approveTeamDelegationStep(panelState.baseUrl, panelState.token, message.taskId, {
+          approved: message.approved !== false,
+          note: message.note || "",
+        });
+        await refreshTeamData(context);
+        panelState.teamOutput = `${message.taskId}: ${result.status}`;
+        pushEvent(`team:approve:${result.status}`);
         setBusy(false);
         return;
       }

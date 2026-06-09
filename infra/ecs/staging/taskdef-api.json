@@ -44,6 +44,22 @@
         {
           "name": "CODEFORGE_SYNTHESIS_MODEL",
           "value": "gpt-4o-mini"
+        },
+        {
+          "name": "CODEFORGE_OIDC_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "CODEFORGE_OIDC_TRUST_SUBJECT",
+          "value": "false"
+        },
+        {
+          "name": "CODEFORGE_OIDC_SCOPES",
+          "value": "openid profile email"
+        },
+        {
+          "name": "CODEFORGE_WEB_BASE_URL",
+          "value": "https://staging.codeforge.example"
         }
       ],
       "secrets": [
@@ -82,6 +98,30 @@
         {
           "name": "QDRANT_URL",
           "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/QDRANT_URL"
+        },
+        {
+          "name": "CODEFORGE_OIDC_ISSUER",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_ISSUER"
+        },
+        {
+          "name": "CODEFORGE_OIDC_AUDIENCE",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_AUDIENCE"
+        },
+        {
+          "name": "CODEFORGE_OIDC_JWKS_URI",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_JWKS_URI"
+        },
+        {
+          "name": "CODEFORGE_OIDC_CLIENT_ID",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_CLIENT_ID"
+        },
+        {
+          "name": "CODEFORGE_OIDC_CLIENT_SECRET",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_CLIENT_SECRET"
+        },
+        {
+          "name": "CODEFORGE_OIDC_REDIRECT_URI",
+          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/staging/CODEFORGE_OIDC_REDIRECT_URI"
         }
       ],
       "logConfiguration": {

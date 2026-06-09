@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   createContextPack,
   createMcpConnector,
+  getDeployReadiness,
   listContextPacks,
   listMcpConnectors,
 } from "../../lib/api";
@@ -30,6 +31,7 @@ export default function SettingsPage() {
   const [connectorEndpoint, setConnectorEndpoint] = useState("");
   const [connectorTransport, setConnectorTransport] = useState("http");
   const [connectorTools, setConnectorTools] = useState("");
+  const [deployReadiness, setDeployReadiness] = useState(null);
 
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || "");
@@ -45,6 +47,9 @@ export default function SettingsPage() {
     listMcpConnectors(token)
       .then((result) => setConnectors(result.connectors ?? []))
       .catch(() => undefined);
+    getDeployReadiness(false)
+      .then(setDeployReadiness)
+      .catch(() => setDeployReadiness(null));
   }, [ready, token]);
 
   function handleSaveProjectPath() {
@@ -136,6 +141,29 @@ export default function SettingsPage() {
             Save
           </button>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Deploy readiness</h2>
+        <p className="small">Runtime configuration checks for production rollout.</p>
+        {deployReadiness ? (
+          <>
+            <p className="small">
+              Status: <strong>{deployReadiness.ready ? "ready" : "blocked"}</strong>
+              {deployReadiness.oidc_enabled ? " · OIDC enabled" : " · OIDC disabled"}
+            </p>
+            <ul className="small">
+              {deployReadiness.checks?.map((check) => (
+                <li key={check.name}>
+                  {check.ok ? "✓" : "✗"} {check.name}
+                  {check.detail ? ` — ${check.detail}` : ""}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="small">Deploy readiness unavailable.</p>
+        )}
       </section>
 
       {ready && !token ? (

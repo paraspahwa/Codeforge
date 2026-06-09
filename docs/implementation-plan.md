@@ -42,9 +42,9 @@ Already implemented in this repo:
 
 Still missing for the full roadmap:
 
-- OIDC login UI on clients (JWKS verification + discovery API shipped)
-- Delegation approval gates between orchestration steps
-- Cowork browser screenshot OCR hardening in ECS worker images
+- Production IdP rollout (ECS SSM OIDC parameters and redirect URI registration at the IdP)
+- GitHub `EFS_FILE_SYSTEM_ID_*` variables for worker ECS deploy (workflow injects into taskdefs)
+- Long-horizon PRD integrations (voice, mobile, design-to-code, localization)
 
 ## Status Snapshot
 
@@ -65,7 +65,7 @@ Partially complete:
 
 Not started yet:
 
-- Client OIDC redirect/login flows, delegation step approvals, ECS vision dependency bake-in
+- Long-horizon PRD integrations (voice, mobile, design-to-code, localization)
 
 ## Architecture Tracks
 
@@ -353,9 +353,9 @@ Done:
 
 Left:
 
-- Client OIDC login UX and production IdP rollout
-- Delegation human-in-the-loop between orchestration steps
-- ECS worker image tuning for Playwright screenshot OCR at scale
+- Production IdP rollout and ECS SSM secret wiring
+- Replace placeholder EFS filesystem IDs for cloud workspace mounts
+- MCP remote transport and billing-tier org modeling
 
 ## Non-Goals For The Near Term
 

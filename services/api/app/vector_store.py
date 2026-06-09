@@ -7,7 +7,18 @@ from typing import Any
 import httpx
 
 
-def _embed_text(text: str, dim: int = 64) -> list[float]:
+def target_vector_size() -> int:
+    configured = os.getenv("QDRANT_VECTOR_SIZE", "").strip()
+    if configured.isdigit():
+        return max(1, int(configured))
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return 1536
+    return 64
+
+
+def _embed_text(text: str, dim: int | None = None) -> list[float]:
+    if dim is None:
+        dim = target_vector_size()
     """Deterministic lightweight embedding fallback to keep vector flow operational."""
     digest = hashlib.sha256(text.encode("utf-8")).digest()
     values = [b / 255.0 for b in digest]
@@ -116,12 +127,20 @@ class VectorStore:
     def _ensure_collection(self) -> None:
         if self._client is None:
             return
+        vector_size = target_vector_size()
         try:
-            self._client.get_collection(collection_name=self._collection)
+            info = self._client.get_collection(collection_name=self._collection)
+            existing_size = info.config.params.vectors.size
+            if existing_size != vector_size:
+                self._client.delete_collection(collection_name=self._collection)
+                raise RuntimeError("collection vector size mismatch")
         except Exception:
             self._client.create_collection(
                 collection_name=self._collection,
-                vectors_config=self._qmodels.VectorParams(size=64, distance=self._qmodels.Distance.COSINE),
+                vectors_config=self._qmodels.VectorParams(
+                    size=vector_size,
+                    distance=self._qmodels.Distance.COSINE,
+                ),
             )
 
     def upsert_text(self, item_id: str, text: str, metadata: dict[str, Any] | None = None) -> None:

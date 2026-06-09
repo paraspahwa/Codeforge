@@ -43,7 +43,13 @@ const state = {
   teamKnowledgeQuery: "",
   teamMemberUserId: "",
   teamDelegationTask: "Review recent changes",
+  teamStyleGuides: [],
+  teamStyleGuideTitle: "API conventions",
+  teamStyleGuideType: "style",
+  teamStyleGuideContent: "Use snake_case for Python modules and keep handlers thin.",
   teamLiveEvents: [],
+  oidcEnabled: false,
+  oidcAuthMessage: "",
   coworkPlans: [],
   coworkRuns: [],
   coworkJobs: [],
@@ -112,9 +118,22 @@ function render() {
         </div>
         <div class="actions">
           <button data-action="login" ${state.busy ? "disabled" : ""}>Login</button>
+          ${state.oidcEnabled ? `<button data-action="loginOidc" ${state.busy ? "disabled" : ""}>Sign in with SSO</button>` : ""}
           <button data-action="createSession" ${state.busy ? "disabled" : ""}>New Session</button>
           <button data-action="refresh" ${state.busy ? "disabled" : ""}>Refresh</button>
         </div>
+        ${state.oidcEnabled ? `
+        <div class="grid two-up">
+          <label>
+            <span>OIDC code</span>
+            <input id="oidcCode" placeholder="paste authorization code" ${state.busy ? "disabled" : ""} />
+          </label>
+          <div class="actions">
+            <button data-action="completeOidc" ${state.busy ? "disabled" : ""}>Complete SSO</button>
+          </div>
+        </div>
+        ${state.oidcAuthMessage ? `<p class="muted">${escapeHtml(state.oidcAuthMessage)}</p>` : ""}
+        ` : ""}
         <div class="status">
           <span>${state.currentSessionId ? `Session ${escapeHtml(state.currentSessionId)}` : "No session"}</span>
           <span>${state.usage ? `Usage ${state.usage.requests_used_in_period ?? state.usage.total_requests}/${state.usage.request_limit} (${state.usage.requests_remaining} left)` : "Usage unavailable"}</span>
@@ -164,6 +183,24 @@ function render() {
           <span>Delegation task</span>
           <input id="teamDelegationTask" value="${escapeHtml(state.teamDelegationTask)}" ${state.busy ? "disabled" : ""} />
         </label>
+        <div class="grid two-up">
+          <label>
+            <span>Orchestration mode</span>
+            <select id="teamDelegationMode" ${state.busy ? "disabled" : ""}>
+              <option value="single" ${state.teamDelegationMode === "single" ? "selected" : ""}>Single</option>
+              <option value="sequential" ${state.teamDelegationMode === "sequential" ? "selected" : ""}>Sequential</option>
+              <option value="supervisor" ${state.teamDelegationMode === "supervisor" ? "selected" : ""}>Supervisor</option>
+            </select>
+          </label>
+          <label>
+            <span>Agent roles (comma-separated)</span>
+            <input id="teamDelegationRoles" value="${escapeHtml(state.teamDelegationRoles || "")}" ${state.busy ? "disabled" : ""} />
+          </label>
+        </div>
+        <label>
+          <input id="teamRequireStepApproval" type="checkbox" ${state.teamRequireStepApproval ? "checked" : ""} ${state.busy ? "disabled" : ""} />
+          Require approval between orchestration steps
+        </label>
         <button data-action="teamCreateDelegation" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Queue delegation</button>
         <div class="session-list">
           ${state.teamWorkspaces.length === 0 ? '<p class="muted">No workspaces loaded. Refresh after login.</p>' : state.teamWorkspaces.map((workspace) => `
@@ -176,10 +213,45 @@ function render() {
         <h2>Delegations</h2>
         <div class="session-list">
           ${state.teamDelegations.length === 0 ? '<p class="muted">No delegations.</p>' : state.teamDelegations.slice(0, 8).map((item) => `
-            <button class="session-item" data-delegation-id="${escapeHtml(item.task_id)}">
+            <div class="session-item">
               <strong>${escapeHtml(item.assigned_role)}</strong>
               <span>${escapeHtml(item.status)} · ${escapeHtml((item.task || "").slice(0, 80))}</span>
-            </button>
+              <div class="actions">
+                ${item.status === "queued" || item.status === "failed" ? `<button data-delegation-id="${escapeHtml(item.task_id)}">Execute</button>` : ""}
+                ${item.status === "awaiting_approval" ? `
+                  <button data-approve-id="${escapeHtml(item.task_id)}">Approve</button>
+                  <button data-reject-id="${escapeHtml(item.task_id)}">Reject</button>
+                ` : ""}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <h2>Style guides</h2>
+        <div class="grid two-up">
+          <label>
+            <span>Title</span>
+            <input id="teamStyleGuideTitle" value="${escapeHtml(state.teamStyleGuideTitle)}" ${state.busy ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>Type</span>
+            <select id="teamStyleGuideType" ${state.busy ? "disabled" : ""}>
+              <option value="style" ${state.teamStyleGuideType === "style" ? "selected" : ""}>style</option>
+              <option value="conventions" ${state.teamStyleGuideType === "conventions" ? "selected" : ""}>conventions</option>
+              <option value="architecture" ${state.teamStyleGuideType === "architecture" ? "selected" : ""}>architecture</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          <span>Content</span>
+          <textarea id="teamStyleGuideContent" rows="3" ${state.busy ? "disabled" : ""}>${escapeHtml(state.teamStyleGuideContent)}</textarea>
+        </label>
+        <button data-action="teamCreateStyleGuide" ${state.busy ? "disabled" : ""}>Save style guide</button>
+        <div class="session-list">
+          ${(state.teamStyleGuides || []).length === 0 ? '<p class="muted">No style guides.</p>' : state.teamStyleGuides.slice(0, 6).map((guide) => `
+            <div class="session-item">
+              <strong>${escapeHtml(guide.title)}</strong>
+              <span>${escapeHtml(guide.guide_type)} · ${escapeHtml((guide.content || "").slice(0, 100))}</span>
+            </div>
           `).join("")}
         </div>
         <h2>Audit</h2>
@@ -369,6 +441,18 @@ function render() {
           userId: document.getElementById("userId").value.trim(),
         });
       }
+      if (action === "loginOidc") {
+        vscode.postMessage({
+          type: "loginOidc",
+          baseUrl: document.getElementById("baseUrl").value.trim(),
+        });
+      }
+      if (action === "completeOidc") {
+        vscode.postMessage({
+          type: "completeOidc",
+          code: document.getElementById("oidcCode").value.trim(),
+        });
+      }
       if (action === "createSession") {
         vscode.postMessage({
           type: "createSession",
@@ -461,6 +545,17 @@ function render() {
         vscode.postMessage({
           type: "teamCreateDelegation",
           task: document.getElementById("teamDelegationTask").value.trim(),
+          mode: document.getElementById("teamDelegationMode").value,
+          roles: document.getElementById("teamDelegationRoles").value.trim(),
+          requireStepApproval: document.getElementById("teamRequireStepApproval").checked,
+        });
+      }
+      if (action === "teamCreateStyleGuide") {
+        vscode.postMessage({
+          type: "teamCreateStyleGuide",
+          title: document.getElementById("teamStyleGuideTitle").value.trim(),
+          guideType: document.getElementById("teamStyleGuideType").value,
+          content: document.getElementById("teamStyleGuideContent").value.trim(),
         });
       }
       if (action === "coworkRefresh") {
@@ -495,6 +590,26 @@ function render() {
       vscode.postMessage({
         type: "teamExecuteDelegation",
         taskId: element.getAttribute("data-delegation-id"),
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-approve-id]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "teamApproveDelegation",
+        taskId: element.getAttribute("data-approve-id"),
+        approved: true,
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-reject-id]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "teamApproveDelegation",
+        taskId: element.getAttribute("data-reject-id"),
+        approved: false,
       });
     });
   });

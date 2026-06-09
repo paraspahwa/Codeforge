@@ -57,3 +57,30 @@ class TaskQueue:
             "task_name": task_name,
             "payload": payload,
         }
+
+    def get_job_status(self, job_id: str) -> dict[str, Any]:
+        if self._celery_app is None or not job_id:
+            return {"job_id": job_id, "backend": "inline", "status": "unknown"}
+
+        try:
+            from celery.result import AsyncResult
+
+            result = AsyncResult(job_id, app=self._celery_app)
+            state = result.state or "PENDING"
+            payload: dict[str, Any] = {
+                "job_id": job_id,
+                "backend": "celery",
+                "status": state.lower(),
+            }
+            if result.successful():
+                payload["result"] = result.result
+            elif result.failed():
+                payload["error"] = str(result.result)
+            return payload
+        except Exception as exc:
+            return {
+                "job_id": job_id,
+                "backend": "celery",
+                "status": "error",
+                "error": str(exc),
+            }

@@ -10,7 +10,15 @@ class AuthUser:
     user_id: str
 
 
+def dev_login_override_enabled() -> bool:
+    return os.getenv("CODEFORGE_ALLOW_DEV_LOGIN", "").strip().lower() in {"1", "true", "yes"}
+
+
 def dev_auth_enabled() -> bool:
+    if dev_login_override_enabled():
+        return True
+    if oidc_auth_enabled():
+        return False
     return os.getenv("CODEFORGE_ENV", "development").strip().lower() != "production"
 
 

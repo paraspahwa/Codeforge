@@ -124,11 +124,10 @@ export async function listBillingPlans() {
   return shared.listBillingPlans(API_BASE);
 }
 
-export async function createBillingOrder(token, planId, amountInr) {
+export async function createBillingOrder(token, payload) {
   return shared.createBillingOrder(API_BASE, token, {
-    plan_id: planId,
-    amount_inr: amountInr,
     currency: "INR",
+    ...payload,
   });
 }
 
@@ -138,6 +137,10 @@ export async function verifyBillingPayment(token, payload) {
 
 export async function getBillingSubscription(token) {
   return shared.getBillingSubscription(API_BASE, token);
+}
+
+export async function getBillingContext(token) {
+  return shared.getBillingContext(API_BASE, token);
 }
 
 export async function exportSession(sessionId, token, format = "json") {
@@ -214,6 +217,44 @@ export async function createTeamStyleGuide(token, workspaceId, payload) {
 
 export async function updateTeamStyleGuide(token, workspaceId, guideId, payload) {
   return shared.updateTeamStyleGuide(API_BASE, token, workspaceId, guideId, payload);
+}
+
+export async function createOrganization(token, payload) {
+  return shared.createOrganization(API_BASE, token, payload);
+}
+
+export async function listOrganizations(token) {
+  return shared.listOrganizations(API_BASE, token);
+}
+
+export async function addOrganizationMember(token, orgId, payload) {
+  return shared.addOrganizationMember(API_BASE, token, orgId, payload);
+}
+
+export async function linkWorkspaceOrg(token, workspaceId, orgId) {
+  return shared.linkWorkspaceOrg(API_BASE, token, workspaceId, orgId);
+}
+
+export async function upgradeOrganizationPlan(token, orgId, planId) {
+  return shared.upgradeOrganizationPlan(API_BASE, token, orgId, planId);
+}
+
+export async function createWorkspaceSessionGrant(token, workspaceId, payload) {
+  return shared.createWorkspaceSessionGrant(API_BASE, token, workspaceId, payload);
+}
+
+export async function listWorkspaceSessionGrants(token, workspaceId) {
+  return shared.listWorkspaceSessionGrants(API_BASE, token, workspaceId);
+}
+
+export async function getDeployReadiness(probeDiscovery = false) {
+  const params = probeDiscovery ? "?probe_discovery=true" : "";
+  const base = API_BASE.replace(/\/+$/, "");
+  const response = await fetch(`${base}/api/v1/platform/deploy-readiness${params}`);
+  if (!response.ok) {
+    throw new Error(`Deploy readiness failed with status ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function sendMessage(sessionId, content, token, context = null, templateId = null) {

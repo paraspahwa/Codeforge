@@ -1,27 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   addTeamWorkspaceMember,
   createSessionShare,
   approveTeamDelegationStep,
   createTeamDelegation,
+  createTeamStyleGuide,
   createTeamWorkspace,
-  devLogin,
   executeTeamDelegation,
   exportSession,
   getProjectKnowledge,
   listSessions,
   listTeamAuditLog,
   listTeamDelegations,
+  listTeamStyleGuides,
   listTeamWorkspaces,
+  updateTeamStyleGuide,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
   streamTeamEvents,
   uploadProjectKnowledge,
 } from "./api";
 
-export default function TeamWorkspace({ sharedToken = null, sharedUserId = null }) {
-  const [userId, setUserId] = useState(sharedUserId || import.meta.env.VITE_CODEFORGE_USER_ID || "dev-user");
-  const [token, setToken] = useState(sharedToken || null);
+export default function TeamWorkspace() {
+  const { token } = useDesktopAuth();
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [workspaces, setWorkspaces] = useState([]);
@@ -38,8 +40,18 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
   const [delegationRole, setDelegationRole] = useState("reviewer");
   const [delegationTask, setDelegationTask] = useState("Review recent changes and summarize risks");
   const [delegationPriority, setDelegationPriority] = useState("normal");
+  const [delegationMode, setDelegationMode] = useState("sequential");
+  const [delegationRoles, setDelegationRoles] = useState("reviewer, implementer");
+  const [requireStepApproval, setRequireStepApproval] = useState(false);
   const [shareOutput, setShareOutput] = useState("");
   const [liveEvents, setLiveEvents] = useState([]);
+  const [styleGuides, setStyleGuides] = useState([]);
+  const [styleGuideTitle, setStyleGuideTitle] = useState("API conventions");
+  const [styleGuideType, setStyleGuideType] = useState("style");
+  const [styleGuideContent, setStyleGuideContent] = useState(
+    "Use snake_case for Python modules and keep route handlers thin.",
+  );
+  const [editingGuideId, setEditingGuideId] = useState("");
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -54,14 +66,19 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
     if (!activeToken) {
       return;
     }
-    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit] = await Promise.all([
+    const workspaceId = selectedWorkspaceId || null;
+    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides] = await Promise.all([
       listTeamWorkspaces(activeToken),
-      listTeamDelegations(activeToken, selectedWorkspaceId || null),
+      listTeamDelegations(activeToken, workspaceId),
       listSessions(activeToken),
-      listTeamAuditLog(activeToken, selectedWorkspaceId || null, 30),
+      listTeamAuditLog(activeToken, workspaceId, 30),
+      workspaceId
+        ? listTeamStyleGuides(activeToken, workspaceId).catch(() => ({ guides: [] }))
+        : Promise.resolve({ guides: [] }),
     ]);
     setWorkspaces(nextWorkspaces.workspaces || []);
     setDelegations(nextDelegations.delegations || []);
+    setStyleGuides(nextGuides.guides || []);
     setSessions(nextSessions);
     setAuditEvents(nextAudit.events || []);
     if (!selectedWorkspaceId && nextWorkspaces.workspaces?.length) {
@@ -77,21 +94,6 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
       } catch {
         setKnowledge(null);
       }
-    }
-  }
-
-  async function handleLogin() {
-    setLoading(true);
-    setErrorMessage("");
-    try {
-      const nextToken = await devLogin(userId.trim());
-      setToken(nextToken);
-      await refreshTeamData(nextToken);
-      setStatusMessage(`Logged in as ${userId.trim()}`);
-    } catch (error) {
-      setErrorMessage(error.message);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -198,6 +200,45 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
     }
   }
 
+  async function handleSaveStyleGuide() {
+    if (!selectedWorkspaceId || styleGuideTitle.trim().length < 2 || styleGuideContent.trim().length < 8) {
+      setErrorMessage("Select a workspace and provide a title plus at least 8 characters of content");
+      return;
+    }
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      if (editingGuideId) {
+        await updateTeamStyleGuide(token, selectedWorkspaceId, editingGuideId, {
+          title: styleGuideTitle.trim(),
+          guide_type: styleGuideType,
+          content: styleGuideContent.trim(),
+        });
+        setStatusMessage(`Updated style guide ${editingGuideId}`);
+      } else {
+        const guide = await createTeamStyleGuide(token, selectedWorkspaceId, {
+          title: styleGuideTitle.trim(),
+          guide_type: styleGuideType,
+          content: styleGuideContent.trim(),
+        });
+        setEditingGuideId(guide.guide_id);
+        setStatusMessage(`Created style guide ${guide.guide_id}`);
+      }
+      await refreshTeamData(token);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleEditStyleGuide(guide) {
+    setEditingGuideId(guide.guide_id);
+    setStyleGuideTitle(guide.title);
+    setStyleGuideType(guide.guide_type);
+    setStyleGuideContent(guide.content);
+  }
+
   async function handleCreateDelegation() {
     if (!selectedWorkspaceId || !sessionId || !delegationTask.trim()) {
       setErrorMessage("Workspace, session, and task are required");
@@ -212,6 +253,12 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
         assigned_role: delegationRole,
         task: delegationTask.trim(),
         priority: delegationPriority,
+        orchestration_mode: delegationMode,
+        agent_roles: delegationRoles
+          .split(",")
+          .map((role) => role.trim())
+          .filter(Boolean),
+        require_step_approval: requireStepApproval,
       });
       await refreshTeamData(token);
       setStatusMessage(`Delegation ${delegation.task_id} queued`);
@@ -287,16 +334,10 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
   }
 
   useEffect(() => {
-    if (sharedToken) {
-      setToken(sharedToken);
-    }
-    if (sharedUserId) {
-      setUserId(sharedUserId);
-    }
-  }, [sharedToken, sharedUserId]);
-
-  useEffect(() => {
     if (!token) {
+      setWorkspaces([]);
+      setDelegations([]);
+      setSessions([]);
       return;
     }
     refreshTeamData(token).catch(() => undefined);
@@ -354,12 +395,6 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
       <header className="workspace-header card">
         <h2>Team</h2>
         <p className="muted small">Workspaces, knowledge, delegations, and live team events.</p>
-        <div className="button-row">
-          <input value={userId} onChange={(event) => setUserId(event.target.value)} placeholder="user id" disabled={loading} />
-          <button type="button" onClick={handleLogin} disabled={loading}>
-            Login
-          </button>
-        </div>
         {statusMessage ? <p className="small">{statusMessage}</p> : null}
         {errorMessage ? <p className="error small">{errorMessage}</p> : null}
       </header>
@@ -466,6 +501,26 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
             <option value="normal">Normal</option>
             <option value="high">High</option>
           </select>
+          <select value={delegationMode} onChange={(event) => setDelegationMode(event.target.value)} disabled={loading}>
+            <option value="single">Single agent</option>
+            <option value="sequential">Sequential multi-agent</option>
+            <option value="supervisor">Supervisor + worker</option>
+          </select>
+          <input
+            value={delegationRoles}
+            onChange={(event) => setDelegationRoles(event.target.value)}
+            placeholder="agent roles (comma-separated)"
+            disabled={loading}
+          />
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={requireStepApproval}
+              onChange={(event) => setRequireStepApproval(event.target.checked)}
+              disabled={loading}
+            />{" "}
+            Require approval between steps
+          </label>
           <button type="button" onClick={handleCreateDelegation} disabled={!token || loading}>
             Queue delegation
           </button>
@@ -494,6 +549,61 @@ export default function TeamWorkspace({ sharedToken = null, sharedUserId = null 
               ) : null}
             </div>
           ))}
+        </div>
+        <div className="tool-panel">
+          <h3>Style guides</h3>
+          <input
+            value={styleGuideTitle}
+            onChange={(event) => setStyleGuideTitle(event.target.value)}
+            placeholder="title"
+            disabled={loading}
+          />
+          <select value={styleGuideType} onChange={(event) => setStyleGuideType(event.target.value)} disabled={loading}>
+            <option value="style">Style</option>
+            <option value="conventions">Conventions</option>
+            <option value="architecture">Architecture</option>
+          </select>
+          <textarea
+            rows={4}
+            value={styleGuideContent}
+            onChange={(event) => setStyleGuideContent(event.target.value)}
+            disabled={loading}
+          />
+          <div className="button-row">
+            <button type="button" onClick={handleSaveStyleGuide} disabled={!token || !selectedWorkspaceId || loading}>
+              {editingGuideId ? "Update guide" : "Create guide"}
+            </button>
+            {editingGuideId ? (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setEditingGuideId("");
+                  setStyleGuideTitle("API conventions");
+                  setStyleGuideType("style");
+                  setStyleGuideContent("Use snake_case for Python modules and keep route handlers thin.");
+                }}
+                disabled={loading}
+              >
+                New guide
+              </button>
+            ) : null}
+          </div>
+          {styleGuides.length === 0 ? (
+            <p className="muted small">No style guides yet.</p>
+          ) : (
+            styleGuides.map((guide) => (
+              <button
+                key={guide.guide_id}
+                type="button"
+                className="file-item"
+                onClick={() => handleEditStyleGuide(guide)}
+                disabled={loading}
+              >
+                {guide.title} ({guide.guide_type})
+              </button>
+            ))
+          )}
         </div>
         <div className="tool-panel">
           <h3>Audit log</h3>

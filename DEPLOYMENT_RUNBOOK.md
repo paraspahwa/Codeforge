@@ -195,56 +195,37 @@ Use this target architecture for reliability and scale:
 8. Secrets Manager / SSM Parameter Store for secrets
 9. CloudWatch logs + alarms
 
-## 5) Prepare App for AWS Deployment
+## 5) Committed Deployment Assets
 
-This repo currently has no Dockerfiles or CI pipeline committed. Create these first.
+This repo ships production deployment assets. Use these instead of creating from scratch:
 
-## 5.1 Create API Dockerfile (services/api/Dockerfile)
+| Asset | Path |
+|-------|------|
+| API / worker Dockerfiles | `services/api/Dockerfile`, `services/api/Dockerfile.worker` |
+| Web Dockerfile | `apps/web/Dockerfile` |
+| Local prod-like stack | `docker-compose.prod.yml` |
+| ECS task definitions | `infra/ecs/staging/`, `infra/ecs/production/` |
+| Terraform ALB + ECS | `infra/terraform/` |
+| GitHub Actions deploy | `.github/workflows/deploy-ecs.yml` |
+| Operator guides | `docs/deployment-assets-setup.md`, `docs/production-domains.md` |
 
-```dockerfile
-FROM python:3.13-slim
+### 5.1 SSM bootstrap scripts
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+| Service | Script | Example env file |
+|---------|--------|------------------|
+| OIDC | `scripts/bootstrap_oidc_ssm.py` | `.env.oidc.example` |
+| Razorpay | `scripts/bootstrap_razorpay_ssm.py` | `.env.razorpay.example` |
+| Qdrant | `scripts/bootstrap_qdrant_ssm.py` | `.env.qdrant.example` |
 
-WORKDIR /app
+Production SSM prefix is `codeforge/prod` (not `codeforge/production`).
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+### 5.2 Patch helpers before deploy
 
-COPY app /app/app
+- `scripts/patch_ecs_public_urls.py` — public web/API URLs (run by CI)
+- `scripts/patch_ecs_worker_efs.py` — EFS filesystem id for worker tasks
+- `scripts/patch_ecs_oidc_enabled.py` — flip `CODEFORGE_OIDC_ENABLED` on API tasks
 
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-## 5.2 Create Web Dockerfile (apps/web/Dockerfile)
-
-```dockerfile
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json* ./
-COPY apps/web/package.json ./apps/web/package.json
-RUN npm install
-
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ARG NEXT_PUBLIC_API_BASE
-ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
-RUN npm run build:web
-
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app .
-EXPOSE 3000
-CMD ["npm", "run", "start:web"]
-```
-
-## 5.3 Decide production environment values
+### 5.3 Decide production environment values
 
 Minimum API env vars for production:
 
@@ -269,6 +250,8 @@ Client app env updates after deployment:
 2. VITE_CODEFORGE_API_BASE_URL=https://api.yourdomain.com (desktop)
 
 ## 6) AWS Deployment Step-by-Step (ECS + RDS + ALB)
+
+Prefer the Terraform two-phase runbook in `infra/terraform/README.md` and GitHub Actions (`.github/workflows/deploy-ecs.yml`) over manual ECS service creation. The steps below remain a reference for networking and RDS.
 
 ## 6.1 Create networking
 
@@ -363,14 +346,13 @@ docker push <account>.dkr.ecr.<region>.amazonaws.com/codeforge-web:latest
 
 ## 6.8 Create ECS services
 
-1. API ECS service:
-   - desired tasks >= 2 (for HA)
-   - private subnets
-   - attach API target group
-2. Web ECS service:
-   - desired tasks >= 2
-   - private subnets
-   - attach Web target group
+**Terraform path (recommended):** set `enable_ecs_services = true` in `infra/terraform/environments/*/terraform.tfvars` after the first GitHub deploy registers task definitions. See `infra/terraform/README.md`.
+
+**Manual fallback:**
+
+1. API ECS service — desired tasks >= 2, private subnets, attach API target group
+2. Web ECS service — desired tasks >= 2, private subnets, attach Web target group
+3. Worker ECS service — no ALB; mount EFS at `/workspaces` (see `taskdef-worker.json`)
 
 ## 6.9 Configure DNS
 
@@ -480,19 +462,15 @@ Set all API secrets (DATABASE_URL, JWT/payment/model keys) using:
 3. Rollback plan documented and tested.
 4. Incident runbook and on-call alerts.
 
-## 9) CI/CD Recommendation
+## 9) CI/CD (implemented)
 
-Use GitHub Actions (or CodePipeline) with this flow:
+`.github/workflows/deploy-ecs.yml` runs:
 
-1. On push to main:
-   - run lint/build/tests
-   - run rollout policy gate (must pass synthesis readiness checks)
-   - build API and web images
-   - push to ECR
-2. Deploy to staging ECS service
-3. Run smoke tests
-4. Manual approval
-5. Deploy to production ECS services
+1. `api-tests` — `pytest` in `services/api`
+2. `smoke-test` — `docker-compose.prod.yml` stack (deploy-readiness, stack-status, billing webhook, benchmarks)
+3. `rollout-policy-gate` — synthesis provider secrets
+4. `deploy-staging` (on push to `main`) or `deploy-production` (manual dispatch)
+5. Post-deploy — `scripts/post_deploy_public_smoke.sh` against public API/web URLs
 
 ### 9.1 Rollout policy gate inputs (required)
 
@@ -561,4 +539,4 @@ VITE_CODEFORGE_API_BASE_URL=https://api.yourdomain.com
 
 ---
 
-If you want, next step I can generate the missing deployment assets directly in this repo (Dockerfiles, docker-compose for local prod-like testing, and a GitHub Actions workflow for ECS deployment) so this runbook becomes fully executable with minimal manual setup.
+See also: [docs/oidc-idp-checklist.md](docs/oidc-idp-checklist.md), [docs/razorpay-webhook-setup.md](docs/razorpay-webhook-setup.md), [docs/qdrant-ecs-setup.md](docs/qdrant-ecs-setup.md), [INDEX.md](INDEX.md).

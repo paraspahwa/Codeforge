@@ -351,6 +351,63 @@ class ProjectsTeamService:
         )
         return share
 
+    def grant_workspace_session(
+        self,
+        *,
+        actor_id: str,
+        workspace_id: str,
+        session_id: str,
+        granted_to_user_id: str,
+        access_level: str = "delegate",
+    ) -> dict[str, Any]:
+        from .db import get_session_for_user
+
+        workspace = store.get_workspace(workspace_id)
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+
+        actor_role = next((member["role"] for member in workspace["members"] if member["user_id"] == actor_id), None)
+        if actor_role not in {"owner", "admin"} and actor_id != workspace["owner_id"]:
+            raise ProjectsTeamError("Only workspace owner/admin can grant session access")
+
+        if not any(member["user_id"] == granted_to_user_id for member in workspace["members"]):
+            raise ProjectsTeamError("Granted user must be a workspace member")
+
+        session = get_session_for_user(session_id=session_id, user_id=actor_id)
+        if session is None and actor_id == workspace["owner_id"]:
+            session = get_session_for_user(session_id=session_id, user_id=workspace["owner_id"])
+        if session is None:
+            raise ProjectsTeamError("Actor must own the session to grant workspace access")
+
+        grant = {
+            "grant_id": f"grant_{uuid4().hex[:10]}",
+            "workspace_id": workspace_id,
+            "session_id": session_id,
+            "granted_to_user_id": granted_to_user_id,
+            "granted_by": actor_id,
+            "access_level": access_level,
+            "created_at": utc_now().isoformat(),
+        }
+        store.save_workspace_session_grant(grant)
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.session_grant_created",
+            resource_type="workspace_session_grant",
+            resource_id=grant["grant_id"],
+            workspace_id=workspace_id,
+            session_id=session_id,
+            metadata={"granted_to_user_id": granted_to_user_id, "access_level": access_level},
+        )
+        return grant
+
+    def list_workspace_session_grants(self, *, user_id: str, workspace_id: str) -> list[dict[str, Any]]:
+        workspace = store.get_workspace(workspace_id)
+        if workspace is None:
+            raise ProjectsTeamError("Workspace not found")
+        if not any(member["user_id"] == user_id for member in workspace["members"]):
+            raise ProjectsTeamError("Only workspace members can list session grants")
+        return store.list_workspace_session_grants(workspace_id)
+
     def resolve_session_share(self, *, share_id: str) -> dict[str, Any]:
         share = store.get_session_share(share_id)
         if share is None:

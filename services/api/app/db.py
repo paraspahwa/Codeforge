@@ -33,6 +33,9 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_session_created ON audit_logs(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_session_artifacts_session ON session_artifacts(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_agent_templates_user ON agent_templates(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_organizations_owner ON organizations(owner_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_organization_members_user ON organization_members(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_session_grants_lookup ON workspace_session_grants(workspace_id, session_id, granted_to_user_id)",
     "CREATE INDEX IF NOT EXISTS idx_remote_channels_owner ON remote_channels(owner_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_team_style_guides_workspace ON team_style_guides(workspace_id, updated_at)",
 )
@@ -148,7 +151,8 @@ def init_db() -> None:
                         currency TEXT NOT NULL,
                         provider TEXT NOT NULL,
                         status TEXT NOT NULL,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        org_id TEXT
                     )
                     """
                 )
@@ -470,6 +474,41 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS organizations (
+                        org_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        owner_id TEXT NOT NULL,
+                        plan_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS organization_members (
+                        org_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        added_at TEXT NOT NULL,
+                        PRIMARY KEY (org_id, user_id)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS workspace_session_grants (
+                        grant_id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        granted_to_user_id TEXT NOT NULL,
+                        granted_by TEXT NOT NULL,
+                        access_level TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
                 _migrate_optional_columns(cur)
@@ -518,7 +557,8 @@ def init_db() -> None:
                 currency TEXT NOT NULL,
                 provider TEXT NOT NULL,
                 status TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                org_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS billing_webhooks (
@@ -775,6 +815,32 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS organizations (
+                org_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                plan_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS organization_members (
+                org_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (org_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS workspace_session_grants (
+                grant_id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                granted_to_user_id TEXT NOT NULL,
+                granted_by TEXT NOT NULL,
+                access_level TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         for statement in INDEX_STATEMENTS:
@@ -792,6 +858,9 @@ def _migrate_optional_columns(conn_or_cur) -> None:
         "ALTER TABLE team_delegations ADD COLUMN steps_json TEXT DEFAULT '[]'",
         "ALTER TABLE team_delegations ADD COLUMN require_step_approval INTEGER DEFAULT 0",
         "ALTER TABLE team_delegations ADD COLUMN current_step_index INTEGER DEFAULT 0",
+        "ALTER TABLE team_workspaces ADD COLUMN org_id TEXT",
+        "ALTER TABLE billing_orders ADD COLUMN org_id TEXT",
+        "ALTER TABLE user_subscriptions ADD COLUMN razorpay_subscription_id TEXT",
     ]
     for statement in migrations:
         try:
@@ -814,6 +883,13 @@ def get_session_for_user(session_id: str, user_id: str) -> dict[str, Any] | None
     return _fetchone(
         "SELECT session_id, user_id, project_path, model_preference, created_at FROM sessions WHERE session_id = ? AND user_id = ?",
         (session_id, user_id),
+    )
+
+
+def get_session_by_id(session_id: str) -> dict[str, Any] | None:
+    return _fetchone(
+        "SELECT session_id, user_id, project_path, model_preference, created_at FROM sessions WHERE session_id = ?",
+        (session_id,),
     )
 
 
@@ -958,14 +1034,39 @@ def insert_billing_order(
     provider: str,
     status: str,
     created_at: str,
+    org_id: str | None = None,
 ) -> None:
     _execute(
         """
-        INSERT INTO billing_orders(order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO billing_orders(order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at),
+        (order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at, org_id),
     )
+
+
+def get_billing_order(order_id: str) -> dict[str, Any] | None:
+    row = _fetchone(
+        """
+        SELECT order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at, org_id
+        FROM billing_orders
+        WHERE order_id = ?
+        """,
+        (order_id,),
+    )
+    if row is None:
+        return None
+    return {
+        "order_id": row["order_id"],
+        "user_id": row["user_id"],
+        "plan_id": row["plan_id"],
+        "amount_inr": int(row["amount_inr"]),
+        "currency": row["currency"],
+        "provider": row["provider"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "org_id": row["org_id"],
+    }
 
 
 def insert_billing_webhook(event_id: str, event_type: str, payload_json: str, created_at: str) -> None:
@@ -996,22 +1097,29 @@ def upsert_user_subscription(
     amount_inr: int | None,
     order_id: str | None,
     updated_at: str,
+    razorpay_subscription_id: str | None = None,
 ) -> None:
     if _is_postgres():
         with _pg_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO user_subscriptions(user_id, plan_id, status, amount_inr, order_id, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO user_subscriptions(
+                        user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE SET
                         plan_id = EXCLUDED.plan_id,
                         status = EXCLUDED.status,
                         amount_inr = EXCLUDED.amount_inr,
                         order_id = EXCLUDED.order_id,
-                        updated_at = EXCLUDED.updated_at
+                        updated_at = EXCLUDED.updated_at,
+                        razorpay_subscription_id = COALESCE(
+                            EXCLUDED.razorpay_subscription_id,
+                            user_subscriptions.razorpay_subscription_id
+                        )
                     """,
-                    (user_id, plan_id, status, amount_inr, order_id, updated_at),
+                    (user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id),
                 )
         return
 
@@ -1019,16 +1127,22 @@ def upsert_user_subscription(
     try:
         conn.execute(
             """
-            INSERT INTO user_subscriptions(user_id, plan_id, status, amount_inr, order_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO user_subscriptions(
+                user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 plan_id = excluded.plan_id,
                 status = excluded.status,
                 amount_inr = excluded.amount_inr,
                 order_id = excluded.order_id,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                razorpay_subscription_id = COALESCE(
+                    excluded.razorpay_subscription_id,
+                    user_subscriptions.razorpay_subscription_id
+                )
             """,
-            (user_id, plan_id, status, amount_inr, order_id, updated_at),
+            (user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id),
         )
         conn.commit()
     finally:
@@ -1037,9 +1151,50 @@ def upsert_user_subscription(
 
 def get_user_subscription(user_id: str) -> dict[str, Any] | None:
     return _fetchone(
-        "SELECT user_id, plan_id, status, amount_inr, order_id, updated_at FROM user_subscriptions WHERE user_id = ?",
+        """
+        SELECT user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id
+        FROM user_subscriptions
+        WHERE user_id = ?
+        """,
         (user_id,),
     )
+
+
+def get_user_subscription_by_razorpay_id(razorpay_subscription_id: str) -> dict[str, Any] | None:
+    return _fetchone(
+        """
+        SELECT user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id
+        FROM user_subscriptions
+        WHERE razorpay_subscription_id = ?
+        """,
+        (razorpay_subscription_id,),
+    )
+
+
+def get_latest_paid_order_for_user(user_id: str) -> dict[str, Any] | None:
+    row = _fetchone(
+        """
+        SELECT order_id, user_id, plan_id, amount_inr, currency, provider, status, created_at, org_id
+        FROM billing_orders
+        WHERE user_id = ? AND status = 'paid'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    if row is None:
+        return None
+    return {
+        "order_id": row["order_id"],
+        "user_id": row["user_id"],
+        "plan_id": row["plan_id"],
+        "amount_inr": int(row["amount_inr"]),
+        "currency": row["currency"],
+        "provider": row["provider"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "org_id": row["org_id"],
+    }
 
 
 def insert_agent_proposal(

@@ -572,6 +572,54 @@ export async function updateTeamStyleGuide(baseUrl, token, workspaceId, guideId,
   });
 }
 
+export async function createOrganization(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/orgs", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listOrganizations(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/orgs", { token });
+}
+
+export async function addOrganizationMember(baseUrl, token, orgId, payload) {
+  return requestJson(baseUrl, `/api/v1/orgs/${orgId}/members`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function linkWorkspaceOrg(baseUrl, token, workspaceId, orgId) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/org`, {
+    method: "POST",
+    token,
+    body: { org_id: orgId },
+  });
+}
+
+export async function upgradeOrganizationPlan(baseUrl, token, orgId, planId) {
+  return requestJson(baseUrl, `/api/v1/orgs/${orgId}/plan`, {
+    method: "POST",
+    token,
+    body: { plan_id: planId },
+  });
+}
+
+export async function createWorkspaceSessionGrant(baseUrl, token, workspaceId, payload) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/session-grants`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listWorkspaceSessionGrants(baseUrl, token, workspaceId) {
+  return requestJson(baseUrl, `/api/v1/team/workspaces/${workspaceId}/session-grants`, { token });
+}
+
 export async function createRemoteChannel(baseUrl, token, payload) {
   return requestJson(baseUrl, "/api/v1/remote/channels", {
     method: "POST",
@@ -714,6 +762,10 @@ export async function verifyBillingPayment(baseUrl, token, payload) {
 
 export async function getBillingSubscription(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/billing/subscription", { token });
+}
+
+export async function getBillingContext(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/billing/context", { token });
 }
 
 async function* streamSseJson(baseUrl, path, token) {

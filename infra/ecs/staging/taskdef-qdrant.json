@@ -1,0 +1,33 @@
+{
+  "family": "codeforge-qdrant-staging-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::111111111111:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::111111111111:role/codeforgeApiTaskRoleStaging",
+  "containerDefinitions": [
+    {
+      "name": "codeforge-qdrant",
+      "image": "qdrant/qdrant:v1.13.1",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 6333,
+          "hostPort": 6333,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/codeforge-qdrant-staging",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "qdrant"
+        }
+      }
+    }
+  ]
+}

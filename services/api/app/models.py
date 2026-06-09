@@ -390,6 +390,7 @@ class CreateOrderRequest(BaseModel):
     plan_id: str
     amount_inr: int = Field(gt=0)
     currency: str = "INR"
+    org_id: str | None = None
 
 
 class CreateOrderResponse(BaseModel):
@@ -406,12 +407,20 @@ class VerifyPaymentRequest(BaseModel):
     signature: str
     plan_id: str
     amount_inr: int
+    org_id: str | None = None
 
 
 class VerifyPaymentResponse(BaseModel):
     status: str
     subscription_plan: str
     order_id: str
+    org_id: str | None = None
+    organization_plan_id: str | None = None
+    org_plan_updated: bool = False
+
+
+class OrganizationPlanUpgradeRequest(BaseModel):
+    plan_id: Literal["lite", "pro", "team"]
 
 
 class SubscriptionStatus(BaseModel):
@@ -423,8 +432,35 @@ class SubscriptionStatus(BaseModel):
     updated_at: datetime
 
 
+class OrganizationBillingItem(BaseModel):
+    org_id: str
+    name: str
+    plan_id: str
+    role: str
+
+
+class BillingContextResponse(BaseModel):
+    user_id: str
+    effective_plan_id: str
+    effective_source: Literal["organization", "subscription", "free"]
+    subscription_plan_id: str
+    organization_plan_id: str | None = None
+    subscription_status: str
+    request_limit: int
+    requests_used_in_period: int
+    requests_remaining: int
+    billing_period_start: datetime
+    organizations: list[OrganizationBillingItem] = Field(default_factory=list)
+
+
 class BillingWebhookResponse(BaseModel):
     status: str
+    order_id: str | None = None
+    event_type: str | None = None
+    org_plan_updated: bool = False
+    organization_plan_id: str | None = None
+    downgraded_org_ids: list[str] = Field(default_factory=list)
+    synced_org_ids: list[str] = Field(default_factory=list)
 
 
 class DevLoginRequest(BaseModel):
@@ -659,6 +695,7 @@ class TeamWorkspaceResponse(BaseModel):
     name: str
     description: str
     owner_id: str
+    org_id: str | None = None
     created_at: datetime
     members: list[TeamWorkspaceMemberItem]
 
@@ -1150,6 +1187,59 @@ class OidcCallbackRequest(BaseModel):
 class TeamDelegationStepDecisionRequest(BaseModel):
     approved: bool = True
     note: str = ""
+
+
+class OrganizationCreateRequest(BaseModel):
+    name: str = Field(min_length=2)
+    plan_id: Literal["lite", "pro", "team"] = "team"
+
+
+class OrganizationMemberRequest(BaseModel):
+    user_id: str = Field(min_length=2)
+    role: Literal["admin", "member", "viewer"] = "member"
+
+
+class OrganizationMemberItem(BaseModel):
+    user_id: str
+    role: str
+    added_at: datetime
+
+
+class OrganizationResponse(BaseModel):
+    org_id: str
+    name: str
+    owner_id: str
+    plan_id: str
+    created_at: datetime
+    members: list[OrganizationMemberItem] = Field(default_factory=list)
+
+
+class OrganizationListResponse(BaseModel):
+    organizations: list[OrganizationResponse]
+
+
+class WorkspaceOrgLinkRequest(BaseModel):
+    org_id: str = Field(min_length=4)
+
+
+class WorkspaceSessionGrantRequest(BaseModel):
+    session_id: str
+    granted_to_user_id: str = Field(min_length=2)
+    access_level: Literal["view", "delegate"] = "delegate"
+
+
+class WorkspaceSessionGrantResponse(BaseModel):
+    grant_id: str
+    workspace_id: str
+    session_id: str
+    granted_to_user_id: str
+    granted_by: str
+    access_level: str
+    created_at: datetime
+
+
+class WorkspaceSessionGrantListResponse(BaseModel):
+    grants: list[WorkspaceSessionGrantResponse]
 
 
 def utc_now() -> datetime:

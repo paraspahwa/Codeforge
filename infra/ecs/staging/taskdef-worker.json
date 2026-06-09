@@ -8,6 +8,16 @@
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::111111111111:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::111111111111:role/codeforgeApiTaskRoleStaging",
+  "volumes": [
+    {
+      "name": "codeforge-workspaces",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER",
+        "rootDirectory": "/codeforge",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
   "containerDefinitions": [
     {
       "name": "codeforge-worker",
@@ -45,6 +55,21 @@
         {
           "name": "PLAYWRIGHT_BROWSERS_PATH",
           "value": "/ms-playwright"
+        },
+        {
+          "name": "CODEFORGE_WORKSPACES_CONTAINER_PREFIX",
+          "value": "/workspaces"
+        },
+        {
+          "name": "CODEFORGE_WORKSPACES_HOST_PREFIX",
+          "value": "/workspaces"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "codeforge-workspaces",
+          "containerPath": "/workspaces",
+          "readOnly": false
         }
       ],
       "secrets": [

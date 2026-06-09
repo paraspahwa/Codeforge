@@ -91,6 +91,7 @@ def get_workspace(workspace_id: str) -> dict[str, Any] | None:
         "name": row["name"],
         "description": row["description"],
         "owner_id": row["owner_id"],
+        "org_id": row.get("org_id"),
         "created_at": row["created_at"],
         "members": members,
     }
@@ -174,6 +175,65 @@ def save_session_share(share: dict[str, Any]) -> None:
             share["expires_at"],
         ),
     )
+
+
+def save_workspace_session_grant(grant: dict[str, Any]) -> None:
+    _execute(
+        """
+        INSERT INTO workspace_session_grants(
+            grant_id, workspace_id, session_id, granted_to_user_id, granted_by, access_level, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            grant["grant_id"],
+            grant["workspace_id"],
+            grant["session_id"],
+            grant["granted_to_user_id"],
+            grant["granted_by"],
+            grant["access_level"],
+            grant["created_at"],
+        ),
+    )
+
+
+def has_workspace_session_grant(*, workspace_id: str, session_id: str, user_id: str) -> bool:
+    row = _fetchone(
+        """
+        SELECT grant_id
+        FROM workspace_session_grants
+        WHERE workspace_id = ? AND session_id = ? AND granted_to_user_id = ?
+        LIMIT 1
+        """,
+        (workspace_id, session_id, user_id),
+    )
+    return row is not None
+
+
+def list_workspace_session_grants(workspace_id: str) -> list[dict[str, Any]]:
+    rows = _fetchall(
+        """
+        SELECT grant_id, workspace_id, session_id, granted_to_user_id, granted_by, access_level, created_at
+        FROM workspace_session_grants
+        WHERE workspace_id = ?
+        ORDER BY created_at DESC
+        """,
+        (workspace_id,),
+    )
+    return [dict(row) for row in rows]
+
+
+def session_has_active_share(session_id: str) -> bool:
+    row = _fetchone(
+        """
+        SELECT share_id
+        FROM session_shares
+        WHERE session_id = ?
+          AND (expires_at IS NULL OR expires_at = '' OR expires_at > datetime('now'))
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    return row is not None
 
 
 def get_session_share(share_id: str) -> dict[str, Any] | None:

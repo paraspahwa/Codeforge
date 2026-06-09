@@ -1,27 +1,22 @@
-# CodeForge Desktop App (Phase 2)
+# CodeForge Desktop
 
-This folder is the desktop app entry point planned after web stabilization.
+Tauri + React desktop client with Code, Cowork, and Team modes.
 
-## Planned Stack
+## Features
 
-- Tauri 2.x
-- React frontend (shared UI patterns with web app)
-- Shared API client from `packages/shared`
+- **Code mode**: sessions, chat, git/shell tools, workflows (`/loop`, `/plan`, artifacts, templates)
+- **Cowork mode**: plans, runs, scheduled jobs, browser tasks with explicit approval
+- **Team mode**: workspaces, knowledge, delegations (multi-agent orchestration + step approvals), audit log, live SSE
+- **Auth**: dev login and OIDC SSO via the top app bar (`DesktopAuthContext`); callback path `/auth/callback`
 
-## Planned Features
-
-- System tray icon + quick actions
-- Global hotkey (Ctrl+Shift+Space)
-- Native file picker
-- Notifications for long-running tasks
-- Auto-updater setup
-
-## Next Step
-
-Scaffold with:
+## Local development
 
 ```bash
-npm create tauri-app@latest
+npm --workspace apps/desktop run dev
 ```
 
-Then wire login/session/chat flows to the existing FastAPI backend.
+Set `VITE_CODEFORGE_API_BASE_URL` (default `http://localhost:8000`).
+
+## OIDC
+
+Register `http://localhost:1420/auth/callback` with your IdP when `CODEFORGE_OIDC_ENABLED=true` on the API.

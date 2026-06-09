@@ -113,7 +113,8 @@ npm run dev:terminal
 - Billing plan, order, verify, subscription, and webhook APIs
 - Proposal review flow for streamed diffs
 - Context packs with session attach/compose APIs for reusable project memory
-- MCP connector registry, enable/disable controls, and authenticated tool invocation boundary
+- MCP connector registry, enable/disable controls, HTTP JSON-RPC remote transport, and authenticated tool invocation boundary
+- Organization entities with workspace linkage, workspace session grants, and org-aware billing context (`/api/v1/billing/context`)
 - Synthesis rollout status endpoint for provider strategy/selection visibility
 - Guided git conflict-resolution endpoint and terminal workflow command
 - Web dashboard: usage, billing, analytics with routing benchmarks, team/cowork admin pages, proposal review
@@ -125,12 +126,18 @@ npm run dev:terminal
 
 ## Known Gaps
 
-- Team and cowork UIs are web + desktop only (terminal/VS Code lack team/cowork surfaces)
-- Confidence/review-required UX is on web chat and terminal only (not desktop Code or VS Code)
-- No SSO, audit trail, knowledge file uploads, or real-time team WebSocket updates
-- Cowork scheduled jobs run in the API process; ECS worker is defined but not deployed by CI
-- Routing benchmarks test policy classification, not SWE-bench-style patch/task quality
-- Phase 3 stretch not started: artifacts/live preview, remote control, custom agents
+- Production OIDC requires IdP app registration plus ECS SSM secrets (`CODEFORGE_OIDC_*`) and worker ECR repo `codeforge-worker`
+- ECS worker task definitions ship with `fs-PLACEHOLDER` EFS mounts — replace before cloud delegations/cowork file jobs
+- Production IdP: populate ECS SSM `CODEFORGE_OIDC_*` parameters and register all redirect URIs at the IdP
+- Worker ECS deploy requires GitHub variables `EFS_FILE_SYSTEM_ID_STAGING` and `EFS_FILE_SYSTEM_ID_PRODUCTION`
+- Terminal and VS Code OIDC use paste-code completion flows; register `http://127.0.0.1:4583/auth/callback` and `http://127.0.0.1:4584/auth/callback` at the IdP when enabling SSO
+- Long-horizon PRD items remain open: voice control, design-to-code, native mobile, localization
+
+## Deploy Notes
+
+- CI builds and deploys separate API, web, and worker images (`Dockerfile.worker` includes Playwright Chromium)
+- Smoke tests verify Celery worker consumption via `GET /api/v1/platform/queue-ping/{job_id}`
+- OIDC redirect URIs: web `http://localhost:3000/auth/callback`, desktop `http://localhost:1420/auth/callback`, terminal `http://127.0.0.1:4583/auth/callback`, VS Code `http://127.0.0.1:4584/auth/callback`
 
 ## Canonical Documents
 

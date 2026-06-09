@@ -267,6 +267,18 @@ export function streamTeamEvents(token) {
   return shared.streamTeamEvents(API_BASE, token);
 }
 
+export async function listTeamStyleGuides(token, workspaceId) {
+  return shared.listTeamStyleGuides(API_BASE, token, workspaceId);
+}
+
+export async function createTeamStyleGuide(token, workspaceId, payload) {
+  return shared.createTeamStyleGuide(API_BASE, token, workspaceId, payload);
+}
+
+export async function updateTeamStyleGuide(token, workspaceId, guideId, payload) {
+  return shared.updateTeamStyleGuide(API_BASE, token, workspaceId, guideId, payload);
+}
+
 export async function createRemoteChannel(token, payload) {
   return shared.createRemoteChannel(API_BASE, token, payload);
 }

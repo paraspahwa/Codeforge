@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   applyGitConflictAssist,
   createCoworkJob,
   createCoworkPlan,
   createSession,
-  devLogin,
   extractCoworkData,
   getGitConflictGuide,
   getSynthesisRolloutPlan,
@@ -24,10 +24,9 @@ import {
   toggleCoworkJob,
 } from "./api";
 
-export default function CoworkWorkspace({ sharedToken = null, sharedUserId = null }) {
-  const [userId, setUserId] = useState(sharedUserId || import.meta.env.VITE_CODEFORGE_USER_ID || "dev-user");
+export default function CoworkWorkspace() {
+  const { token } = useDesktopAuth();
   const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || "");
-  const [token, setToken] = useState(sharedToken || null);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [plans, setPlans] = useState([]);
@@ -268,28 +267,6 @@ export default function CoworkWorkspace({ sharedToken = null, sharedUserId = nul
     }
   }
 
-  async function handleLogin() {
-    setLoading(true);
-    setErrorMessage("");
-    try {
-      const nextToken = await devLogin(userId.trim());
-      setToken(nextToken);
-      const list = await listSessions(nextToken);
-      setSessions(list);
-      if (list.length > 0) {
-        setSessionId(list[0].session_id);
-      }
-      await refreshCoworkData(nextToken);
-      await refreshRolloutPlan(nextToken, rolloutEnvironment);
-      await refreshRoutingBenchmark(nextToken, routingBenchmarkSuite);
-      setStatusMessage(`Logged in as ${userId.trim()}`);
-    } catch (error) {
-      setErrorMessage(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleCreateSession() {
     if (!token) {
       setErrorMessage("Login first");
@@ -436,13 +413,26 @@ export default function CoworkWorkspace({ sharedToken = null, sharedUserId = nul
   }
 
   useEffect(() => {
-    if (sharedToken) {
-      setToken(sharedToken);
+    if (!token) {
+      setSessions([]);
+      setPlans([]);
+      setRuns([]);
+      setJobs([]);
+      return;
     }
-    if (sharedUserId) {
-      setUserId(sharedUserId);
-    }
-  }, [sharedToken, sharedUserId]);
+    listSessions(token)
+      .then((list) => {
+        setSessions(list);
+        if (list.length > 0) {
+          setSessionId((current) => current || list[0].session_id);
+        }
+      })
+      .catch(() => undefined);
+    refreshCoworkData(token).catch(() => undefined);
+    refreshRolloutPlan(token, rolloutEnvironment).catch(() => undefined);
+    refreshRoutingBenchmark(token, routingBenchmarkSuite).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => {
     if (!token) {
@@ -483,12 +473,6 @@ export default function CoworkWorkspace({ sharedToken = null, sharedUserId = nul
 
       {statusMessage ? <div className="status success">{statusMessage}</div> : null}
       {errorMessage ? <div className="status error">{errorMessage}</div> : null}
-
-      <section className="card">
-        <label htmlFor="uid">User ID</label>
-        <input id="uid" value={userId} onChange={(event) => setUserId(event.target.value)} disabled={loading} />
-        <button onClick={handleLogin} disabled={!userId.trim() || loading}>{token ? "Re-login" : "Login"}</button>
-      </section>
 
       <section className="card">
         <label htmlFor="path">Project Path</label>

@@ -18,6 +18,19 @@ def test_dev_auth_disabled_in_production(monkeypatch: pytest.MonkeyPatch) -> Non
     assert dev_auth_enabled() is False
 
 
+def test_dev_auth_disabled_when_oidc_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_ENV", "development")
+    monkeypatch.setenv("CODEFORGE_OIDC_ENABLED", "true")
+    assert dev_auth_enabled() is False
+
+
+def test_dev_auth_override_for_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_ENV", "production")
+    monkeypatch.setenv("CODEFORGE_OIDC_ENABLED", "true")
+    monkeypatch.setenv("CODEFORGE_ALLOW_DEV_LOGIN", "true")
+    assert dev_auth_enabled() is True
+
+
 def test_dev_token_maps_to_user_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEFORGE_ENV", "development")
     assert _token_to_user_id("dev_ci-bot") == "ci-bot"

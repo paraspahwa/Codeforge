@@ -1,0 +1,27 @@
+aws_region          = "ap-south-1"
+name_prefix         = "codeforge-prod"
+vpc_id              = "vpc-xxxxxxxx"
+public_subnet_ids   = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
+certificate_arn     = "arn:aws:acm:ap-south-1:111111111111:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+api_host_headers    = ["api.yourdomain.com"]
+
+# Optional ECS service wiring (set true after first task definition revision exists)
+enable_ecs_services        = false
+cluster_arn                = "arn:aws:ecs:ap-south-1:111111111111:cluster/codeforge-prod"
+private_subnet_ids         = ["subnet-private-aaaa", "subnet-private-bbbb"]
+api_task_definition_arn    = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-api-task:1"
+web_task_definition_arn    = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-web-task:1"
+worker_task_definition_arn = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-worker-task:1"
+efs_file_system_id         = "fs-abc123def456"
+efs_security_group_id      = ""
+
+# Match deploy-ecs.yml ECS_SERVICE_* names (defaults already aligned)
+api_service_name    = "codeforge-api-service"
+web_service_name    = "codeforge-web-service"
+worker_service_name = "codeforge-worker-service"
+
+# After first GitHub deploy, fetch task definition ARNs:
+# aws ecs describe-task-definition --task-definition codeforge-api-task --query 'taskDefinition.taskDefinitionArn' --output text
+
+enable_qdrant_service       = false
+qdrant_task_definition_arn  = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-qdrant-task:1"
