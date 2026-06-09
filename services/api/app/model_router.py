@@ -40,24 +40,32 @@ class GenerationClient:
     def backend(self) -> str:
         return self._backend
 
-    async def generate(self, prompt: str, system_prompt: str = "You are CodeForge assistant.") -> dict[str, Any]:
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "You are CodeForge assistant.",
+        *,
+        max_tokens: int = 240,
+        model: str | None = None,
+    ) -> dict[str, Any]:
         route = choose_model(prompt)
+        selected_model = model or route.model
 
         if self._litellm is not None:
             try:
                 response = await self._litellm.acompletion(
-                    model=route.model,
+                    model=selected_model,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt},
                     ],
-                    max_tokens=240,
+                    max_tokens=max_tokens,
                 )
                 content = response.choices[0].message.content if response and response.choices else ""
                 return {
                     "backend": "litellm",
                     "provider": route.provider,
-                    "model": route.model,
+                    "model": selected_model,
                     "reason": route.reason,
                     "text": content or "",
                 }
@@ -68,7 +76,7 @@ class GenerationClient:
         return {
             "backend": "deterministic",
             "provider": route.provider,
-            "model": route.model,
+            "model": selected_model,
             "reason": route.reason,
             "text": f"Deterministic fallback response for: {prompt[:160]}",
         }

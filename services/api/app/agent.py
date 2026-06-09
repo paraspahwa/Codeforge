@@ -8,7 +8,8 @@ from typing import Any
 
 import httpx
 
-from .file_ops import build_patch_preview, generate_proposed_content, infer_target_file, read_file_content, read_file_excerpt
+from .file_ops import build_patch_preview, infer_target_file, read_file_content, read_file_excerpt
+from .patch_generator import generate_proposed_content_async
 from .model_router import GenerationClient, choose_model
 from .models import AgentEvent, utc_now
 from .tracing import add_span_event, set_span_attributes, traced_span
@@ -587,7 +588,14 @@ async def build_agent_run(
 
         active_file = infer_target_file(project_path, prompt, current_file=current_file)
         original_content = read_file_content(project_path, active_file) if active_file else ""
-        proposed_content = generate_proposed_content(active_file, prompt, original_content) if active_file else ""
+        patch_result = (
+            await generate_proposed_content_async(active_file, prompt, original_content, model_hint=decision.model_used)
+            if active_file
+            else None
+        )
+        proposed_content = patch_result.proposed_content if patch_result else ""
+        patch_source = patch_result.source if patch_result else "none"
+        patch_backend = patch_result.backend if patch_result else "none"
         excerpt = read_file_excerpt(project_path, active_file) if active_file else ""
 
         fallback_summary = (
@@ -674,6 +682,18 @@ async def build_agent_run(
                 "status": "completed",
                 "target": diff_target,
                 "excerpt": excerpt,
+                "reason": decision.reason,
+            },
+        )
+
+        add_event(
+            "tool_result",
+            {
+                "tool": "file.patch",
+                "status": "completed" if patch_source in {"llm", "heuristic"} else "unchanged",
+                "target": diff_target,
+                "source": patch_source,
+                "backend": patch_backend,
                 "reason": decision.reason,
             },
         )

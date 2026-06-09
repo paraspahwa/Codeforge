@@ -276,6 +276,34 @@ class UsageSummary(BaseModel):
     plan_id: str
     request_limit: int
     requests_remaining: int
+    billing_period_start: datetime
+    requests_used_in_period: int
+
+
+class AgentLoopRequest(BaseModel):
+    verify_command: str = Field(min_length=1)
+    prompt: str | None = None
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    auto_apply: bool = True
+    current_file: str | None = None
+
+
+class AgentLoopAttemptResponse(BaseModel):
+    attempt: int
+    verify_passed: bool
+    verify_exit_code: int
+    verify_summary: str
+    proposal_id: str | None = None
+    applied: bool = False
+    target_file: str | None = None
+    patch_source: str | None = None
+
+
+class AgentLoopResponse(BaseModel):
+    session_id: str
+    passed: bool
+    message: str
+    attempts: list[AgentLoopAttemptResponse]
 
 
 class BillingPlan(BaseModel):

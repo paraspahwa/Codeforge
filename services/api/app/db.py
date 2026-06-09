@@ -439,20 +439,49 @@ def insert_usage_log(
     )
 
 
-def get_usage_summary_for_user(user_id: str) -> dict[str, Any]:
+def get_usage_count_for_user_since(user_id: str, since_iso: str) -> int:
     row = _fetchone(
         """
-        SELECT
-          COUNT(*) AS total_requests,
-          COALESCE(SUM(input_tokens), 0) AS input_tokens,
-          COALESCE(SUM(output_tokens), 0) AS output_tokens,
-          COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
-          COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
+        SELECT COUNT(*) AS total_requests
         FROM usage_logs
-        WHERE user_id = ?
+        WHERE user_id = ? AND created_at >= ?
         """,
-        (user_id,),
+        (user_id, since_iso),
     )
+    if row is None:
+        return 0
+    return int(row["total_requests"])
+
+
+def get_usage_summary_for_user(user_id: str, since_iso: str | None = None) -> dict[str, Any]:
+    if since_iso:
+        row = _fetchone(
+            """
+            SELECT
+              COUNT(*) AS total_requests,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
+              COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
+            FROM usage_logs
+            WHERE user_id = ? AND created_at >= ?
+            """,
+            (user_id, since_iso),
+        )
+    else:
+        row = _fetchone(
+            """
+            SELECT
+              COUNT(*) AS total_requests,
+              COALESCE(SUM(input_tokens), 0) AS input_tokens,
+              COALESCE(SUM(output_tokens), 0) AS output_tokens,
+              COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
+              COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
+            FROM usage_logs
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
     if row is None:
         return {
             "total_requests": 0,

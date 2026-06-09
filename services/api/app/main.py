@@ -4,6 +4,7 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
+from .agent_loop import run_verify_fix_loop
 from .auth import AuthUser, dev_auth_enabled, get_current_user
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
@@ -55,11 +57,15 @@ from .db import (
 )
 from .file_ops import apply_proposed_content
 from .project_paths import normalize_project_path, resolved_project_path
+from .usage_policy import get_usage_policy
 from .file_ops import read_file_content, read_file_excerpt, read_file_line_count, repo_relative_path, resolve_repo_path
 from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_log, git_merge_assist, git_stage, git_status, git_worktree_create, git_worktree_list
 from .shell_ops import ShellError, prepare_shell_execution, stream_shell_execution
 from .tracing import add_span_event, configure_tracing, current_trace_id, set_span_attributes, traced_span
 from .models import (
+    AgentLoopAttemptResponse,
+    AgentLoopRequest,
+    AgentLoopResponse,
     AgentProposal,
     BillingPlan,
     BillingWebhookResponse,
@@ -187,18 +193,11 @@ BILLING_PLANS = [
     BillingPlan(plan_id="pro", name="Pro", amount_inr=499, request_limit=1000),
     BillingPlan(plan_id="team", name="Team", amount_inr=1299, request_limit=2500),
 ]
-FREE_REQUEST_LIMIT = 100
-
-PLAN_LIMITS = {plan.plan_id: plan.request_limit for plan in BILLING_PLANS}
-
-
-def _get_usage_policy(user_id: str) -> tuple[str, int, int]:
-    subscription = get_user_subscription(user_id)
-    plan_id = subscription["plan_id"] if subscription else "free"
-    request_limit = PLAN_LIMITS.get(plan_id, FREE_REQUEST_LIMIT)
-    usage_summary = get_usage_summary_for_user(user_id)
-    requests_remaining = max(0, request_limit - int(usage_summary["total_requests"]))
-    return plan_id, request_limit, requests_remaining
+def _parse_period_start(period_start: str) -> datetime:
+    parsed = datetime.fromisoformat(period_start.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _attach_trace_id(response: Response) -> Response:
@@ -316,13 +315,15 @@ def list_sessions(
 
 @app.get("/api/v1/usage/summary", response_model=UsageSummary)
 def usage_summary(user: AuthUser = Depends(get_current_user)) -> UsageSummary:
-    summary = get_usage_summary_for_user(user.user_id)
-    plan_id, request_limit, requests_remaining = _get_usage_policy(user.user_id)
+    plan_id, request_limit, requests_used, requests_remaining, period_start = get_usage_policy(user.user_id)
+    summary = get_usage_summary_for_user(user.user_id, since_iso=period_start)
     return UsageSummary(
         **summary,
         plan_id=plan_id,
         request_limit=request_limit,
         requests_remaining=requests_remaining,
+        billing_period_start=_parse_period_start(period_start),
+        requests_used_in_period=requests_used,
     )
 
 
@@ -479,7 +480,7 @@ def post_message(
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        plan_id, request_limit, requests_remaining = _get_usage_policy(user.user_id)
+        plan_id, request_limit, _requests_used, requests_remaining, _period_start = get_usage_policy(user.user_id)
         set_span_attributes(
             {
                 "codeforge.plan_id": plan_id,
@@ -1642,6 +1643,41 @@ async def session_shell_stream(
             sequence += 1
 
     return _attach_trace_id(StreamingResponse(event_generator(), media_type="text/event-stream"))
+
+
+@app.post("/api/v1/sessions/{session_id}/agent/loop", response_model=AgentLoopResponse)
+async def session_agent_loop(
+    session_id: str,
+    payload: AgentLoopRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> AgentLoopResponse:
+    _enforce_rate_limit("agent-loop", user.user_id, RATE_LIMIT_PER_MINUTE)
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    plan_id, request_limit, _requests_used, requests_remaining, _period_start = get_usage_policy(user.user_id)
+    if requests_remaining <= 0:
+        raise HTTPException(status_code=429, detail=f"Request limit reached for {plan_id} plan")
+
+    project_path = resolved_project_path(session)
+    result = await run_verify_fix_loop(
+        session_id=session_id,
+        user_id=user.user_id,
+        project_path=project_path,
+        verify_command=payload.verify_command,
+        fix_prompt=payload.prompt,
+        max_attempts=payload.max_attempts,
+        auto_apply=payload.auto_apply,
+        current_file=payload.current_file,
+    )
+
+    return AgentLoopResponse(
+        session_id=result.session_id,
+        passed=result.passed,
+        message=result.message,
+        attempts=[AgentLoopAttemptResponse(**attempt.__dict__) for attempt in result.attempts],
+    )
 
 
 @app.get("/api/v1/sessions/{session_id}/stream")

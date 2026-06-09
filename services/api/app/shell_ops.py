@@ -132,6 +132,76 @@ def prepare_shell_execution(project_path: str, command: str) -> tuple[Path, str,
     return root, sanitized, shell_executable
 
 
+async def run_shell_command(
+    project_path: str,
+    command: str,
+    timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Run a sandboxed shell command and collect stdout for verification loops."""
+    root, sanitized, shell_executable = prepare_shell_execution(project_path, command)
+
+    process = await asyncio.create_subprocess_exec(
+        shell_executable,
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        sanitized,
+        cwd=str(root),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+
+    if process.stdout is None:
+        raise ShellError("Unable to capture shell output")
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    output_chunks: list[str] = []
+    exit_code = -1
+
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                process.kill()
+                await process.wait()
+                raise ShellError("Shell command timed out")
+
+            try:
+                chunk = await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                process.kill()
+                await process.wait()
+                raise ShellError("Shell command timed out") from exc
+
+            if not chunk:
+                break
+
+            text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+            if text:
+                output_chunks.append(text)
+
+        exit_code = await process.wait()
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+            exit_code = -1
+
+    output = "\n".join(output_chunks)
+    tail = output[-1200:] if output else ""
+    return {
+        "command": sanitized,
+        "cwd": root.as_posix(),
+        "exit_code": exit_code,
+        "timed_out": False,
+        "output": output,
+        "summary": tail or f"exit_code={exit_code}",
+        "passed": exit_code == 0,
+    }
+
+
 async def stream_shell_execution(
     project_path: str,
     command: str,

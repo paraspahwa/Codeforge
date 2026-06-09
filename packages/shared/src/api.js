@@ -69,6 +69,14 @@ export async function getProposal(baseUrl, token, sessionId, proposalId) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}`, { token });
 }
 
+export async function runAgentLoop(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/agent/loop`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
 export async function decideProposal(baseUrl, token, sessionId, proposalId, action) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}/decision`, {
     method: "POST",
