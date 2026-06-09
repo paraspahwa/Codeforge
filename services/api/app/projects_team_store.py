@@ -222,6 +222,36 @@ def list_workspace_session_grants(workspace_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_session_grants_for_actor(*, session_id: str, user_id: str) -> list[dict[str, Any]]:
+    rows = _fetchall(
+        """
+        SELECT grant_id, workspace_id, session_id, granted_to_user_id, granted_by, access_level, created_at
+        FROM workspace_session_grants
+        WHERE session_id = ? AND granted_to_user_id = ?
+        ORDER BY created_at DESC
+        """,
+        (session_id, user_id),
+    )
+    return [dict(row) for row in rows]
+
+
+def get_active_session_share_access_level(session_id: str) -> str | None:
+    row = _fetchone(
+        """
+        SELECT access_level
+        FROM session_shares
+        WHERE session_id = ?
+          AND (expires_at IS NULL OR expires_at = '' OR expires_at > datetime('now'))
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    if row is None:
+        return None
+    return str(row["access_level"])
+
+
 def session_has_active_share(session_id: str) -> bool:
     row = _fetchone(
         """

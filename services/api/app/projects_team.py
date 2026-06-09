@@ -765,8 +765,12 @@ class ProjectsTeamService:
         if workspace is None:
             raise ProjectsTeamError("Workspace not found")
 
-        if not any(member["user_id"] == actor_id for member in workspace["members"]):
-            raise ProjectsTeamError("Only workspace members can approve delegation steps")
+        actor_role = next(
+            (member["role"] for member in workspace["members"] if member["user_id"] == actor_id),
+            None,
+        )
+        if actor_role not in {"owner", "admin"} and actor_id != workspace.get("owner_id"):
+            raise ProjectsTeamError("Only workspace owners or admins can approve delegation steps")
 
         if delegation["status"] != "awaiting_approval":
             raise ProjectsTeamError("Delegation is not awaiting step approval")

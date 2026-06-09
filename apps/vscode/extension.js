@@ -375,6 +375,10 @@ async function login(context, baseUrl, userId) {
   const api = await loadSharedModule(context, "api.js");
   panelState.baseUrl = baseUrl || panelState.baseUrl;
   panelState.userId = userId || panelState.userId;
+  await refreshOidcConfig(context);
+  if (panelState.oidcEnabled) {
+    throw new Error("Dev login is disabled when SSO is enabled — use Sign in with SSO");
+  }
   panelState.token = (await api.devLogin(panelState.baseUrl, panelState.userId)).access_token;
   panelState.oidcAuthMessage = "";
   await refreshSessions(context);

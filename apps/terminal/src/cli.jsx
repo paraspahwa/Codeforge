@@ -326,6 +326,8 @@ function App() {
   const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [token, setToken] = useState("");
   const [oidcEnabled, setOidcEnabled] = useState(false);
+  const loginFirstMessage = () =>
+    oidcEnabled ? "Login first with /sso" : "Login first with /login <userId>";
   const oidcPendingRef = useRef(null);
   const [projectPath, setProjectPath] = useState(DEFAULT_PROJECT_PATH);
   const [sessions, setSessions] = useState([]);
@@ -902,6 +904,10 @@ function App() {
   };
 
   const login = async (nextUserId) => {
+    if (oidcEnabled) {
+      setError("Dev login is disabled — use /sso to sign in");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -1142,7 +1148,7 @@ function App() {
 
     if (name === "loop") {
       if (!token) {
-        setError("Login first with /login <userId>");
+        setError(loginFirstMessage());
         return;
       }
 
@@ -1235,7 +1241,7 @@ function App() {
 
     if (name === "template") {
       if (!token) {
-        setError("Login first with /login <userId>");
+        setError(loginFirstMessage());
         return;
       }
       setBusy(true);
@@ -1278,7 +1284,7 @@ function App() {
 
     if (name === "team") {
       if (!token) {
-        setError("Login first with /login <userId>");
+        setError(loginFirstMessage());
         return;
       }
 
@@ -1571,7 +1577,7 @@ function App() {
 
     if (name === "cowork") {
       if (!token) {
-        setError("Login first with /login <userId>");
+        setError(loginFirstMessage());
         return;
       }
 
@@ -1723,6 +1729,10 @@ function App() {
         await completeOidcLogin(rest.join(" ").trim());
         return;
       }
+      if (oidcEnabled) {
+        setError("Dev login is disabled — use /sso to sign in");
+        return;
+      }
       await login(argument || DEFAULT_USER_ID);
       return;
     }
@@ -1731,6 +1741,10 @@ function App() {
       const nextPath = argument || projectPath;
       setProjectPath(nextPath);
       if (!token) {
+        if (oidcEnabled) {
+          setError(loginFirstMessage());
+          return;
+        }
         await login(userId || DEFAULT_USER_ID);
         return;
       }
@@ -1770,7 +1784,7 @@ function App() {
 
     if (name === "refresh") {
       if (!token) {
-        setError("Login first with /login <userId>");
+        setError(loginFirstMessage());
         return;
       }
 
@@ -2021,7 +2035,7 @@ function App() {
     }
 
     if (!token) {
-      setError("Login first with /login <userId>");
+      setError(loginFirstMessage());
       return;
     }
 
@@ -2112,12 +2126,14 @@ function App() {
 
   useEffect(() => {
     pushEvent(`Base URL ${baseUrl}`);
-    pushEvent(`Type /login ${DEFAULT_USER_ID} to start`);
     getOidcConfig(baseUrl)
       .then((config) => {
-        setOidcEnabled(Boolean(config.enabled));
-        if (config.enabled) {
+        const enabled = Boolean(config.enabled);
+        setOidcEnabled(enabled);
+        if (enabled) {
           pushEvent("OIDC enabled — use /sso to sign in");
+        } else {
+          pushEvent(`Type /login ${DEFAULT_USER_ID} to start`);
         }
       })
       .catch(() => setOidcEnabled(false));

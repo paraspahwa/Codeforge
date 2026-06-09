@@ -73,6 +73,8 @@ python scripts/verify_oidc_cutover_readiness.py --api-base https://api-staging.y
 
 Do not set `CODEFORGE_ALLOW_DEV_LOGIN` in production ECS tasks after OIDC is enabled.
 
+After deploy, set GitHub variable `VERIFY_OIDC_CUTOVER=true` to run `scripts/verify_oidc_cutover_readiness.py` in CI.
+
 CI fails closed when deploy readiness reports missing required OIDC configuration while OIDC is enabled.
 
 ## Razorpay webhook events

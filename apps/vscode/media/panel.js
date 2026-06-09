@@ -96,15 +96,17 @@ function render() {
 
       <section class="card controls">
         <h1>CodeForge</h1>
-        <div class="grid two-up">
+        <div class="grid ${state.oidcEnabled ? "one-up" : "two-up"}">
           <label>
             <span>API URL</span>
             <input id="baseUrl" value="${escapeHtml(state.baseUrl)}" ${state.busy ? "disabled" : ""} />
           </label>
+          ${state.oidcEnabled ? "" : `
           <label>
             <span>User</span>
             <input id="userId" value="${escapeHtml(state.userId)}" ${state.busy ? "disabled" : ""} />
           </label>
+          `}
         </div>
         <div class="grid two-up">
           <label>
@@ -117,8 +119,7 @@ function render() {
           </label>
         </div>
         <div class="actions">
-          <button data-action="login" ${state.busy ? "disabled" : ""}>Login</button>
-          ${state.oidcEnabled ? `<button data-action="loginOidc" ${state.busy ? "disabled" : ""}>Sign in with SSO</button>` : ""}
+          ${state.oidcEnabled ? `<button data-action="loginOidc" ${state.busy ? "disabled" : ""}>Sign in with SSO</button>` : `<button data-action="login" ${state.busy ? "disabled" : ""}>Login</button>`}
           <button data-action="createSession" ${state.busy ? "disabled" : ""}>New Session</button>
           <button data-action="refresh" ${state.busy ? "disabled" : ""}>Refresh</button>
         </div>

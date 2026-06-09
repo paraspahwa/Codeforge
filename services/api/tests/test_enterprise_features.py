@@ -197,6 +197,78 @@ def test_delegation_step_approval_gate(client) -> None:
         assert approved.json()["status"] == "completed"
 
 
+def test_delegation_step_approval_requires_admin_role(client) -> None:
+    init_db()
+    owner_login = client.post("/api/v1/auth/dev-login", json={"user_id": "approval-owner"})
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    session = client.post(
+        "/api/v1/sessions",
+        headers=owner_headers,
+        json={"project_path": ".", "model_preference": "auto"},
+    )
+    session_id = session.json()["session_id"]
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Approval policy team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/members",
+        headers=owner_headers,
+        json={"user_id": "approval-member", "role": "member"},
+    )
+
+    delegation = client.post(
+        "/api/v1/team/delegations",
+        headers=owner_headers,
+        json={
+            "workspace_id": workspace_id,
+            "session_id": session_id,
+            "assigned_role": "reviewer",
+            "task": "Needs admin approval",
+            "priority": "normal",
+            "orchestration_mode": "sequential",
+            "agent_roles": ["reviewer", "implementer"],
+            "require_step_approval": True,
+        },
+    )
+    task_id = delegation.json()["task_id"]
+
+    paused_steps = [
+        {
+            "step_index": 1,
+            "role": "reviewer",
+            "status": "completed",
+            "output": "Review complete",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "completed_at": "2026-01-01T00:00:01+00:00",
+        }
+    ]
+
+    with patch(
+        "app.delegation_orchestrator.execute_delegation_chain",
+        new_callable=AsyncMock,
+        return_value=(paused_steps, "Awaiting approval", True),
+    ):
+        executed = client.post(f"/api/v1/team/delegations/{task_id}/execute", headers=owner_headers)
+        assert executed.json()["status"] == "awaiting_approval"
+
+    member_login = client.post("/api/v1/auth/dev-login", json={"user_id": "approval-member"})
+    member_headers = {"Authorization": f"Bearer {member_login.json()['access_token']}"}
+
+    denied = client.post(
+        f"/api/v1/team/delegations/{task_id}/approve-step",
+        headers=member_headers,
+        json={"approved": True},
+    )
+    assert denied.status_code == 400
+    assert "owners or admins" in denied.json()["detail"]
+
+
 def test_multi_agent_delegation_create_payload(client) -> None:
     init_db()
     login = client.post("/api/v1/auth/dev-login", json={"user_id": "multi-agent-user"})

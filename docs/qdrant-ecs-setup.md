@@ -40,3 +40,7 @@ curl -fsS https://api-staging.yourdomain.com/api/v1/platform/stack-status
 `stack-status` should report `vector_store.backend: qdrant` and `healthy: true`.
 
 Pair with [production-domains.md](production-domains.md) and post-deploy `scripts/post_deploy_public_smoke.sh`.
+
+## CI deploy
+
+After Terraform creates the Qdrant ECS service, set GitHub repository variable `DEPLOY_QDRANT_SERVICE=true`. The deploy workflow registers `infra/ecs/*/taskdef-qdrant.json` on each release.

@@ -73,7 +73,7 @@ from .db import (
 from .file_ops import apply_proposed_content
 from .project_paths import normalize_project_path, resolved_project_path
 from .org_service import OrgError, org_service
-from .session_access import resolve_team_session
+from .session_access import actor_may_write_session, resolve_session_for_actor, resolve_team_session
 from .billing_context import build_billing_context
 from .billing_service import (
     BillingError,
@@ -272,6 +272,30 @@ def _enforce_rate_limit(scope: str, identity: str, limit: int) -> None:
 
 
 WORKSPACE_RATE_LIMIT = int(os.getenv("CODEFORGE_WORKSPACE_RATE_LIMIT", "60"))
+
+
+def _require_session(
+    session_id: str,
+    user: AuthUser,
+    *,
+    workspace_id: str | None = None,
+    write: bool = False,
+) -> dict[str, object]:
+    session = resolve_session_for_actor(
+        actor_id=user.user_id,
+        session_id=session_id,
+        workspace_id=workspace_id,
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if write and not actor_may_write_session(
+        actor_id=user.user_id,
+        session_id=session_id,
+        session=session,
+        workspace_id=workspace_id,
+    ):
+        raise HTTPException(status_code=403, detail="Session access is view-only")
+    return session
 
 
 def _enforce_workspace_rate_limit(scope: str, workspace_id: str | None, user_id: str, limit: int | None = None) -> None:
@@ -1080,10 +1104,14 @@ def list_messages(
     return [MessageItem(**row) for row in rows]
 
 
-def _session_project_path(session_id: str, user: AuthUser) -> str:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+def _session_project_path(
+    session_id: str,
+    user: AuthUser,
+    *,
+    write: bool = False,
+    workspace_id: str | None = None,
+) -> str:
+    session = _require_session(session_id, user, workspace_id=workspace_id, write=write)
     return resolved_project_path(session)
 
 

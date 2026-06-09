@@ -23,6 +23,7 @@ env:
   CONTAINER_NAME_API: codeforge-api
   CONTAINER_NAME_WEB: codeforge-web
   CONTAINER_NAME_WORKER: codeforge-worker
+  CONTAINER_NAME_QDRANT: codeforge-qdrant
   BENCHMARK_TREND_SUITE: all
   QUALITY_BENCHMARK_SUITE: swe-fixtures
 
@@ -425,9 +426,11 @@ jobs:
       ECS_SERVICE_API: codeforge-api-staging-service
       ECS_SERVICE_WEB: codeforge-web-staging-service
       ECS_SERVICE_WORKER: codeforge-worker-staging-service
+      ECS_SERVICE_QDRANT: codeforge-qdrant-staging-service
       ECS_TASK_DEFINITION_API: infra/ecs/staging/taskdef-api.json
       ECS_TASK_DEFINITION_WEB: infra/ecs/staging/taskdef-web.json
       ECS_TASK_DEFINITION_WORKER: infra/ecs/staging/taskdef-worker.json
+      ECS_TASK_DEFINITION_QDRANT: infra/ecs/staging/taskdef-qdrant.json
 
     steps:
       - name: Checkout
@@ -554,6 +557,15 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Deploy Qdrant task definition
+        if: vars.DEPLOY_QDRANT_SERVICE == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_QDRANT }}
+          service: ${{ env.ECS_SERVICE_QDRANT }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
       - name: Post-deploy public smoke checks
         env:
           API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_STAGING }}
@@ -561,6 +573,14 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"
+
+      - name: Verify OIDC cutover readiness
+        if: vars.VERIFY_OIDC_CUTOVER == 'true'
+        env:
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_STAGING }}
+        run: |
+          set -euo pipefail
+          python scripts/verify_oidc_cutover_readiness.py --api-base "${API_PUBLIC_URL}"
 
   deploy-production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
@@ -576,9 +596,11 @@ jobs:
       ECS_SERVICE_API: codeforge-api-service
       ECS_SERVICE_WEB: codeforge-web-service
       ECS_SERVICE_WORKER: codeforge-worker-service
+      ECS_SERVICE_QDRANT: codeforge-qdrant-service
       ECS_TASK_DEFINITION_API: infra/ecs/production/taskdef-api.json
       ECS_TASK_DEFINITION_WEB: infra/ecs/production/taskdef-web.json
       ECS_TASK_DEFINITION_WORKER: infra/ecs/production/taskdef-worker.json
+      ECS_TASK_DEFINITION_QDRANT: infra/ecs/production/taskdef-qdrant.json
 
     steps:
       - name: Checkout
@@ -705,6 +727,15 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Deploy Qdrant task definition
+        if: vars.DEPLOY_QDRANT_SERVICE == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_QDRANT }}
+          service: ${{ env.ECS_SERVICE_QDRANT }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
       - name: Post-deploy public smoke checks
         env:
           API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }}
@@ -712,3 +743,11 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"
+
+      - name: Verify OIDC cutover readiness
+        if: vars.VERIFY_OIDC_CUTOVER == 'true'
+        env:
+          API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          python scripts/verify_oidc_cutover_readiness.py --api-base "${API_PUBLIC_URL}"

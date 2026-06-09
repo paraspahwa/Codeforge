@@ -42,11 +42,17 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 
 ## Backlog Areas (active)
 
-- Execute Terraform two-phase apply: [infra/terraform/README.md](infra/terraform/README.md) (`enable_ecs_services` + optional `enable_qdrant_service` after first GitHub deploy)
-- Bootstrap SSM: Razorpay, OIDC (`codeforge/prod` prefix), Qdrant (`bootstrap_qdrant_ssm.py --internal-url` from `terraform output qdrant_url`)
-- OIDC cutover: `patch_ecs_oidc_enabled.py --enabled true` → deploy → `verify_oidc_cutover_readiness.py`
+- Execute Terraform two-phase apply: [infra/terraform/README.md](infra/terraform/README.md) (`enable_ecs_services` + optional `enable_qdrant_service`)
+- Set GitHub vars: `DEPLOY_QDRANT_SERVICE=true` after Qdrant ECS service exists; `VERIFY_OIDC_CUTOVER=true` after OIDC flip
+- Bootstrap SSM: Razorpay, OIDC, Qdrant — then OIDC cutover with `patch_ecs_oidc_enabled.py`
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
+
+## Recently shipped (client SSO + Qdrant CI batch)
+
+- Qdrant deploy in `deploy-ecs.yml` when `DEPLOY_QDRANT_SERVICE=true` (registers `taskdef-qdrant.json`)
+- Terminal + VS Code SSO-only UI when OIDC enabled; admin-only delegation step approval
+- Post-deploy `VERIFY_OIDC_CUTOVER` gate; verify script skips when OIDC off
 
 ## Recently shipped (OIDC lockdown + Qdrant terraform batch)
 
