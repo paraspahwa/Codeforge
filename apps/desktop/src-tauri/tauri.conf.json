@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "CodeForge Desktop",
-        "width": 1100,
-        "height": 740,
+        "width": 1400,
+        "height": 900,
         "resizable": true
       }
     ],

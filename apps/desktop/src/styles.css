@@ -8,12 +8,208 @@ body {
   margin: 0;
 }
 
-.desktop-main {
-  max-width: 760px;
-  margin: 0 auto;
+.desktop-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.mode-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(2, 6, 23, 0.65);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.mode-tab {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.mode-tab-active {
+  background: #0891b2;
+  border-color: #0891b2;
+}
+
+.desktop-main,
+.code-workspace {
   padding: 1rem;
   display: grid;
   gap: 0.8rem;
+}
+
+.desktop-main {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.code-workspace {
+  max-width: none;
+  min-height: calc(100vh - 56px);
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.workspace-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.usage-pill {
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: rgba(8, 145, 178, 0.2);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.workspace-toolbar {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.toolbar-group {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.toolbar-grow {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 0.8rem;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-sidebar,
+.workspace-chat,
+.workspace-review {
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.workspace-chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.chat-log {
+  overflow: auto;
+  display: grid;
+  gap: 0.55rem;
+  padding-right: 0.25rem;
+  max-height: 52vh;
+}
+
+.chat-bubble {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.chat-bubble pre {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.85rem;
+}
+
+.chat-user {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.chat-assistant {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.file-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.file-btn {
+  text-align: left;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 0.82rem;
+}
+
+.file-btn-active {
+  border-color: #22d3ee;
+  background: rgba(8, 145, 178, 0.25);
+}
+
+.diff-preview,
+.shell-output {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.8rem;
+}
+
+.activity-list {
+  margin: 0;
+  padding-left: 1rem;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 0.82rem;
+}
+
+.workspace-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.tool-panel {
+  display: grid;
+  gap: 0.5rem;
 }
 
 .card {
@@ -25,17 +221,18 @@ body {
   gap: 0.6rem;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   border: 1px solid rgba(148, 163, 184, 0.45);
   border-radius: 8px;
   background: rgba(2, 6, 23, 0.7);
   color: #e2e8f0;
   padding: 0.5rem;
+  box-sizing: border-box;
 }
 
-select,
-textarea {
+select {
   width: 100%;
   border: 1px solid rgba(148, 163, 184, 0.45);
   border-radius: 8px;
@@ -60,6 +257,10 @@ button:disabled {
 
 .muted {
   color: #94a3b8;
+}
+
+.small {
+  font-size: 0.85rem;
 }
 
 .session-row {
@@ -105,4 +306,23 @@ button:disabled {
 ul {
   margin: 0;
   padding-left: 1.15rem;
+}
+
+h2,
+h3 {
+  margin: 0;
+}
+
+@media (max-width: 1100px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-group {
+    grid-template-columns: 1fr;
+  }
 }

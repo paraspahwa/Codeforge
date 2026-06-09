@@ -85,3 +85,54 @@ export async function getCoworkReliability(token) {
 export async function getCoworkReliabilityHistory(token, limit = 50) {
   return shared.getCoworkReliabilityHistory(API_BASE, token, limit);
 }
+
+export async function listMessages(token, sessionId) {
+  return shared.listMessages(API_BASE, token, sessionId);
+}
+
+export async function sendMessage(token, sessionId, content, projectPath, activeFile = null) {
+  return shared.sendMessage(API_BASE, token, sessionId, {
+    content,
+    context: {
+      workspace_path: projectPath,
+      selection: null,
+      active_file: activeFile,
+    },
+  });
+}
+
+export async function getProposal(token, sessionId, proposalId) {
+  return shared.getProposal(API_BASE, token, sessionId, proposalId);
+}
+
+export async function decideProposal(token, sessionId, proposalId, action) {
+  return shared.decideProposal(API_BASE, token, sessionId, proposalId, action);
+}
+
+export async function getUsageSummary(token) {
+  return shared.getUsageSummary(API_BASE, token);
+}
+
+export async function getGitStatus(token, sessionId) {
+  return shared.getGitStatus(API_BASE, token, sessionId);
+}
+
+export async function getGitDiff(token, sessionId, path = null) {
+  return shared.getGitDiff(API_BASE, token, sessionId, path);
+}
+
+export async function getFilePreview(token, sessionId, path) {
+  return shared.getFilePreview(API_BASE, token, sessionId, path);
+}
+
+export async function runAgentLoop(token, sessionId, payload) {
+  return shared.runAgentLoop(API_BASE, token, sessionId, payload);
+}
+
+export function streamSessionEvents(token, sessionId) {
+  return shared.streamSessionEvents(API_BASE, token, sessionId);
+}
+
+export function streamShellCommand(token, sessionId, payload) {
+  return shared.streamShellCommand(API_BASE, token, sessionId, payload);
+}
