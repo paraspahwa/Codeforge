@@ -446,11 +446,14 @@ class SessionState(BaseModel):
 class CoworkPlanRequest(BaseModel):
     session_id: str
     title: str = ""
-    task_type: Literal["shell", "extract", "browser"]
+    task_type: Literal["shell", "extract", "browser", "connector"]
     command: str | None = None
     source_path: str | None = None
     url: str | None = None
     browser_action: Literal["capture_title", "extract_links"] = "capture_title"
+    connector_id: str | None = None
+    tool_name: str | None = None
+    connector_arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class CoworkPlanResponse(BaseModel):
@@ -462,6 +465,9 @@ class CoworkPlanResponse(BaseModel):
     source_path: str | None = None
     url: str | None = None
     browser_action: str | None = None
+    connector_id: str | None = None
+    tool_name: str | None = None
+    connector_arguments: dict[str, Any] = Field(default_factory=dict)
     requires_approval: bool
     preview_steps: list[str]
     status: str
@@ -498,7 +504,7 @@ class CoworkJobCreateRequest(BaseModel):
     trigger_type: Literal["interval", "file_change"]
     interval_seconds: int = Field(default=30, ge=5, le=3600)
     watch_path: str | None = None
-    task_type: Literal["shell", "extract", "browser"]
+    task_type: Literal["shell", "extract"]
     command: str | None = None
     source_path: str | None = None
     url: str | None = None

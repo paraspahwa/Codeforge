@@ -869,6 +869,9 @@ def create_cowork_plan(payload: CoworkPlanRequest, user: AuthUser = Depends(get_
             source_path=payload.source_path,
             url=payload.url,
             browser_action=payload.browser_action,
+            connector_id=payload.connector_id,
+            tool_name=payload.tool_name,
+            connector_arguments=payload.connector_arguments,
         )
         add_span_event("cowork.plan_created", {"plan_id": plan["plan_id"], "task_type": plan["task_type"]})
     except CoworkError as exc:

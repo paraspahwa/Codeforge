@@ -49,8 +49,6 @@ export default function CoworkWorkspace() {
   const [jobTaskType, setJobTaskType] = useState("shell");
   const [jobCommand, setJobCommand] = useState("Get-ChildItem");
   const [jobSourcePath, setJobSourcePath] = useState("README.md");
-  const [jobUrl, setJobUrl] = useState("https://example.com");
-  const [jobBrowserAction, setJobBrowserAction] = useState("extract_links");
   const [extractPath, setExtractPath] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -384,8 +382,6 @@ export default function CoworkWorkspace() {
         task_type: jobTaskType,
         command: jobTaskType === "shell" ? jobCommand : null,
         source_path: jobTaskType === "extract" ? jobSourcePath : null,
-        url: jobTaskType === "browser" ? jobUrl : null,
-        browser_action: jobBrowserAction,
       });
       setStatusMessage(`Job ${job.job_id} created`);
       await refreshCoworkData(token);
@@ -762,20 +758,11 @@ export default function CoworkWorkspace() {
         <select id="job-task-type" value={jobTaskType} onChange={(event) => setJobTaskType(event.target.value)} disabled={loading}>
           <option value="shell">Shell automation</option>
           <option value="extract">OCR/extraction</option>
-          <option value="browser">Browser automation</option>
         </select>
+        <p className="muted">Browser and connector tasks require manual approval and cannot be scheduled.</p>
 
         {jobTaskType === "shell" ? <input value={jobCommand} onChange={(event) => setJobCommand(event.target.value)} disabled={loading} /> : null}
         {jobTaskType === "extract" ? <input value={jobSourcePath} onChange={(event) => setJobSourcePath(event.target.value)} disabled={loading} /> : null}
-        {jobTaskType === "browser" ? (
-          <>
-            <input value={jobUrl} onChange={(event) => setJobUrl(event.target.value)} disabled={loading} />
-            <select value={jobBrowserAction} onChange={(event) => setJobBrowserAction(event.target.value)} disabled={loading}>
-              <option value="capture_title">Capture page title</option>
-              <option value="extract_links">Extract links</option>
-            </select>
-          </>
-        ) : null}
 
         <button type="button" onClick={handleCreateJob} disabled={loading || !token || !sessionId}>Create Job</button>
         {jobs.length === 0 ? <p className="muted">No jobs yet.</p> : null}

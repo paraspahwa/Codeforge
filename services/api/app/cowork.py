@@ -8,6 +8,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -80,6 +81,17 @@ def _safe_excerpt(text: str, limit: int = 1200) -> str:
     if len(trimmed) <= limit:
         return trimmed
     return f"{trimmed[:limit]}\n...[truncated]"
+
+
+def _validate_http_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise CoworkError("Browser tasks require an http(s) URL")
+    return url.strip()
+
+
+_APPROVAL_REQUIRED_TASKS = {"browser", "connector"}
+_JOB_ALLOWED_TASKS = {"shell", "extract"}
 
 
 def extract_structured_data(project_path: str, source_path: str) -> dict[str, Any]:
@@ -255,9 +267,12 @@ class CoworkService:
         source_path: str | None,
         url: str | None,
         browser_action: str | None,
+        connector_id: str | None = None,
+        tool_name: str | None = None,
+        connector_arguments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         plan_id = f"cw_plan_{uuid4().hex[:10]}"
-        requires_approval = task_type == "browser"
+        requires_approval = task_type in _APPROVAL_REQUIRED_TASKS
 
         if task_type == "shell":
             if not command:
@@ -278,11 +293,23 @@ class CoworkService:
         elif task_type == "browser":
             if not url:
                 raise CoworkError("Browser tasks require a URL")
+            validated_url = _validate_http_url(url)
             preview_steps = [
-                f"Load URL: {url}",
+                f"Load URL: {validated_url}",
                 f"Action: {browser_action or 'capture_title'}",
                 "Require explicit user approval before execution",
                 "Store a visible browser task transcript",
+            ]
+            url = validated_url
+        elif task_type == "connector":
+            if not connector_id or not tool_name:
+                raise CoworkError("Connector tasks require connector_id and tool_name")
+            preview_steps = [
+                f"Connector: {connector_id}",
+                f"Tool: {tool_name}",
+                "Require explicit user approval before execution",
+                "Invoke only registered MCP connector tools",
+                "Store connector invocation transcript in run history",
             ]
         else:
             raise CoworkError("Unsupported cowork task type")
@@ -298,6 +325,9 @@ class CoworkService:
             "source_path": source_path,
             "url": url,
             "browser_action": browser_action or "capture_title",
+            "connector_id": connector_id,
+            "tool_name": tool_name,
+            "connector_arguments": connector_arguments or {},
             "requires_approval": requires_approval,
             "preview_steps": preview_steps,
             "status": "planned",
@@ -311,8 +341,11 @@ class CoworkService:
         if plan is None or plan["user_id"] != user_id:
             raise CoworkError("Plan not found")
 
+        if plan["requires_approval"] and trigger != "manual":
+            raise CoworkError("Approval-required tasks cannot run from scheduled jobs")
+
         if plan["requires_approval"] and not approved:
-            raise CoworkError("Browser tasks require explicit approval before execution")
+            raise CoworkError("This task requires explicit approval before execution")
 
         run_id = f"cw_run_{uuid4().hex[:10]}"
         run = {
@@ -347,6 +380,27 @@ class CoworkService:
             details = extract_structured_data(plan["project_path"], str(plan["source_path"]))
             details["status"] = "completed"
             self._extractions.append({**details, "user_id": user_id})
+        elif plan["task_type"] == "connector":
+            from .context_mcp import ContextMcpError, context_mcp_service
+
+            try:
+                invocation = context_mcp_service.invoke_connector(
+                    user_id=user_id,
+                    connector_id=str(plan["connector_id"]),
+                    tool_name=str(plan["tool_name"]),
+                    arguments=dict(plan.get("connector_arguments") or {}),
+                )
+                details = {
+                    "status": "completed",
+                    "summary": f"Connector tool {plan['tool_name']} invoked",
+                    "invocation": invocation,
+                }
+            except ContextMcpError as exc:
+                details = {
+                    "status": "failed",
+                    "summary": str(exc),
+                    "invocation": {},
+                }
         else:
             details = await _run_browser_task(str(plan["url"]), str(plan["browser_action"]))
         return details
@@ -405,6 +459,9 @@ class CoworkService:
     ) -> dict[str, Any]:
         if trigger_type not in {"interval", "file_change"}:
             raise CoworkError("Unsupported trigger type")
+
+        if task_type not in _JOB_ALLOWED_TASKS:
+            raise CoworkError("Scheduled jobs only support shell and extraction tasks")
 
         if trigger_type == "interval" and interval_seconds < 5:
             raise CoworkError("Interval jobs must run every 5 seconds or more")
