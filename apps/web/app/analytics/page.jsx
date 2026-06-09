@@ -91,10 +91,12 @@ export default function AnalyticsPage() {
     <div className="stack">
       <section className="stats-grid">
         <article className="stat-card">
-          <p className="small">Requests</p>
-          <h2>{usage?.total_requests ?? "-"}</h2>
+          <p className="small">Requests (this month)</p>
+          <h2>{usage?.requests_used_in_period ?? usage?.total_requests ?? "-"}</h2>
           <p className="small">
-            {usage ? `${usage.requests_remaining} remaining on ${usage.plan_id}` : ""}
+            {usage
+              ? `${usage.requests_remaining} of ${usage.request_limit} remaining on ${usage.plan_id}`
+              : ""}
           </p>
         </article>
         <article className="stat-card">

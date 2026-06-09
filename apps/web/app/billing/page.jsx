@@ -117,7 +117,7 @@ export default function BillingPage() {
           {usage ? (
             <span className="small">
               {" "}
-              | {usage.requests_remaining} of {usage.request_limit} requests remaining this month
+              | {usage.requests_used_in_period ?? usage.total_requests} used, {usage.requests_remaining} of {usage.request_limit} remaining this month
             </span>
           ) : null}
         </section>

@@ -18,6 +18,7 @@ import {
   listMessages,
   listSessions,
   listGitWorktrees,
+  runAgentLoop,
   sendMessage,
   stageGitFiles,
   createGitWorktree,
@@ -274,28 +275,6 @@ function App() {
     setEvents((previous) => [line, ...previous].slice(0, MAX_EVENTS));
   };
 
-  const runVerifyCommand = async (sessionId, verifyCommand) => {
-    let finalResult = { ok: false, summary: "verify command did not run" };
-    for await (const event of streamShellCommand(baseUrl, token, sessionId, {
-      command: verifyCommand,
-      timeout_seconds: 60,
-    })) {
-      pushEvent(formatEvent(event));
-      if (event.type === "shell_output") {
-        setShellPreview(event.payload?.content || "");
-      }
-      if (event.type === "shell_result") {
-        const exitCode = event.payload?.exit_code ?? 1;
-        finalResult = {
-          ok: exitCode === 0,
-          summary: `verify exit ${exitCode} | ${event.payload?.output_lines ?? 0} line(s)`,
-        };
-        setShellPreview(finalResult.summary);
-      }
-    }
-    return finalResult;
-  };
-
   const runAgentTurn = async (sessionId, prompt) => {
     await sendMessage(baseUrl, token, sessionId, {
       content: prompt,
@@ -340,48 +319,38 @@ function App() {
     const sessionId = await ensureSession(token);
     const verifyLabel = verifyCommand || "npm test";
     const fixedPrompt = prompt || "Fix the failing verification command and propose minimal changes.";
-    const attempts = [];
 
     setLoopState({ running: true, lastSummary: "loop running" });
     setReviewTitle("Loop workflow");
     setDiffPreview(`verify: ${verifyLabel}\nmax attempts: ${maxAttempts}`);
 
     try {
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        pushEvent(`loop:${attempt}/${maxAttempts} verify`);
-        const verify = await runVerifyCommand(sessionId, verifyLabel);
-        attempts.push(`attempt ${attempt}: ${verify.summary}`);
+      pushEvent("loop: backend verify/fix");
+      const result = await runAgentLoop(baseUrl, token, sessionId, {
+        verify_command: verifyLabel,
+        prompt: fixedPrompt,
+        max_attempts: maxAttempts,
+        auto_apply: true,
+      });
 
-        if (verify.ok) {
-          const doneSummary = `Loop passed in ${attempt} attempt(s)`;
-          setLoopState({ running: false, lastSummary: doneSummary });
-          setReviewTitle("Loop workflow result");
-          setDiffPreview([doneSummary, ...attempts].join("\n"));
-          pushEvent(doneSummary);
-          await refreshMessages(sessionId, token);
-          return;
-        }
+      const attemptLines = result.attempts.map((item) => {
+        const applied = item.applied ? " | applied" : "";
+        const patch = item.patch_source ? ` | patch: ${item.patch_source}` : "";
+        return `attempt ${item.attempt}: exit ${item.verify_exit_code}${applied}${patch}`;
+      });
 
-        pushEvent(`loop:${attempt}/${maxAttempts} fix`);
-        const turn = await runAgentTurn(
-          sessionId,
-          `${fixedPrompt}\n\nVerification command: ${verifyLabel}\nLatest verify result: ${verify.summary}\nAttempt: ${attempt}/${maxAttempts}`,
-        );
+      const summary = result.passed ? result.message : `Loop failed: ${result.message}`;
+      setLoopState({ running: false, lastSummary: summary });
+      setReviewTitle("Loop workflow result");
+      setDiffPreview([summary, ...attemptLines].join("\n"));
+      pushEvent(summary);
 
-        if (turn.proposalId) {
-          pushEvent(`loop proposal ${turn.proposalId}`);
-          await resolveProposal("approve", turn.proposalId, false);
-          pushEvent(`loop applied ${turn.proposalId}`);
-        } else {
-          pushEvent("loop no proposal returned");
-        }
+      const lastWithProposal = [...result.attempts].reverse().find((item) => item.proposal_id);
+      if (lastWithProposal?.proposal_id) {
+        setCurrentProposalId(lastWithProposal.proposal_id);
+        await loadProposal(lastWithProposal.proposal_id, token).catch(() => null);
       }
 
-      const failSummary = `Loop reached max attempts (${maxAttempts}) without passing verification.`;
-      setLoopState({ running: false, lastSummary: failSummary });
-      setReviewTitle("Loop workflow result");
-      setDiffPreview([failSummary, ...attempts].join("\n"));
-      pushEvent(failSummary);
       await refreshMessages(sessionId, token);
     } catch (loopError) {
       setLoopState({ running: false, lastSummary: loopError.message });

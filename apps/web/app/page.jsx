@@ -312,7 +312,8 @@ export default function ChatPage() {
         <p className="small">Last model: {lastModel}</p>
         {usage ? (
           <p className="small">
-            {usage.total_requests} requests | ${usage.total_cost_usd.toFixed(4)} | {Math.round(usage.avg_latency_ms)} ms avg
+            {usage.requests_used_in_period ?? usage.total_requests} requests this month ({usage.requests_remaining} left)
+            {" | "}${usage.total_cost_usd.toFixed(4)} | {Math.round(usage.avg_latency_ms)} ms avg
           </p>
         ) : null}
 
