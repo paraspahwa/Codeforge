@@ -56,6 +56,14 @@
       {
         "command": "codeforge.runAgentLoop",
         "title": "CodeForge: Run Verify / Fix Loop"
+      },
+      {
+        "command": "codeforge.openTeam",
+        "title": "CodeForge: Open Team"
+      },
+      {
+        "command": "codeforge.openCowork",
+        "title": "CodeForge: Open Cowork"
       }
     ],
     "menus": {

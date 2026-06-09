@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -17,6 +17,7 @@ from .agent_loop import run_verify_fix_loop
 from .auth import AuthUser, dev_auth_enabled, get_current_user
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
+from .cowork_scheduler import cowork_scheduler_enabled
 from .routers import platform as platform_router
 from .state import (
     RATE_LIMIT_PER_MINUTE,
@@ -28,6 +29,7 @@ from .state import (
 from .deploy_ops import build_synthesis_rollout_plan
 from .deploy_ops import validate_synthesis_rollout
 from .projects_team import ProjectsTeamError, projects_team_service
+from .quality_eval import run_quality_eval
 from .db import (
     insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
@@ -139,11 +141,17 @@ from .models import (
     RoutingBenchmarkBaselineSetRequest,
     RoutingBenchmarkTrendItem,
     RoutingBenchmarkTrendResponse,
+    QualityBenchmarkBaselineSetRequest,
+    QualityBenchmarkCaseResult,
+    QualityBenchmarkResponse,
     SynthesisRolloutStatusResponse,
     ProjectKnowledgeQueryRequest,
     ProjectKnowledgeQueryResponse,
     ProjectKnowledgeRebuildRequest,
     ProjectKnowledgeResponse,
+    ProjectKnowledgeUploadResponse,
+    TeamAuditLogEntry,
+    TeamAuditLogListResponse,
     MessageCreateRequest,
     MessageCreateResponse,
     MessageItem,
@@ -184,7 +192,8 @@ from .models import (
 async def lifespan(application: FastAPI):
     init_db()
     configure_tracing(application)
-    await cowork_service.start()
+    if cowork_scheduler_enabled():
+        await cowork_service.start()
 
     redis_session_store.set("stack:last_startup", utc_now().isoformat(), ttl_seconds=3600)
     vector_store.upsert_text(
@@ -195,7 +204,8 @@ async def lifespan(application: FastAPI):
 
     yield
 
-    await cowork_service.stop()
+    if cowork_scheduler_enabled():
+        await cowork_service.stop()
 
 
 app = FastAPI(title="CodeForge API", version="0.1.0", lifespan=lifespan)
@@ -613,21 +623,30 @@ def eval_routing_benchmark(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    baseline = get_routing_benchmark_baseline(result["suite"])
-    if baseline is None:
-        created_at = utc_now().isoformat()
-        upsert_routing_benchmark_baseline(
-            suite=result["suite"],
-            pass_rate=float(result["pass_rate"]),
-            fallback_usage_rate=float(result["fallback_usage_rate"]),
-            low_confidence_rate=float(result["low_confidence_rate"]),
-            total_estimated_cost_usd=float(result["total_estimated_cost_usd"]),
-            updated_at=created_at,
-            updated_by="system:auto-initialized",
-        )
-        baseline = get_routing_benchmark_baseline(result["suite"])
-
+    baseline = _ensure_benchmark_baseline(result)
     regression_alert, regression_reason = _evaluate_benchmark_regression(result, baseline)
+    _persist_benchmark_run(result, regression_alert=regression_alert, regression_reason=regression_reason)
+
+    add_span_event(
+        "eval.routing_benchmark",
+        {
+            "suite": result.get("suite", suite),
+            "total_cases": result["total_cases"],
+            "pass_rate": result["pass_rate"],
+            "fallback_usage_rate": result["fallback_usage_rate"],
+            "regression_alert": regression_alert,
+            "regression_reason": regression_reason,
+        },
+    )
+    return RoutingBenchmarkResponse(**result)
+
+
+def _persist_benchmark_run(
+    result: dict[str, object],
+    *,
+    regression_alert: bool,
+    regression_reason: str,
+) -> None:
     insert_routing_benchmark_run(
         run_id=f"bench_{uuid4().hex[:12]}",
         suite=str(result["suite"]),
@@ -642,18 +661,127 @@ def eval_routing_benchmark(
         created_at=utc_now().isoformat(),
     )
 
+
+def _ensure_benchmark_baseline(result: dict[str, object]) -> dict[str, object] | None:
+    baseline = get_routing_benchmark_baseline(str(result["suite"]))
+    if baseline is not None:
+        return baseline
+
+    created_at = utc_now().isoformat()
+    upsert_routing_benchmark_baseline(
+        suite=str(result["suite"]),
+        pass_rate=float(result["pass_rate"]),
+        fallback_usage_rate=float(result["fallback_usage_rate"]),
+        low_confidence_rate=float(result["low_confidence_rate"]),
+        total_estimated_cost_usd=float(result["total_estimated_cost_usd"]),
+        updated_at=created_at,
+        updated_by="system:auto-initialized",
+    )
+    return get_routing_benchmark_baseline(str(result["suite"]))
+
+
+@app.get("/api/v1/evals/quality-benchmark", response_model=QualityBenchmarkResponse)
+def eval_quality_benchmark(
+    suite: str = "swe-fixtures",
+    user: AuthUser = Depends(get_current_user),
+) -> QualityBenchmarkResponse:
+    _ = user
+    try:
+        result = run_quality_eval(suite=suite)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    baseline = _ensure_benchmark_baseline(result)
+    regression_alert, regression_reason = _evaluate_benchmark_regression(result, baseline)
+    _persist_benchmark_run(result, regression_alert=regression_alert, regression_reason=regression_reason)
+
     add_span_event(
-        "eval.routing_benchmark",
+        "eval.quality_benchmark",
         {
             "suite": result.get("suite", suite),
             "total_cases": result["total_cases"],
             "pass_rate": result["pass_rate"],
-            "fallback_usage_rate": result["fallback_usage_rate"],
             "regression_alert": regression_alert,
             "regression_reason": regression_reason,
         },
     )
-    return RoutingBenchmarkResponse(**result)
+    return QualityBenchmarkResponse(
+        suite=str(result["suite"]),
+        total_cases=int(result["total_cases"]),
+        passed_cases=int(result["passed_cases"]),
+        pass_rate=float(result["pass_rate"]),
+        fallback_usage_rate=float(result["fallback_usage_rate"]),
+        low_confidence_rate=float(result["low_confidence_rate"]),
+        total_estimated_cost_usd=float(result["total_estimated_cost_usd"]),
+        regression_alert=regression_alert,
+        regression_reason=regression_reason,
+        results=[QualityBenchmarkCaseResult(**item) for item in result["results"]],
+    )
+
+
+@app.get("/api/v1/evals/quality-benchmark/baseline", response_model=RoutingBenchmarkBaselineResponse)
+def get_quality_benchmark_baseline_endpoint(
+    suite: str = "swe-fixtures",
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkBaselineResponse:
+    _ = user
+    baseline = get_routing_benchmark_baseline(suite)
+    if baseline is None:
+        raise HTTPException(status_code=404, detail="Quality benchmark baseline not found")
+    return RoutingBenchmarkBaselineResponse(**baseline)
+
+
+@app.post("/api/v1/evals/quality-benchmark/baseline", response_model=RoutingBenchmarkBaselineResponse)
+def set_quality_benchmark_baseline_endpoint(
+    payload: QualityBenchmarkBaselineSetRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkBaselineResponse:
+    latest = latest_routing_benchmark_run(payload.suite)
+    if latest is None and payload.pass_rate is None:
+        raise HTTPException(status_code=400, detail="No latest run available; provide pass_rate")
+
+    pass_rate = payload.pass_rate if payload.pass_rate is not None else float(latest["pass_rate"])  # type: ignore[index]
+    fallback_usage_rate = payload.fallback_usage_rate if payload.fallback_usage_rate is not None else float(latest.get("fallback_usage_rate", 0.0))  # type: ignore[union-attr]
+    low_confidence_rate = payload.low_confidence_rate if payload.low_confidence_rate is not None else float(latest.get("low_confidence_rate", 0.0))  # type: ignore[union-attr]
+    total_estimated_cost_usd = (
+        payload.total_estimated_cost_usd
+        if payload.total_estimated_cost_usd is not None
+        else float(latest.get("total_estimated_cost_usd", 0.0))  # type: ignore[union-attr]
+    )
+
+    updated_at = utc_now().isoformat()
+    upsert_routing_benchmark_baseline(
+        suite=payload.suite,
+        pass_rate=float(pass_rate),
+        fallback_usage_rate=float(fallback_usage_rate),
+        low_confidence_rate=float(low_confidence_rate),
+        total_estimated_cost_usd=float(total_estimated_cost_usd),
+        updated_at=updated_at,
+        updated_by=user.user_id,
+    )
+    baseline = get_routing_benchmark_baseline(payload.suite)
+    if baseline is None:
+        raise HTTPException(status_code=500, detail="Failed to persist quality benchmark baseline")
+    return RoutingBenchmarkBaselineResponse(**baseline)
+
+
+@app.get("/api/v1/evals/quality-benchmark/trends", response_model=RoutingBenchmarkTrendResponse)
+def get_quality_benchmark_trends_endpoint(
+    suite: str = "swe-fixtures",
+    limit: int = 20,
+    user: AuthUser = Depends(get_current_user),
+) -> RoutingBenchmarkTrendResponse:
+    _ = user
+    baseline = get_routing_benchmark_baseline(suite)
+    runs = list_routing_benchmark_runs(suite=suite, limit=limit)
+    trend_items = [RoutingBenchmarkTrendItem(**row) for row in runs]
+    regression_alerts_last_10 = sum(1 for item in trend_items[:10] if item.regression_alert)
+    return RoutingBenchmarkTrendResponse(
+        suite=suite,
+        baseline=RoutingBenchmarkBaselineResponse(**baseline) if baseline else None,
+        runs=trend_items,
+        regression_alerts_last_10=regression_alerts_last_10,
+    )
 
 
 @app.get("/api/v1/evals/routing-benchmark/baseline", response_model=RoutingBenchmarkBaselineResponse)
@@ -1023,6 +1151,27 @@ def cowork_reliability_history(
     return CoworkReliabilityHistoryResponse(snapshots=[CoworkReliabilitySnapshotItem(**row) for row in rows])
 
 
+def _sync_knowledge_vectors(state: dict[str, object], session_id: str) -> None:
+    knowledge_id = str(state.get("knowledge_id", ""))
+    for item in state.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path", ""))
+        excerpt = str(item.get("excerpt", ""))
+        if not path or not excerpt:
+            continue
+        vector_store.upsert_text(
+            item_id=f"kb:{knowledge_id}:{path}",
+            text=excerpt,
+            metadata={
+                "kind": "knowledge_item",
+                "knowledge_id": knowledge_id,
+                "session_id": session_id,
+                "path": path,
+            },
+        )
+
+
 @app.post("/api/v1/projects/knowledge/rebuild", response_model=ProjectKnowledgeResponse)
 def rebuild_project_knowledge(
     payload: ProjectKnowledgeRebuildRequest,
@@ -1043,25 +1192,51 @@ def rebuild_project_knowledge(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     add_span_event("projects.knowledge_rebuilt", {"session_id": payload.session_id, "knowledge_id": state["knowledge_id"]})
-
-    # Persist indexed knowledge excerpts in vector store for semantic retrieval.
-    for item in state.get("items", []):
-        path = str(item.get("path", ""))
-        excerpt = str(item.get("excerpt", ""))
-        if not path or not excerpt:
-            continue
-        vector_store.upsert_text(
-            item_id=f"kb:{state['knowledge_id']}:{path}",
-            text=excerpt,
-            metadata={
-                "kind": "knowledge_item",
-                "knowledge_id": state["knowledge_id"],
-                "session_id": payload.session_id,
-                "path": path,
-            },
-        )
-
+    _sync_knowledge_vectors(state, payload.session_id)
     return ProjectKnowledgeResponse(**state)
+
+
+@app.post("/api/v1/projects/knowledge/upload", response_model=ProjectKnowledgeUploadResponse)
+async def upload_project_knowledge(
+    session_id: str = Form(...),
+    files: list[UploadFile] = File(...),
+    user: AuthUser = Depends(get_current_user),
+) -> ProjectKnowledgeUploadResponse:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    uploads: list[tuple[str, bytes]] = []
+    for upload in files:
+        raw = await upload.read()
+        uploads.append((upload.filename or "upload.txt", raw))
+
+    try:
+        state = projects_team_service.upload_knowledge_files(
+            user_id=user.user_id,
+            session_id=session_id,
+            project_path=resolved_project_path(session),
+            uploads=uploads,
+        )
+    except ProjectsTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _sync_knowledge_vectors(state, session_id)
+
+    add_span_event(
+        "projects.knowledge_uploaded",
+        {"session_id": session_id, "knowledge_id": state["knowledge_id"], "upload_count": len(uploads)},
+    )
+    return ProjectKnowledgeUploadResponse(
+        knowledge_id=state["knowledge_id"],
+        session_id=state["session_id"],
+        title=state["title"],
+        project_path=state["project_path"],
+        summary=state["summary"],
+        uploaded_paths=list(state.get("uploaded_paths", [])),
+        items=state["items"],
+        updated_at=state["updated_at"],
+    )
 
 
 @app.get("/api/v1/projects/knowledge", response_model=ProjectKnowledgeResponse)
@@ -1186,11 +1361,12 @@ def create_session_share(
 
 @app.get("/api/v1/team/session-share/{share_id}", response_model=SessionShareResolveResponse)
 def resolve_session_share(share_id: str, user: AuthUser = Depends(get_current_user)) -> SessionShareResolveResponse:
-    _ = user
     try:
         share = projects_team_service.resolve_session_share(share_id=share_id)
     except ProjectsTeamError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    projects_team_service.record_session_share_resolved(actor_id=user.user_id, share=share)
 
     session = get_session_for_user(session_id=share["session_id"], user_id=share["owner_id"])
     if session is None:
@@ -1269,6 +1445,20 @@ def list_team_delegations(
 ) -> TeamDelegationListResponse:
     items = projects_team_service.list_delegations(user_id=user.user_id, workspace_id=workspace_id)
     return TeamDelegationListResponse(delegations=[TeamDelegationResponse(**item) for item in items])
+
+
+@app.get("/api/v1/team/audit-log", response_model=TeamAuditLogListResponse)
+def list_team_audit_log(
+    workspace_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    user: AuthUser = Depends(get_current_user),
+) -> TeamAuditLogListResponse:
+    events = projects_team_service.list_audit_log(
+        user_id=user.user_id,
+        workspace_id=workspace_id,
+        limit=limit,
+    )
+    return TeamAuditLogListResponse(events=[TeamAuditLogEntry(**item) for item in events])
 
 
 @app.post("/api/v1/team/delegations/{task_id}/execute", response_model=TeamDelegationResponse)

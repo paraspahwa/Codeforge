@@ -18,12 +18,21 @@
         "-A",
         "app.celery_worker:celery_app",
         "worker",
+        "--beat",
         "--loglevel=info"
       ],
       "environment": [
         {
           "name": "CODEFORGE_ENV",
           "value": "production"
+        },
+        {
+          "name": "CODEFORGE_COWORK_SCHEDULER_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "OTEL_SERVICE_NAME",
+          "value": "codeforge-worker"
         },
         {
           "name": "OTEL_ENVIRONMENT",

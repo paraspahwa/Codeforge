@@ -598,6 +598,33 @@ class ProjectKnowledgeQueryResponse(BaseModel):
     results: list[ProjectKnowledgeQueryItem]
 
 
+class ProjectKnowledgeUploadResponse(BaseModel):
+    knowledge_id: str
+    session_id: str
+    title: str
+    project_path: str
+    summary: str
+    uploaded_paths: list[str]
+    items: list[ProjectKnowledgeItem]
+    updated_at: datetime
+
+
+class TeamAuditLogEntry(BaseModel):
+    event_id: str
+    actor_id: str
+    event_type: str
+    resource_type: str
+    resource_id: str
+    workspace_id: str | None = None
+    session_id: str | None = None
+    metadata: dict[str, object] = {}
+    created_at: datetime
+
+
+class TeamAuditLogListResponse(BaseModel):
+    events: list[TeamAuditLogEntry]
+
+
 class TeamWorkspaceCreateRequest(BaseModel):
     name: str = Field(min_length=2)
     description: str = ""
@@ -829,6 +856,38 @@ class RoutingBenchmarkTrendResponse(BaseModel):
     baseline: RoutingBenchmarkBaselineResponse | None = None
     runs: list[RoutingBenchmarkTrendItem]
     regression_alerts_last_10: int
+
+
+class QualityBenchmarkCaseResult(BaseModel):
+    task_id: str
+    description: str
+    target_file: str
+    patch_applied: bool
+    verify_command: str
+    verify_exit_code: int
+    passed: bool
+    summary: str
+
+
+class QualityBenchmarkResponse(BaseModel):
+    suite: str = "swe-fixtures"
+    total_cases: int
+    passed_cases: int
+    pass_rate: float
+    fallback_usage_rate: float = 0.0
+    low_confidence_rate: float = 0.0
+    total_estimated_cost_usd: float = 0.0
+    regression_alert: bool = False
+    regression_reason: str = ""
+    results: list[QualityBenchmarkCaseResult]
+
+
+class QualityBenchmarkBaselineSetRequest(BaseModel):
+    suite: Literal["swe-fixtures"] = "swe-fixtures"
+    pass_rate: float | None = None
+    fallback_usage_rate: float | None = None
+    low_confidence_rate: float | None = None
+    total_estimated_cost_usd: float | None = None
 
 
 class SynthesisProviderStatus(BaseModel):

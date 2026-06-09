@@ -34,6 +34,10 @@
           "value": "production"
         },
         {
+          "name": "CODEFORGE_COWORK_SCHEDULER_ENABLED",
+          "value": "false"
+        },
+        {
           "name": "OPENAI_BASE_URL",
           "value": "https://api.openai.com/v1"
         },

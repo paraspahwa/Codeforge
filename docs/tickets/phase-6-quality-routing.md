@@ -6,10 +6,10 @@ Make the product evidence-backed, cost-bounded, and trustworthy.
 
 ## Status
 
-- T6.1 DeepSeek-first routing: done, routing now defaults to DeepSeek Flash/Pro tiers for low-cost majority traffic with observable routing metadata
-- T6.2 Sonnet and Opus fallback policy: done, Sonnet fallback is used for hard-debug prompts and Opus fallback is reserved for explicit frontier-level prompts
-- T6.3 confidence messaging: done, API responses and stream events now expose confidence score/label, review-required flags, and routing tier in UI-visible fields
-- T6.4 evaluation and benchmarking: done, internal routing benchmark endpoint reports pass-rate, fallback usage, low-confidence rate, and per-case outcomes
+- T6.1 DeepSeek-first routing: **done (API)** — keyword/heuristic intent classifier with tier-bound `model_for_tier()` policy (not a local Qwen model)
+- T6.2 Sonnet and Opus fallback policy: **done (API)** — hard-debug → Sonnet, frontier → Opus; fallback paths force `review_required`
+- T6.3 confidence messaging: **done (API + web + terminal + desktop Code + VS Code)** — stream payloads expose score/label/review/tier; all primary coding surfaces render routing confidence banners
+- T6.4 evaluation and benchmarking: **partial** — routing benchmark suites with baseline/trend DB storage; SWE-bench-style `/api/v1/evals/quality-benchmark` (patch apply + verify fixtures) with **fail-closed** CI gate; routing regressions remain warnings only
 
 ## Tickets
 

@@ -143,6 +143,10 @@ export async function rebuildProjectKnowledge(token, payload) {
   return shared.rebuildProjectKnowledge(API_BASE, token, payload);
 }
 
+export async function uploadProjectKnowledge(token, sessionId, files) {
+  return shared.uploadProjectKnowledge(API_BASE, token, sessionId, files);
+}
+
 export async function getProjectKnowledge(token, sessionId) {
   return shared.getProjectKnowledge(API_BASE, token, sessionId);
 }
@@ -169,6 +173,10 @@ export async function createTeamDelegation(token, payload) {
 
 export async function listTeamDelegations(token, workspaceId = null) {
   return shared.listTeamDelegations(API_BASE, token, workspaceId);
+}
+
+export async function listTeamAuditLog(token, workspaceId = null, limit = 50) {
+  return shared.listTeamAuditLog(API_BASE, token, workspaceId, limit);
 }
 
 export async function executeTeamDelegation(token, taskId) {
@@ -201,6 +209,10 @@ export function streamSession(sessionId, token, onData) {
 
 export async function forkSession(sessionId, token) {
   return shared.forkSession(API_BASE, token, sessionId);
+}
+
+export async function runAgentLoop(sessionId, token, payload) {
+  return shared.runAgentLoop(API_BASE, token, sessionId, payload);
 }
 
 export async function compactWorkflow(sessionId, token) {

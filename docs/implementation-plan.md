@@ -28,8 +28,9 @@ Already implemented in this repo:
 - Ink-based terminal client with shared API helpers, `/git` commands, `/run` shell commands, split-pane file/chat/diff/activity layout, proposal approval actions, mode-aware pane navigation, `/compact`, `/ultrareview`, mode shortcuts, and startup validation
 - VS Code extension MVP with a backend-backed panel, inline proposal diff preview, live editor-context sync, status bar actions, editor title actions, and explain/refactor/review command entry points
 - Phase 1 terminal parity and Phase 2 platform surfaces are implemented across their attached tickets
-- Phase 4 cowork mode is implemented with previewed task plans, run logs, interval/file-change jobs, extraction history, and explicit browser approval boundaries
-- Phase 5 projects/team foundations are implemented with project knowledge indexing/query, workspace role management, session share/export, and delegation records
+- Phase 4 cowork mode: DB-backed plans/runs/jobs/extractions, Playwright browser tasks, web `/cowork` and desktop CoworkWorkspace, explicit browser approval boundaries
+- Phase 5 team platform: DB-backed workspaces/knowledge/shares/delegations, web `/team` and `/share/[id]`, knowledge injected into agent stream, delegation execute endpoint
+- Phase 6 routing quality: tier-bound routing policy, benchmark baselines/trends with regression evaluation, confidence signals on web chat and terminal
 - Context manager and MCP v1 groundwork are implemented with reusable context packs, session context composition, connector registry, and authenticated MCP tool-invoke endpoints
 - Shared stream orchestration has been hardened with run-generated token chunks, inline static verification signals, and single-authority completion events
 - Model-backed response synthesis path is integrated with deterministic fallback and synthesis-source observability in stream payloads
@@ -41,8 +42,13 @@ Already implemented in this repo:
 
 Still missing for the full roadmap:
 
-- Provider rollout hardening from readiness checks to enforced pre-deploy policy gates in every deployment pipeline
-- Repository-grounded benchmark expansion from routing-policy pass/fail into tracked quality-regression baselines
+- Surface parity: team/cowork/confidence UI on desktop Code, terminal, and VS Code (web is ahead)
+- Enterprise controls: SSO, audit trail, org-scoped dynamic rate limits, knowledge file uploads
+- Phase 3 stretch: terminal parallel sessions and auto mode, artifacts/live preview, remote channels, custom agents
+- Phase 4 ops: screenshot/vision OCR (ECS worker deploy + cowork scheduler isolation shipped)
+- Phase 5 real-time team updates (WebSocket/SSE) and multi-agent delegation orchestration
+- Phase 6: SWE-bench-style quality eval harness shipped (`quality-benchmark`); routing regressions remain warnings; confidence on desktop/VS Code shipped in build order
+- Provider rollout: synthesis readiness gate exists in CI; routing regression is warning-only
 
 ## Status Snapshot
 
@@ -57,12 +63,13 @@ Completed:
 
 Partially complete:
 
-- Shared-agent orchestration supports model-backed synthesis with rollout status and readiness validation, but provider policy enforcement gates remain
-- Routing evals now include policy and repository suites, but longitudinal regression tracking and baseline history remain
+- Phases 3–6 core APIs exist but several exit criteria and client surfaces remain (see phase tickets)
+- Routing evals include policy/repository suites with baseline/trend DB storage; SWE-bench-style quality evals via `swe-fixtures` suite with fail-closed CI gate
+- Deploy CI includes synthesis rollout gate; routing regression alerts are warnings, not blockers
 
 Not started yet:
 
-- No additional not-started cross-cutting items are tracked in this plan snapshot
+- Artifacts/live preview, remote control, custom agents, SSO, audit logs, knowledge uploads, real-time team sync
 
 ## Architecture Tracks
 
@@ -309,10 +316,12 @@ The plan now explicitly covers the feature families described in the source stra
 
 Given the current repo state, the next implementation slices should be:
 
-1. Enforce synthesis readiness as a deployment gate (fail production deploy if readiness is blocked)
-2. Add benchmark baseline persistence and trend reporting for routing/quality regressions
-3. Shared-agent orchestration hardening for production reliability under concurrent load
-4. VS Code extension polish: richer review actions and deeper editor integration
+1. Surface parity: confidence UI on desktop Code + VS Code; team/cowork tabs or commands on desktop/terminal
+2. ~~Web chat Run Loop UI~~ (shipped in Advanced Workflows panel)
+3. ~~ECS worker deploy for cowork scheduled jobs + move `_worker_loop` off API process~~ (Celery beat tick in worker; API gated by `CODEFORGE_COWORK_SCHEDULER_ENABLED`)
+4. ~~SWE-bench-style internal eval harness (patch apply + verify), with fail-closed CI regression on quality drops~~
+5. ~~Enterprise foundations: audit log table + share/member/delegation events; knowledge file upload API~~
+6. Phase 3 stretch picks: artifacts preview, terminal fork/auto mode, custom agent templates
 
 ## Ticket Backlog
 
@@ -348,9 +357,13 @@ Done:
 
 Left:
 
-- Deployment-time enforcement for synthesis provider readiness and secret-policy gates
-- Benchmark trend storage and regression alerting across policy/repository suites
-- Final orchestration and quality hardening under production load and incident scenarios
+- Client surface parity (team, cowork, confidence) across desktop, terminal, VS Code
+- Terminal parallel-session / auto-mode gaps
+- ~~ECS worker production deploy; cowork job isolation from API process~~
+- ~~SWE-bench-style quality evals beyond routing-policy benchmarks~~
+- Enterprise: SSO, audit trail, uploads, real-time team updates
+- Phase 3 stretch: artifacts, remote control, custom agents
+- Fail-closed routing regression deploy gate (today: CI warning only)
 
 ## Non-Goals For The Near Term
 

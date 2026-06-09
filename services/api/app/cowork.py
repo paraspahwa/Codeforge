@@ -608,9 +608,12 @@ class CoworkService:
             "alert_reason": alert_reason,
         }
 
+    async def tick_scheduled_jobs(self) -> None:
+        await self._tick_jobs()
+
     async def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
-            await self._tick_jobs()
+            await self.tick_scheduled_jobs()
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=2)
             except asyncio.TimeoutError:

@@ -4,31 +4,34 @@ This backlog turns [docs/implementation-plan.md](../implementation-plan.md) into
 
 ## Status Overview
 
+Core backend + primary surfaces (Phases 0–2) are largely in place. Phases 3–6 have **shipped slices** but several **exit criteria and surface-parity items remain open** — see each phase file for caveats.
+
 Completed or in place:
 
-- Phase 0 stream contract and startup validation
-- Phase 1 Code Mode Core
-- Phase 1 terminal parity
-- Phase 2 platform surfaces
-- Phase 3 advanced code features
-- Phase 4 cowork mode
-- Phase 5 projects and team platform
-- Phase 6 quality and routing hardening
-- Phase 1 file operations engine
-- Phase 1 shell sandbox core
-- Phase 1 git inspection core
-- Phase 1 git stage/commit/branch workflows
-- Phase 1 git worktree and merge-assist workflows
-- Phase 1 intent routing and usage enforcement
-- Shared client helpers for file, git, and shell workflows
+- Phase 0 stream contract and startup validation (CI smoke via `docker-compose.prod.yml`)
+- Phase 1 Code Mode Core (file ops, git, shell sandbox, routing, usage limits)
+- Phase 1 terminal parity (split panes, palette, approvals)
+- Phase 2 platform surfaces (web, desktop Code workspace, VS Code panel, shared SDK)
+- Phase 3 advanced code workflows (loop, compact, ultrareview, multi-file plan/rollback on terminal/desktop/VS Code)
+- Phase 4 cowork mode (API + DB persistence, Playwright browser with httpx fallback, web `/cowork`, desktop CoworkWorkspace)
+- Phase 5 team platform (API + DB persistence, web `/team`, share-resume `/share/[id]`, delegation execute)
+- Phase 6 routing quality (tier-bound policy, benchmark baselines/trends, confidence on web chat + terminal)
+- Shared client helpers for file, git, shell, context packs, MCP, team, and cowork APIs
 
 Partially complete:
 
-- None
+- Phase 3: parallel sessions and auto mode missing on terminal; artifacts/remote/custom agents not started
+- Phase 4: OCR is path-based Tesseract only (no screenshot capture); terminal/VS Code cowork UI shipped in build order item 3
+- Phase 5: team UI on web + terminal/VS Code; audit log + knowledge upload API shipped; no SSO or real-time team updates
+- Phase 6: routing eval regressions are CI warnings; quality benchmark (`swe-fixtures`) is fail-closed in deploy smoke test
 
-Still ahead:
+Still ahead (cross-cutting):
 
-- No remaining phase tickets; continue with cross-cutting hardening items tracked in implementation plan
+- ~~ECS worker deploy for background cowork/jobs~~ (shipped: worker service + Celery beat scheduler)
+- Enterprise: SSO, org-scoped rate limits
+- Surface parity matrix (team/cowork/confidence on desktop, terminal, VS Code)
+- ~~SWE-bench-style internal quality eval harness~~ (shipped: `quality-benchmark` + CI gate)
+- Phase 3 stretch: artifacts/live preview, remote control, custom agents
 
 ## Ticket Order
 

@@ -21,7 +21,9 @@ env:
   ECR_REPOSITORY_WEB: codeforge-web
   CONTAINER_NAME_API: codeforge-api
   CONTAINER_NAME_WEB: codeforge-web
+  CONTAINER_NAME_WORKER: codeforge-worker
   BENCHMARK_TREND_SUITE: all
+  QUALITY_BENCHMARK_SUITE: swe-fixtures
 
 jobs:
   smoke-test:
@@ -134,6 +136,35 @@ jobs:
             echo "No routing regression alerts detected in recent benchmark trends."
           fi
 
+      - name: Quality benchmark fail-closed gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS -X POST http://127.0.0.1:8000/api/v1/auth/dev-login \
+            -H 'Content-Type: application/json' \
+            -d '{"user_id":"ci-bot"}' | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+          curl -fsS "http://127.0.0.1:8000/api/v1/evals/quality-benchmark?suite=${QUALITY_BENCHMARK_SUITE}" \
+            -H "Authorization: Bearer $token" >/tmp/quality-benchmark.json
+
+          python - <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open("/tmp/quality-benchmark.json", encoding="utf-8"))
+          pass_rate = float(payload.get("pass_rate", 0.0))
+          if pass_rate < 1.0:
+              failed = [item for item in payload.get("results", []) if not item.get("passed")]
+              print("Quality benchmark failed:", failed)
+              sys.exit(1)
+
+          if payload.get("regression_alert"):
+              print("Quality benchmark regression:", payload.get("regression_reason", "regression detected"))
+              sys.exit(1)
+
+          print(f"Quality benchmark gate passed ({pass_rate:.2f} pass rate)")
+          PY
+
       - name: Web health check
         shell: bash
         run: |
@@ -242,8 +273,10 @@ jobs:
       ECS_CLUSTER: codeforge-staging
       ECS_SERVICE_API: codeforge-api-staging-service
       ECS_SERVICE_WEB: codeforge-web-staging-service
+      ECS_SERVICE_WORKER: codeforge-worker-staging-service
       ECS_TASK_DEFINITION_API: infra/ecs/staging/taskdef-api.json
       ECS_TASK_DEFINITION_WEB: infra/ecs/staging/taskdef-web.json
+      ECS_TASK_DEFINITION_WORKER: infra/ecs/staging/taskdef-worker.json
 
     steps:
       - name: Checkout
@@ -311,6 +344,22 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
+      - name: Render Worker task definition
+        id: render-worker
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_WORKER }}
+          container-name: ${{ env.CONTAINER_NAME_WORKER }}
+          image: ${{ steps.build-api.outputs.image }}
+
+      - name: Deploy Worker task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-worker.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_WORKER }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
   deploy-production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
     needs: [smoke-test, rollout-policy-gate]
@@ -324,8 +373,10 @@ jobs:
       ECS_CLUSTER: codeforge-prod
       ECS_SERVICE_API: codeforge-api-service
       ECS_SERVICE_WEB: codeforge-web-service
+      ECS_SERVICE_WORKER: codeforge-worker-service
       ECS_TASK_DEFINITION_API: infra/ecs/production/taskdef-api.json
       ECS_TASK_DEFINITION_WEB: infra/ecs/production/taskdef-web.json
+      ECS_TASK_DEFINITION_WORKER: infra/ecs/production/taskdef-worker.json
 
     steps:
       - name: Checkout
@@ -390,5 +441,21 @@ jobs:
         with:
           task-definition: ${{ steps.render-web.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE_WEB }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Render Worker task definition
+        id: render-worker
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION_WORKER }}
+          container-name: ${{ env.CONTAINER_NAME_WORKER }}
+          image: ${{ steps.build-api.outputs.image }}
+
+      - name: Deploy Worker task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-worker.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_WORKER }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true

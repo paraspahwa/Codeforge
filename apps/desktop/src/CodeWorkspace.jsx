@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { formatEvent } from "@codeforge/shared/sse";
+import {
+  formatEvent,
+  formatRoutingSignal,
+  routingSignalFromMessageResponse,
+  routingSignalFromPayload,
+} from "@codeforge/shared/sse";
 import {
   createSession,
   decideProposal,
@@ -51,6 +56,7 @@ export default function CodeWorkspace() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastModel, setLastModel] = useState("-");
+  const [routingSignal, setRoutingSignal] = useState(null);
   const [usage, setUsage] = useState(null);
   const [activity, setActivity] = useState([]);
   const [pendingProposal, setPendingProposal] = useState(null);
@@ -231,8 +237,10 @@ export default function CodeWorkspace() {
     try {
       const sent = await sendMessage(token, sessionId, userText, projectPath, selectedFile || null);
       setLastModel(sent.model_used ?? "-");
+      const nextRoutingSignal = routingSignalFromMessageResponse(sent);
+      setRoutingSignal(nextRoutingSignal);
       pushActivity([
-        `route: ${sent.intent ?? "unknown"} via ${sent.model_used ?? "unknown"}`,
+        formatRoutingSignal(nextRoutingSignal),
         sent.routing_reason ? `why: ${sent.routing_reason}` : null,
       ]);
 
@@ -244,6 +252,11 @@ export default function CodeWorkspace() {
               message.id === assistantId ? { ...message, content: message.content + chunk } : message,
             ),
           );
+        }
+
+        if (event.type === "run_started") {
+          setRoutingSignal(routingSignalFromPayload(event.payload));
+          pushActivity([formatEvent(event)]);
         }
 
         if (event.type === "tool_call") {
@@ -269,6 +282,11 @@ export default function CodeWorkspace() {
         }
 
         if (event.type === "complete") {
+          setRoutingSignal((previous) => ({
+            ...(previous || {}),
+            ...routingSignalFromPayload(event.payload),
+          }));
+          pushActivity([formatEvent(event)]);
           break;
         }
       }
@@ -543,6 +561,15 @@ export default function CodeWorkspace() {
           <span className="muted">model: {lastModel}</span>
         </div>
       </header>
+
+      {routingSignal ? (
+        <div className={`routing-signal ${routingSignal.review_required ? "routing-signal-review" : ""}`}>
+          <span>{formatRoutingSignal(routingSignal)}</span>
+          {routingSignal.review_required ? (
+            <strong>Human review recommended before applying changes.</strong>
+          ) : null}
+        </div>
+      ) : null}
 
       {statusMessage ? <div className="status success">{statusMessage}</div> : null}
       {errorMessage ? <div className="status error">{errorMessage}</div> : null}

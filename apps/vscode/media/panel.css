@@ -15,6 +15,33 @@ body {
   padding: 16px;
 }
 
+.tab-bar {
+  display: flex;
+  gap: 8px;
+}
+
+.tab {
+  border: 1px solid rgba(118, 157, 189, 0.24);
+  background: rgba(9, 14, 20, 0.55);
+  color: #c7d7e8;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tab.active {
+  border-color: rgba(142, 197, 255, 0.55);
+  background: rgba(30, 64, 95, 0.65);
+  color: #eef3f7;
+}
+
+.plan-item {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
 .grid {
   display: grid;
   gap: 12px;
@@ -51,6 +78,28 @@ h2 {
   font-size: 14px;
   margin-bottom: 10px;
   color: #8ec5ff;
+}
+
+.routing-signal {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  background: rgba(22, 101, 52, 0.18);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.routing-signal-review {
+  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(161, 98, 7, 0.2);
+}
+
+.routing-signal strong {
+  color: #fde68a;
+  font-size: 11px;
 }
 
 label,

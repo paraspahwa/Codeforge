@@ -1,3 +1,39 @@
+export function routingSignalFromPayload(payload = {}) {
+  return {
+    intent: payload.intent,
+    model_used: payload.model || payload.model_used,
+    confidence_score: payload.confidence_score,
+    confidence_label: payload.confidence_label,
+    review_required: Boolean(payload.review_required),
+    routing_tier: payload.routing_tier,
+    fallback_used: Boolean(payload.fallback_used),
+  };
+}
+
+export function routingSignalFromMessageResponse(response = {}) {
+  return {
+    intent: response.intent,
+    model_used: response.model_used,
+    confidence_score: response.confidence_score,
+    confidence_label: response.confidence_label,
+    review_required: Boolean(response.review_required),
+    routing_tier: response.routing_tier,
+    fallback_used: Boolean(response.fallback_used),
+  };
+}
+
+export function formatRoutingSignal(signal) {
+  if (!signal) {
+    return "Routing: awaiting prompt";
+  }
+
+  const confidence = `${signal.confidence_label || "unknown"} ${Math.round((signal.confidence_score || 0) * 100)}%`;
+  const review = signal.review_required ? " · review required" : "";
+  const tier = signal.routing_tier ? ` · tier ${signal.routing_tier}` : "";
+  const fallback = signal.fallback_used ? " · fallback path" : "";
+  return `Routing: ${signal.intent || "unknown"} via ${signal.model_used || "unknown"} · confidence ${confidence}${review}${tier}${fallback}`;
+}
+
 export function formatEvent(event) {
   if (!event || typeof event !== "object") {
     return "unknown event";

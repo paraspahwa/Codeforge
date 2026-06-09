@@ -4,21 +4,21 @@ India-first Claude Code alternative with four user modes on one shared backend:
 
 - Chat for web and mobile-friendly assistant workflows
 - Code for terminal, desktop, and VS Code coding workflows
-- Cowork for desktop automation and non-coding ops tasks
+- Cowork for desktop and web automation and non-coding ops tasks
 - Projects for shared memory, RAG, session history, and team context
 
 ## Current Status
 
-This repository already includes the core platform scaffold:
+This repository includes a working multi-surface coding assistant platform:
 
-- FastAPI backend with dev auth, sessions, messages, SSE streaming, usage analytics, billing foundations, and OpenTelemetry tracing
-- Next.js web dashboard with login, session history, chat, analytics, billing, and proposal review UI
-- Tauri desktop shell with tray, folder picker, notifications, and global shortcut wiring
-- Ink-based terminal client with shared API helpers and structured stream rendering
-- Shared client package for API and SSE helpers, including context-manager and MCP connector APIs
-- Implementation plan and roadmap docs under `docs/`
+- FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
+- Next.js web app: chat, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
+- Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
+- Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
+- VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
+- Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
 
-Current implementation focus: production orchestration hardening and deeper git conflict-handling UX polish.
+Current implementation focus: surface parity (team/cowork/confidence on all clients), ECS worker deploy, and SWE-bench-style quality evals.
 
 ## Repository Layout
 
@@ -116,14 +116,21 @@ npm run dev:terminal
 - MCP connector registry, enable/disable controls, and authenticated tool invocation boundary
 - Synthesis rollout status endpoint for provider strategy/selection visibility
 - Guided git conflict-resolution endpoint and terminal workflow command
-- Web dashboard panels for usage, billing, activity, and proposal review
-- Desktop shell scaffold with native integrations
-- Terminal client scaffold with shared streaming helpers
+- Web dashboard: usage, billing, analytics with routing benchmarks, team/cowork admin pages, proposal review
+- Desktop Code + Cowork workspaces with Tauri tray, notifications, folder picker
+- Terminal split-pane client with routing confidence display and advanced workflows
+- VS Code panel with editor-context sync and workflow commands
+- DB-backed cowork and team persistence (plans, workspaces, shares, delegations)
+- Tier-bound routing policy with benchmark baselines/trends and regression evaluation
 
 ## Known Gaps
 
-- External model synthesis rollout now includes environment-specific planning and readiness validation, but deployment-time policy enforcement gates are still pending
-- Routing benchmark suites now include policy and repository-grounded checks, but benchmark history and regression alerting are still pending
+- Team and cowork UIs are web + desktop only (terminal/VS Code lack team/cowork surfaces)
+- Confidence/review-required UX is on web chat and terminal only (not desktop Code or VS Code)
+- No SSO, audit trail, knowledge file uploads, or real-time team WebSocket updates
+- Cowork scheduled jobs run in the API process; ECS worker is defined but not deployed by CI
+- Routing benchmarks test policy classification, not SWE-bench-style patch/task quality
+- Phase 3 stretch not started: artifacts/live preview, remote control, custom agents
 
 ## Canonical Documents
 

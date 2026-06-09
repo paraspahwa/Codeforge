@@ -19,7 +19,16 @@ import {
   listSessions,
   listGitWorktrees,
   compactWorkflow,
+  createCoworkPlan,
+  createTeamWorkspace,
+  extractCoworkData,
+  listCoworkPlans,
+  listCoworkRuns,
+  listTeamWorkspaces,
+  queryProjectKnowledge,
+  rebuildProjectKnowledge,
   runAgentLoop,
+  runCoworkPlan,
   sendMessage,
   ultrareviewWorkflow,
   stageGitFiles,
@@ -50,6 +59,8 @@ const PALETTE_ACTIONS = [
   { label: "Plan files", value: "plan" },
   { label: "Rollback plan", value: "rollback" },
   { label: "Loop verify", value: "loop" },
+  { label: "Team workspaces", value: "team:workspaces" },
+  { label: "Cowork plans", value: "cowork:plans" },
   { label: "Refresh", value: "refresh" },
   { label: "Clear workspace", value: "clear" },
   { label: "Git status", value: "git status" },
@@ -737,6 +748,16 @@ function App() {
       return;
     }
 
+    if (action.value === "team:workspaces") {
+      await handleCommand("/team workspaces");
+      return;
+    }
+
+    if (action.value === "cowork:plans") {
+      await handleCommand("/cowork plans");
+      return;
+    }
+
     if (action.value === "refresh") {
       await handleCommand("/refresh");
       return;
@@ -840,7 +861,7 @@ function App() {
     const argument = rest.join(" ").trim();
 
     if (name === "help") {
-      pushEvent("Commands: /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /approve, /reject, /git status | /git diff [path] | /git log [limit] | /git stage [path ...|--all] | /git commit <message> | /git branch <name> | /git worktree list | /git worktree create <branch> | /git merge-assist <branch> | /git resolve-guide <branch> | /git assist-apply <branch> <ours|theirs> [path ...] | /run <command>");
+      pushEvent("Commands: /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /team workspaces | create <name> | kb [title] | query <text>, /cowork plans | runs | shell <command> | extract <path> | run <plan_id> [--approve], /approve, /reject, /git ... | /run <command>");
       return;
     }
 
@@ -993,6 +1014,146 @@ function App() {
         await runLoopWorkflow(options);
       } catch (loopError) {
         setError(loopError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "team") {
+      if (!token) {
+        setError("Login first with /login <userId>");
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sessionId = await ensureSession(token);
+        const sub = (rest[0] || "workspaces").toLowerCase();
+        const subArg = rest.slice(1).join(" ").trim();
+
+        if (sub === "workspaces") {
+          const result = await listTeamWorkspaces(baseUrl, token);
+          const lines = (result.workspaces || []).map(
+            (workspace) => `${workspace.workspace_id}: ${workspace.name} (${workspace.members?.length || 0} members)`,
+          );
+          setReviewTitle("Team workspaces");
+          setDiffPreview(lines.length ? lines.join("\n") : "No workspaces yet.");
+          pushEvent(`team: ${lines.length} workspace(s)`);
+        } else if (sub === "create") {
+          if (!subArg) {
+            throw new Error("Usage: /team create <name>");
+          }
+          const workspace = await createTeamWorkspace(baseUrl, token, {
+            name: subArg,
+            description: "Created from terminal",
+          });
+          setReviewTitle("Team workspace created");
+          setDiffPreview(`${workspace.workspace_id}: ${workspace.name}`);
+          pushEvent(`team: created ${workspace.workspace_id}`);
+        } else if (sub === "kb" || sub === "knowledge") {
+          const kb = await rebuildProjectKnowledge(baseUrl, token, {
+            session_id: sessionId,
+            title: subArg || "Terminal knowledge index",
+          });
+          setReviewTitle("Project knowledge");
+          setDiffPreview(kb.summary || "Knowledge rebuilt");
+          pushEvent(`team: kb ${kb.knowledge_id}`);
+        } else if (sub === "query") {
+          if (!subArg) {
+            throw new Error("Usage: /team query <search text>");
+          }
+          const result = await queryProjectKnowledge(baseUrl, token, {
+            session_id: sessionId,
+            query: subArg,
+            limit: 6,
+          });
+          const lines = (result.results || []).map((item) => `${item.path}: ${item.excerpt}`);
+          setReviewTitle(`Knowledge query: ${subArg}`);
+          setDiffPreview(lines.length ? lines.join("\n\n") : "No matches.");
+          pushEvent(`team: query ${lines.length} hit(s)`);
+        } else {
+          throw new Error("Usage: /team workspaces | create <name> | kb [title] | query <text>");
+        }
+      } catch (teamError) {
+        setError(teamError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "cowork") {
+      if (!token) {
+        setError("Login first with /login <userId>");
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sessionId = await ensureSession(token);
+        const sub = (rest[0] || "plans").toLowerCase();
+        const subArg = rest.slice(1).join(" ").trim();
+
+        if (sub === "plans") {
+          const result = await listCoworkPlans(baseUrl, token);
+          const lines = (result.plans || []).slice(0, 12).map(
+            (plan) => `${plan.plan_id}: ${plan.title} (${plan.task_type}) — ${plan.status}`,
+          );
+          setReviewTitle("Cowork plans");
+          setDiffPreview(lines.length ? lines.join("\n") : "No plans yet.");
+          pushEvent(`cowork: ${lines.length} plan(s)`);
+        } else if (sub === "runs") {
+          const result = await listCoworkRuns(baseUrl, token);
+          const lines = (result.runs || []).slice(0, 12).map(
+            (run) => `${run.run_id}: ${run.status} — ${run.summary}`,
+          );
+          setReviewTitle("Cowork runs");
+          setDiffPreview(lines.length ? lines.join("\n") : "No runs yet.");
+          pushEvent(`cowork: ${lines.length} run(s)`);
+        } else if (sub === "shell") {
+          if (!subArg) {
+            throw new Error("Usage: /cowork shell <command>");
+          }
+          const plan = await createCoworkPlan(baseUrl, token, {
+            session_id: sessionId,
+            title: "Terminal shell task",
+            task_type: "shell",
+            command: subArg,
+          });
+          const run = await runCoworkPlan(baseUrl, token, plan.plan_id, true);
+          setReviewTitle(`Cowork run ${run.run_id}`);
+          setDiffPreview(`${run.status}: ${run.summary}`);
+          pushEvent(`cowork: shell ${run.status}`);
+        } else if (sub === "extract") {
+          if (!subArg) {
+            throw new Error("Usage: /cowork extract <relative/path>");
+          }
+          const extraction = await extractCoworkData(baseUrl, token, {
+            session_id: sessionId,
+            source_path: subArg,
+          });
+          setReviewTitle(`Extraction ${extraction.extraction_id}`);
+          setDiffPreview(`${extraction.method}: ${extraction.text_excerpt?.slice(0, 400) || ""}`);
+          pushEvent(`cowork: extract ${extraction.extraction_id}`);
+        } else if (sub === "run") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const planId = tokens[0];
+          if (!planId) {
+            throw new Error("Usage: /cowork run <plan_id> [--approve]");
+          }
+          const approved = subArg.includes("--approve");
+          const run = await runCoworkPlan(baseUrl, token, planId, approved);
+          setReviewTitle(`Cowork run ${run.run_id}`);
+          setDiffPreview(`${run.status}: ${run.summary}`);
+          pushEvent(`cowork: run ${run.status}`);
+        } else {
+          throw new Error("Usage: /cowork plans | runs | shell <command> | extract <path> | run <plan_id> [--approve]");
+        }
+      } catch (coworkError) {
+        setError(coworkError.message);
       } finally {
         setBusy(false);
       }
@@ -1616,7 +1777,7 @@ function App() {
         <Text>{draft || "Type a prompt or /help"}</Text>
       </Box>
       <Text dimColor>
-        Commands: Tab pane focus | Ctrl+P palette | Ctrl+K compact | Ctrl+Shift+U ultrareview | /login &lt;user&gt; | /session [path] | /use &lt;n&gt; | /refresh | /clear | /quit | /mode code|chat|review | /compact | /ultrareview | /plan &lt;files...&gt; | /plan run &lt;prompt&gt; | /plan show | /rollback | /loop --verify &lt;cmd&gt; [--max n] [--prompt text] | /approve | /reject | /git status | /git diff [path] | /git log [limit] | /git resolve-guide &lt;branch&gt; | /git assist-apply &lt;branch&gt; &lt;ours|theirs&gt; [path ...] | /run &lt;command&gt;
+        Commands: Tab pane focus | Ctrl+P palette | Ctrl+K compact | Ctrl+Shift+U ultrareview | /team workspaces | /cowork plans | /login &lt;user&gt; | /session [path] | /use &lt;n&gt; | /refresh | /clear | /quit | /mode code|chat|review | /compact | /ultrareview | /plan &lt;files...&gt; | /plan run &lt;prompt&gt; | /plan show | /rollback | /loop --verify &lt;cmd&gt; [--max n] [--prompt text] | /approve | /reject | /git status | /git diff [path] | /git log [limit] | /git resolve-guide &lt;branch&gt; | /git assist-apply &lt;branch&gt; &lt;ours|theirs&gt; [path ...] | /run &lt;command&gt;
       </Text>
     </Box>
   );

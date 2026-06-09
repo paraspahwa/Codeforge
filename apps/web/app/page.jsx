@@ -16,6 +16,7 @@ import {
   listMessages,
   listSessions,
   rollbackWorkflowPlan,
+  runAgentLoop,
   sendMessage,
   streamSession,
   ultrareviewWorkflow,
@@ -48,6 +49,10 @@ export default function ChatPage() {
   const [activePlanId, setActivePlanId] = useState("");
   const [workflowOutput, setWorkflowOutput] = useState("");
   const [autoMode, setAutoMode] = useState(false);
+  const [loopVerify, setLoopVerify] = useState("pytest -q");
+  const [loopPrompt, setLoopPrompt] = useState("Fix verification failures with minimal safe edits.");
+  const [loopMaxAttempts, setLoopMaxAttempts] = useState(3);
+  const [loopRunning, setLoopRunning] = useState(false);
   const chatEndRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -389,6 +394,58 @@ export default function ChatPage() {
     }
   }
 
+  async function handleRunLoop() {
+    if (!sessionId || !token) {
+      toast.push("Create or select a session first");
+      return;
+    }
+    if (!loopVerify.trim()) {
+      toast.push("Enter a verify command (e.g. pytest -q)");
+      return;
+    }
+
+    setLoopRunning(true);
+    setLoading(true);
+    try {
+      const result = await runAgentLoop(sessionId, token, {
+        verify_command: loopVerify.trim(),
+        prompt: loopPrompt.trim() || "Fix verification failures with minimal safe edits.",
+        max_attempts: Number(loopMaxAttempts) || 3,
+        auto_apply: true,
+        auto_mode: autoMode,
+      });
+
+      const attemptLines = result.attempts.map((item) => {
+        const applied = item.applied ? " · applied" : "";
+        const patch = item.patch_source ? ` · patch: ${item.patch_source}` : "";
+        return `attempt ${item.attempt}: exit ${item.verify_exit_code}${applied}${patch}`;
+      });
+      setWorkflowOutput([result.message, ...attemptLines].join("\n"));
+      pushAgentEvents([
+        result.passed ? `loop: passed — ${result.message}` : `loop: failed — ${result.message}`,
+        ...attemptLines,
+      ]);
+
+      const lastWithProposal = [...result.attempts].reverse().find((item) => item.proposal_id);
+      if (lastWithProposal?.proposal_id) {
+        const proposal = await getProposal(sessionId, lastWithProposal.proposal_id, token);
+        setPendingProposal(proposal);
+      }
+
+      const stored = await listMessages(sessionId, token);
+      setMessages(
+        stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
+      );
+      await getUsageSummary(token).then(setUsage).catch(() => undefined);
+      toast.push(result.message, result.passed ? "success" : undefined);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoopRunning(false);
+      setLoading(false);
+    }
+  }
+
   async function handleForkSession() {
     if (!sessionId || !token) {
       return;
@@ -507,6 +564,49 @@ export default function ChatPage() {
               </button>
               <button type="button" onClick={handleForkSession} disabled={!sessionId || loading}>
                 Fork Session
+              </button>
+            </div>
+
+            <h4 className="small mt-8">Verify / fix loop</h4>
+            <label className="small" htmlFor="loop-verify">
+              Verify command
+            </label>
+            <input
+              id="loop-verify"
+              value={loopVerify}
+              onChange={(event) => setLoopVerify(event.target.value)}
+              disabled={loading || loopRunning}
+              placeholder="pytest -q"
+            />
+            <label className="small" htmlFor="loop-prompt">
+              Fix prompt
+            </label>
+            <textarea
+              id="loop-prompt"
+              rows={2}
+              value={loopPrompt}
+              onChange={(event) => setLoopPrompt(event.target.value)}
+              disabled={loading || loopRunning}
+            />
+            <label className="small" htmlFor="loop-max-attempts">
+              Max attempts
+            </label>
+            <input
+              id="loop-max-attempts"
+              type="number"
+              min={1}
+              max={10}
+              value={loopMaxAttempts}
+              onChange={(event) => setLoopMaxAttempts(event.target.value)}
+              disabled={loading || loopRunning}
+            />
+            <div className="replay-toolbar mt-8">
+              <button
+                type="button"
+                onClick={handleRunLoop}
+                disabled={!sessionId || loading || loopRunning || !loopVerify.trim()}
+              >
+                {loopRunning ? "Loop running…" : "Run Loop"}
               </button>
             </div>
             <label className="small" htmlFor="plan-targets">

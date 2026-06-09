@@ -28,6 +28,9 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_workspace_members(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_session_shares_session ON session_shares(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_team_delegations_workspace ON team_delegations(workspace_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created ON audit_logs(actor_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created ON audit_logs(workspace_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_session_created ON audit_logs(session_id, created_at)",
 )
 
 
@@ -395,6 +398,21 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        event_id TEXT PRIMARY KEY,
+                        actor_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        resource_type TEXT NOT NULL,
+                        resource_id TEXT NOT NULL,
+                        workspace_id TEXT,
+                        session_id TEXT,
+                        metadata_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
         return
@@ -647,6 +665,18 @@ def init_db() -> None:
                 note TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                event_id TEXT PRIMARY KEY,
+                actor_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                workspace_id TEXT,
+                session_id TEXT,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
             );
             """
         )

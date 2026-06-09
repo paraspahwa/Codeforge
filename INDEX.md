@@ -40,16 +40,14 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Terminal: Ink + React
 - Shared package: browser/node API helpers and SSE parsing
 
-## Backlog Areas
+## Backlog Areas (active)
 
-- Shared agent core and orchestration
-- File operations and approvals
-- Shell sandbox and git integration
-- Terminal parity
-- VS Code extension MVP
-- Context manager, memory, and MCP
-- Cowork automation
-- Projects and team collaboration
+- Surface parity: team, cowork, and confidence UX on desktop Code, terminal, and VS Code
+- ECS worker deploy for background cowork jobs
+- SWE-bench-style internal quality eval harness
+- Enterprise: SSO, audit trail, knowledge uploads, real-time team sync
+- Phase 3 stretch: web loop UI, artifacts/live preview, remote channels, custom agents
+- Fail-closed routing regression deploy gates
 
 ## Notes
 

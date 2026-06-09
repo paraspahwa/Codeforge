@@ -28,8 +28,34 @@ const state = {
   lastIntent: "",
   lastModel: "",
   lastRoutingReason: "",
+  confidenceScore: null,
+  confidenceLabel: "",
+  reviewRequired: false,
+  routingTier: "",
+  fallbackUsed: false,
   prompt: "",
+  panelTab: "chat",
+  teamWorkspaces: [],
+  teamOutput: "",
+  teamWorkspaceName: "Core team",
+  teamKnowledgeQuery: "",
+  coworkPlans: [],
+  coworkRuns: [],
+  coworkOutput: "",
+  coworkShellCommand: "dir",
+  coworkExtractPath: "",
 };
+
+function formatRoutingSignal(state) {
+  if (!state.confidenceLabel && state.confidenceScore == null) {
+    return "";
+  }
+  const score = Math.round((state.confidenceScore || 0) * 100);
+  const review = state.reviewRequired ? " · review required" : "";
+  const tier = state.routingTier ? ` · tier ${state.routingTier}` : "";
+  const fallback = state.fallbackUsed ? " · fallback path" : "";
+  return `Routing: ${state.lastIntent || "unknown"} via ${state.lastModel || "unknown"} · confidence ${state.confidenceLabel || "unknown"} ${score}%${review}${tier}${fallback}`;
+}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -43,8 +69,18 @@ function render() {
   const app = document.getElementById("app");
   const proposalPatch = state.diffPreview?.patch || state.proposal?.patch_preview || "";
   const proposalTarget = state.proposal?.target_file || state.diffPreview?.file || "pending target";
+  const chatTab = state.panelTab === "chat";
+  const teamTab = state.panelTab === "team";
+  const coworkTab = state.panelTab === "cowork";
+
   app.innerHTML = `
     <div class="shell">
+      <nav class="tab-bar">
+        <button class="tab ${chatTab ? "active" : ""}" data-tab="chat">Chat</button>
+        <button class="tab ${teamTab ? "active" : ""}" data-tab="team">Team</button>
+        <button class="tab ${coworkTab ? "active" : ""}" data-tab="cowork">Cowork</button>
+      </nav>
+
       <section class="card controls">
         <h1>CodeForge</h1>
         <div class="grid two-up">
@@ -89,6 +125,88 @@ function render() {
         ${state.selectionPreview ? `<pre class="snippet">${escapeHtml(state.selectionPreview)}</pre>` : ""}
       </section>
 
+      ${teamTab ? `
+      <section class="card">
+        <h2>Team</h2>
+        <div class="actions">
+          <button data-action="teamRefresh" ${state.busy ? "disabled" : ""}>Refresh workspaces</button>
+          <button data-action="teamRebuildKb" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Rebuild knowledge</button>
+        </div>
+        <div class="grid two-up">
+          <label>
+            <span>New workspace</span>
+            <input id="teamWorkspaceName" value="${escapeHtml(state.teamWorkspaceName)}" ${state.busy ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>Knowledge query</span>
+            <input id="teamKnowledgeQuery" value="${escapeHtml(state.teamKnowledgeQuery)}" placeholder="search indexed files" ${state.busy ? "disabled" : ""} />
+          </label>
+        </div>
+        <div class="actions">
+          <button data-action="teamCreateWorkspace" ${state.busy ? "disabled" : ""}>Create workspace</button>
+          <button data-action="teamQueryKnowledge" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Query knowledge</button>
+        </div>
+        <div class="session-list">
+          ${state.teamWorkspaces.length === 0 ? '<p class="muted">No workspaces loaded. Refresh after login.</p>' : state.teamWorkspaces.map((workspace) => `
+            <div class="session-item">
+              <strong>${escapeHtml(workspace.workspace_id)}</strong>
+              <span>${escapeHtml(workspace.name)} · ${workspace.members?.length || 0} members</span>
+            </div>
+          `).join("")}
+        </div>
+        ${state.teamOutput ? `<pre class="diff-view">${escapeHtml(state.teamOutput)}</pre>` : ""}
+      </section>
+      ` : ""}
+
+      ${coworkTab ? `
+      <section class="card">
+        <h2>Cowork</h2>
+        <div class="actions">
+          <button data-action="coworkRefresh" ${state.busy ? "disabled" : ""}>Refresh plans/runs</button>
+        </div>
+        <div class="grid two-up">
+          <label>
+            <span>Shell command</span>
+            <input id="coworkShellCommand" value="${escapeHtml(state.coworkShellCommand)}" ${state.busy ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>Extract path</span>
+            <input id="coworkExtractPath" value="${escapeHtml(state.coworkExtractPath)}" placeholder="README.md" ${state.busy ? "disabled" : ""} />
+          </label>
+        </div>
+        <div class="actions">
+          <button data-action="coworkShell" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Run shell plan</button>
+          <button data-action="coworkExtract" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Extract file</button>
+        </div>
+        <div class="grid split">
+          <div>
+            <h2>Plans</h2>
+            <div class="session-list">
+              ${state.coworkPlans.length === 0 ? '<p class="muted">No plans yet.</p>' : state.coworkPlans.slice(0, 10).map((plan) => `
+                <button class="session-item plan-item" data-plan-id="${escapeHtml(plan.plan_id)}">
+                  <strong>${escapeHtml(plan.title)}</strong>
+                  <span>${escapeHtml(plan.task_type)} · ${escapeHtml(plan.status)}</span>
+                </button>
+              `).join("")}
+            </div>
+          </div>
+          <div>
+            <h2>Recent runs</h2>
+            <div class="session-list">
+              ${state.coworkRuns.length === 0 ? '<p class="muted">No runs yet.</p>' : state.coworkRuns.slice(0, 8).map((run) => `
+                <div class="session-item">
+                  <strong>${escapeHtml(run.run_id)}</strong>
+                  <span>${escapeHtml(run.status)} · ${escapeHtml((run.summary || "").slice(0, 120))}</span>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        </div>
+        ${state.coworkOutput ? `<pre class="diff-view">${escapeHtml(state.coworkOutput)}</pre>` : ""}
+      </section>
+      ` : ""}
+
+      ${chatTab ? `
       <section class="card prompt-card">
         <label>
           <span>Prompt</span>
@@ -104,6 +222,7 @@ function render() {
           <span>${escapeHtml(state.lastModel || "")}</span>
           <span>${escapeHtml(state.proposalId ? `${state.proposalId}:${state.proposalStatus || "pending"}` : "")}</span>
         </div>
+        ${formatRoutingSignal(state) ? `<div class="routing-signal ${state.reviewRequired ? "routing-signal-review" : ""}">${escapeHtml(formatRoutingSignal(state))}${state.reviewRequired ? "<strong>Human review recommended before apply.</strong>" : ""}</div>` : ""}
         <p class="hint">${escapeHtml(state.lastRoutingReason || "")}</p>
         ${state.lastError ? `<p class="error">${escapeHtml(state.lastError)}</p>` : ""}
       </section>
@@ -184,6 +303,7 @@ function render() {
           <pre class="log">${escapeHtml(state.events.join("\n"))}</pre>
         </div>
       </section>
+      ` : ""}
     </div>
   `;
 
@@ -255,6 +375,58 @@ function render() {
       if (action === "rollbackWorkflowPlan") {
         vscode.postMessage({ type: "rollbackWorkflowPlan" });
       }
+      if (action === "teamRefresh") {
+        vscode.postMessage({ type: "teamRefresh" });
+      }
+      if (action === "teamCreateWorkspace") {
+        vscode.postMessage({
+          type: "teamCreateWorkspace",
+          name: document.getElementById("teamWorkspaceName").value.trim(),
+        });
+      }
+      if (action === "teamRebuildKb") {
+        vscode.postMessage({ type: "teamRebuildKb" });
+      }
+      if (action === "teamQueryKnowledge") {
+        vscode.postMessage({
+          type: "teamQueryKnowledge",
+          query: document.getElementById("teamKnowledgeQuery").value.trim(),
+        });
+      }
+      if (action === "coworkRefresh") {
+        vscode.postMessage({ type: "coworkRefresh" });
+      }
+      if (action === "coworkShell") {
+        vscode.postMessage({
+          type: "coworkShell",
+          command: document.getElementById("coworkShellCommand").value.trim(),
+        });
+      }
+      if (action === "coworkExtract") {
+        vscode.postMessage({
+          type: "coworkExtract",
+          sourcePath: document.getElementById("coworkExtractPath").value.trim(),
+        });
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-tab]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "setPanelTab",
+        tab: element.getAttribute("data-tab"),
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-plan-id]").forEach((element) => {
+    element.addEventListener("click", () => {
+      vscode.postMessage({
+        type: "coworkRunPlan",
+        planId: element.getAttribute("data-plan-id"),
+        approved: true,
+      });
     });
   });
 

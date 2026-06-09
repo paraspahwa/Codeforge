@@ -6,10 +6,12 @@ Close the workflow gaps with Claude Code-style looped execution and higher-order
 
 ## Status
 
-- T3.1 /loop workflow: done, terminal `/loop` now runs bounded verify/fix cycles with auto-approval and per-attempt summaries
-- T3.2 /compact context summary: done, terminal command, keybinding, and palette action emit continuation-ready compact state
-- T3.3 /ultrareview deep audit: done, terminal command, keybinding, and palette action generate deep local risk findings before edits
-- T3.4 multi-file planning and rollback: done, terminal can create grouped plans, execute grouped changes, and rollback from snapshots
+- T3.1 /loop workflow: **done (terminal, desktop, VS Code, web)** — backend `/agent/loop` with verify/fix UI on all coding surfaces
+- T3.2 /compact context summary: **done (terminal, desktop, VS Code, web)** — backend compact workflow + terminal local summary
+- T3.3 /ultrareview deep audit: **done (terminal, desktop, VS Code, web)** — backend ultrareview + terminal local audit
+- T3.4 multi-file planning and rollback: **done (terminal, desktop, VS Code, web)** — backend plan/execute/rollback APIs
+
+**Not started (PRD/plan):** parallel sessions on terminal, auto mode on terminal, artifacts/live preview, remote control/event channels, custom agents and task templates.
 
 ## Tickets
 

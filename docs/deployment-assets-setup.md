@@ -15,6 +15,8 @@ This file explains how to use the generated deployment assets in this repo.
 9. `infra/ecs/staging/taskdef-web.json`
 10. `infra/ecs/production/taskdef-api.json`
 11. `infra/ecs/production/taskdef-web.json`
+12. `infra/ecs/staging/taskdef-worker.json`
+13. `infra/ecs/production/taskdef-worker.json`
 
 ## Local production-like run with Docker Compose
 
@@ -56,9 +58,11 @@ Environment-specific files:
 1. Staging:
    - `infra/ecs/staging/taskdef-api.json`
    - `infra/ecs/staging/taskdef-web.json`
+   - `infra/ecs/staging/taskdef-worker.json`
 2. Production:
    - `infra/ecs/production/taskdef-api.json`
    - `infra/ecs/production/taskdef-web.json`
+   - `infra/ecs/production/taskdef-worker.json`
 
 ## Configure GitHub repository secrets and variables
 
@@ -84,10 +88,16 @@ The workflow expects these names by default:
 1. Staging cluster: `codeforge-staging`
 2. Staging API service: `codeforge-api-staging-service`
 3. Staging Web service: `codeforge-web-staging-service`
-4. Production cluster: `codeforge-prod`
-5. Production API service: `codeforge-api-service`
-6. Production Web service: `codeforge-web-service`
-7. ECR repos: `codeforge-api`, `codeforge-web`
+4. Staging Worker service: `codeforge-worker-staging-service`
+5. Production cluster: `codeforge-prod`
+6. Production API service: `codeforge-api-service`
+7. Production Web service: `codeforge-web-service`
+8. Production Worker service: `codeforge-worker-service`
+9. ECR repos: `codeforge-api`, `codeforge-web`
+
+The worker ECS service reuses the API image and runs `celery worker --beat` so scheduled cowork jobs tick outside the API process. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API tasks in production.
+
+Before the first worker deploy, create the ECS services in each cluster (Fargate, awsvpc, desired count >= 1) and CloudWatch log groups `/ecs/codeforge-worker-staging` and `/ecs/codeforge-worker-prod`.
 
 If your names differ, update `.github/workflows/deploy-ecs.yml` env section.
 

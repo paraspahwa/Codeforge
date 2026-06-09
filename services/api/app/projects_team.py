@@ -7,12 +7,16 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from . import audit_store
 from . import projects_team_store as store
+from .db import list_sessions_for_user
 
 
 _TEXT_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".css", ".html", ".rs", ".go", ".java", ".sh"}
 _MAX_INDEXED_FILES = 80
 _MAX_FILE_SIZE_BYTES = 256_000
+_MAX_UPLOAD_FILES = 10
+_KNOWLEDGE_UPLOAD_DIR = ".codeforge/knowledge/uploads"
 
 
 class ProjectsTeamError(RuntimeError):
@@ -28,6 +32,12 @@ def _safe_excerpt(text: str, limit: int = 320) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[: limit - 3]}..."
+
+
+def _sanitize_upload_filename(name: str) -> str:
+    base = Path(name).name
+    cleaned = re.sub(r"[^\w.\-]+", "_", base).strip("._")
+    return cleaned[:120] or "upload.txt"
 
 
 def _score_item(query: str, path: str, content: str) -> int:
@@ -102,7 +112,108 @@ class ProjectsTeamService:
             "updated_at": utc_now().isoformat(),
         }
         store.save_knowledge(state)
+        audit_store.record_audit_event(
+            actor_id=user_id,
+            event_type="projects.knowledge_rebuilt",
+            resource_type="knowledge",
+            resource_id=state["knowledge_id"],
+            session_id=session_id,
+            metadata={"title": state["title"], "indexed_files": len(indexed_items)},
+        )
         return state
+
+    def upload_knowledge_files(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        project_path: str,
+        uploads: list[tuple[str, bytes]],
+    ) -> dict[str, Any]:
+        if not uploads:
+            raise ProjectsTeamError("At least one file is required")
+        if len(uploads) > _MAX_UPLOAD_FILES:
+            raise ProjectsTeamError(f"Upload at most {_MAX_UPLOAD_FILES} files per request")
+
+        root = Path(project_path).expanduser().resolve()
+        if not root.exists() or not root.is_dir():
+            raise ProjectsTeamError("Project path does not exist")
+
+        upload_dir = root / _KNOWLEDGE_UPLOAD_DIR
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        state = store.get_knowledge_by_session(session_id)
+        if state is None or state["user_id"] != user_id:
+            knowledge_id = f"kb_{uuid4().hex[:10]}"
+            state = {
+                "knowledge_id": knowledge_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "title": "Uploaded project knowledge",
+                "project_path": root.as_posix(),
+                "summary": "No files indexed yet",
+                "items": [],
+                "updated_at": utc_now().isoformat(),
+            }
+
+        items_by_path = {item["path"]: item for item in state.get("items", [])}
+        saved_paths: list[str] = []
+
+        for filename, raw in uploads:
+            if len(raw) > _MAX_FILE_SIZE_BYTES:
+                raise ProjectsTeamError(f"File {filename} exceeds {_MAX_FILE_SIZE_BYTES} byte limit")
+
+            safe_name = _sanitize_upload_filename(filename)
+            suffix = Path(safe_name).suffix.lower()
+            if suffix and suffix not in _TEXT_EXTENSIONS:
+                raise ProjectsTeamError(f"Unsupported file type for {safe_name}")
+
+            relative = f"{_KNOWLEDGE_UPLOAD_DIR}/{safe_name}"
+            destination = root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(raw)
+
+            text = raw.decode("utf-8", errors="replace")
+            items_by_path[relative] = {
+                "path": relative,
+                "excerpt": _safe_excerpt(text),
+                "indexed_at": utc_now().isoformat(),
+            }
+            saved_paths.append(relative)
+
+        state["items"] = list(items_by_path.values())[:_MAX_INDEXED_FILES]
+        state["summary"] = f"Indexed {len(state['items'])} project files ({len(saved_paths)} uploaded)"
+        state["updated_at"] = utc_now().isoformat()
+        store.save_knowledge(state)
+
+        audit_store.record_audit_event(
+            actor_id=user_id,
+            event_type="projects.knowledge_uploaded",
+            resource_type="knowledge",
+            resource_id=state["knowledge_id"],
+            session_id=session_id,
+            metadata={"paths": saved_paths, "upload_count": len(saved_paths)},
+        )
+        state["uploaded_paths"] = saved_paths
+        return state
+
+    def list_audit_log(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        workspaces = self.list_workspaces(user_id=user_id)
+        workspace_ids = {workspace["workspace_id"] for workspace in workspaces}
+        session_ids = {row["session_id"] for row in list_sessions_for_user(user_id)}
+        return audit_store.list_audit_events_for_user(
+            user_id=user_id,
+            workspace_ids=workspace_ids,
+            session_ids=session_ids,
+            workspace_id=workspace_id,
+            limit=limit,
+        )
 
     def get_knowledge(self, *, user_id: str, session_id: str) -> dict[str, Any]:
         state = store.get_knowledge_by_session(session_id)
@@ -167,6 +278,14 @@ class ProjectsTeamService:
             ],
         }
         store.save_workspace(workspace)
+        audit_store.record_audit_event(
+            actor_id=owner_id,
+            event_type="team.workspace_created",
+            resource_type="workspace",
+            resource_id=workspace_id,
+            workspace_id=workspace_id,
+            metadata={"name": name},
+        )
         return workspace
 
     def list_workspaces(self, *, user_id: str) -> list[dict[str, Any]]:
@@ -192,7 +311,16 @@ class ProjectsTeamService:
             "added_at": utc_now().isoformat(),
         }
         store.save_workspace_member(workspace_id, member)
-        return store.get_workspace(workspace_id) or workspace
+        updated = store.get_workspace(workspace_id) or workspace
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.workspace_member_added",
+            resource_type="workspace_member",
+            resource_id=member_user_id,
+            workspace_id=workspace_id,
+            metadata={"role": role},
+        )
+        return updated
 
     def create_session_share(
         self,
@@ -213,6 +341,14 @@ class ProjectsTeamService:
             "expires_at": (now + timedelta(hours=expires_in_hours)).isoformat(),
         }
         store.save_session_share(share)
+        audit_store.record_audit_event(
+            actor_id=user_id,
+            event_type="team.session_share_created",
+            resource_type="session_share",
+            resource_id=share_id,
+            session_id=session_id,
+            metadata={"access_level": access_level, "expires_in_hours": expires_in_hours},
+        )
         return share
 
     def resolve_session_share(self, *, share_id: str) -> dict[str, Any]:
@@ -223,6 +359,16 @@ class ProjectsTeamService:
         if datetime.fromisoformat(share["expires_at"]) < utc_now():
             raise ProjectsTeamError("Share link has expired")
         return share
+
+    def record_session_share_resolved(self, *, actor_id: str, share: dict[str, Any]) -> None:
+        audit_store.record_audit_event(
+            actor_id=actor_id,
+            event_type="team.session_share_resolved",
+            resource_type="session_share",
+            resource_id=share["share_id"],
+            session_id=share["session_id"],
+            metadata={"access_level": share["access_level"]},
+        )
 
     def create_delegation(
         self,
@@ -256,6 +402,15 @@ class ProjectsTeamService:
             "completed_at": None,
         }
         store.save_delegation(delegation)
+        audit_store.record_audit_event(
+            actor_id=requester_id,
+            event_type="team.delegation_created",
+            resource_type="delegation",
+            resource_id=task_id,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            metadata={"assigned_role": assigned_role, "priority": priority},
+        )
         return delegation
 
     def list_delegations(self, *, user_id: str, workspace_id: str | None = None) -> list[dict[str, Any]]:
@@ -304,12 +459,30 @@ class ProjectsTeamService:
                 note=note,
                 completed_at=utc_now().isoformat(),
             )
+            audit_store.record_audit_event(
+                actor_id=actor_id,
+                event_type="team.delegation_executed",
+                resource_type="delegation",
+                resource_id=task_id,
+                workspace_id=delegation["workspace_id"],
+                session_id=delegation["session_id"],
+                metadata={"status": "completed", "assigned_role": delegation["assigned_role"]},
+            )
         except Exception as exc:
             store.update_delegation(
                 task_id,
                 status="failed",
                 note=f"Delegation failed: {exc}",
                 completed_at=utc_now().isoformat(),
+            )
+            audit_store.record_audit_event(
+                actor_id=actor_id,
+                event_type="team.delegation_executed",
+                resource_type="delegation",
+                resource_id=task_id,
+                workspace_id=delegation["workspace_id"],
+                session_id=delegation["session_id"],
+                metadata={"status": "failed", "error": str(exc)},
             )
             raise ProjectsTeamError(str(exc)) from exc
 

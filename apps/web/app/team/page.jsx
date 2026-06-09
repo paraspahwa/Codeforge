@@ -9,10 +9,12 @@ import {
   executeTeamDelegation,
   getProjectKnowledge,
   listSessions,
+  listTeamAuditLog,
   listTeamDelegations,
   listTeamWorkspaces,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
+  uploadProjectKnowledge,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { useToast } from "../../lib/toast-context";
@@ -29,6 +31,7 @@ export default function TeamPage() {
   const [knowledge, setKnowledge] = useState(null);
   const [knowledgeQuery, setKnowledgeQuery] = useState("");
   const [knowledgeResults, setKnowledgeResults] = useState(null);
+  const [auditEvents, setAuditEvents] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [workspaceName, setWorkspaceName] = useState("Core team");
@@ -49,14 +52,16 @@ export default function TeamPage() {
     if (!activeToken) {
       return;
     }
-    const [nextWorkspaces, nextDelegations, nextSessions] = await Promise.all([
+    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit] = await Promise.all([
       listTeamWorkspaces(activeToken),
       listTeamDelegations(activeToken, selectedWorkspaceId || null),
       listSessions(activeToken),
+      listTeamAuditLog(activeToken, selectedWorkspaceId || null, 30),
     ]);
     setWorkspaces(nextWorkspaces.workspaces || []);
     setDelegations(nextDelegations.delegations || []);
     setSessions(nextSessions);
+    setAuditEvents(nextAudit.events || []);
     if (!selectedWorkspaceId && nextWorkspaces.workspaces?.length) {
       setSelectedWorkspaceId(nextWorkspaces.workspaces[0].workspace_id);
     }
@@ -155,6 +160,26 @@ export default function TeamPage() {
       });
       setKnowledge(kb);
       toast.push(kb.summary, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUploadKnowledge(event) {
+    const fileList = event.target.files;
+    if (!sessionId || !fileList?.length) {
+      toast.push("Select a session and at least one file");
+      return;
+    }
+    setLoading(true);
+    try {
+      const kb = await uploadProjectKnowledge(token, sessionId, Array.from(fileList));
+      setKnowledge(kb);
+      toast.push(`Uploaded ${kb.uploaded_paths?.length || 0} file(s)`, "success");
+      await refreshTeamData(token);
+      event.target.value = "";
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -313,9 +338,22 @@ export default function TeamPage() {
               </option>
             ))}
           </select>
-          <button type="button" onClick={handleRebuildKnowledge} disabled={loading || !sessionId}>
-            Rebuild knowledge index
-          </button>
+          <div className="stack">
+            <button type="button" onClick={handleRebuildKnowledge} disabled={loading || !sessionId}>
+              Rebuild knowledge index
+            </button>
+            <label className="small" htmlFor="knowledgeUpload">
+              Upload knowledge files
+            </label>
+            <input
+              id="knowledgeUpload"
+              type="file"
+              multiple
+              accept=".md,.txt,.json,.yaml,.yml,.py,.js,.jsx,.ts,.tsx,.html,.css,.toml,.sh,.go,.rs,.java"
+              onChange={handleUploadKnowledge}
+              disabled={loading || !sessionId}
+            />
+          </div>
           {knowledge ? (
             <p className="small">
               {knowledge.summary} · {knowledge.items?.length || 0} files indexed
@@ -347,6 +385,22 @@ export default function TeamPage() {
           ) : null}
         </section>
       </div>
+
+      <section className="panel">
+        <h3>Audit log</h3>
+        {auditEvents.length === 0 ? (
+          <p className="small">No team or knowledge events yet.</p>
+        ) : (
+          <ul className="small">
+            {auditEvents.map((event) => (
+              <li key={event.event_id}>
+                <strong>{event.event_type}</strong> · {event.resource_type}/{event.resource_id}
+                {event.workspace_id ? ` · ${event.workspace_id}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="panel">
         <h3>Delegations</h3>

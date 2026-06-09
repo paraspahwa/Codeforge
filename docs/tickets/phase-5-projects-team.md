@@ -6,10 +6,12 @@ Support shared work, knowledge, and collaboration for teams.
 
 ## Status
 
-- T5.1 project knowledge base: done, API now rebuilds/query project-scoped knowledge indexes with consistent retrieval snippets per session
-- T5.2 team sharing and permissions: done, shared workspaces and role-based member management are implemented via explicit owner/admin controls
-- T5.3 session export/share: done, session share links and markdown/json export endpoints support cross-surface handoff and resume flows
-- T5.4 team orchestration flows: done, delegation APIs route tasks to named team roles with traceable queued records
+- T5.1 project knowledge base: **done** — DB-backed index rebuild/query/upload, vector merge, auto-inject into agent stream
+- T5.2 team sharing and permissions: **partial** — DB-backed workspaces with owner/admin/member/viewer roles; web `/team` UI; audit log for share/member/delegation/knowledge events; **no SSO** or session-level permission enforcement
+- T5.3 session export/share: **done (API + web)** — markdown/json export, web share links (`/share/[id]`) with resume-in-chat; desktop/terminal lack share UI
+- T5.4 team orchestration flows: **partial** — DB-backed delegations with `POST .../delegations/{id}/execute` (single-agent run with role prefix); not multi-agent orchestration
+
+**Surface gaps:** desktop and terminal have no Team workspace UI. **PRD stretch still open:** uploads, shared style guides, real-time team updates (WebSocket/SSE).
 
 ## Tickets
 

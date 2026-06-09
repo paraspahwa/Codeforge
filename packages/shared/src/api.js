@@ -309,6 +309,16 @@ export async function getRoutingBenchmark(baseUrl, token, suite = "policy") {
   return requestJson(baseUrl, `/api/v1/evals/routing-benchmark?${query}`, { token });
 }
 
+export async function getQualityBenchmark(baseUrl, token, suite = "swe-fixtures") {
+  const query = new URLSearchParams({ suite }).toString();
+  return requestJson(baseUrl, `/api/v1/evals/quality-benchmark?${query}`, { token });
+}
+
+export async function getQualityBenchmarkTrends(baseUrl, token, suite = "swe-fixtures", limit = 20) {
+  const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/evals/quality-benchmark/trends?${query}`, { token });
+}
+
 export async function getRoutingBenchmarkTrends(baseUrl, token, suite = "policy", limit = 20) {
   const query = new URLSearchParams({ suite, limit: String(limit) }).toString();
   return requestJson(baseUrl, `/api/v1/evals/routing-benchmark/trends?${query}`, { token });
@@ -408,6 +418,37 @@ export async function rebuildProjectKnowledge(baseUrl, token, payload) {
   });
 }
 
+export async function uploadProjectKnowledge(baseUrl, token, sessionId, files) {
+  const form = new FormData();
+  form.append("session_id", sessionId);
+  for (const file of files) {
+    form.append("files", file);
+  }
+
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/projects/knowledge/upload`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody && typeof errorBody.detail === "string") {
+        detail = errorBody.detail;
+      }
+    } catch {
+      // Fall back to the HTTP status when the body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
 export async function getProjectKnowledge(baseUrl, token, sessionId) {
   const query = new URLSearchParams({ session_id: sessionId }).toString();
   return requestJson(baseUrl, `/api/v1/projects/knowledge?${query}`, { token });
@@ -452,6 +493,14 @@ export async function createTeamDelegation(baseUrl, token, payload) {
 export async function listTeamDelegations(baseUrl, token, workspaceId = null) {
   const query = workspaceId ? `?${new URLSearchParams({ workspace_id: workspaceId }).toString()}` : "";
   return requestJson(baseUrl, `/api/v1/team/delegations${query}`, { token });
+}
+
+export async function listTeamAuditLog(baseUrl, token, workspaceId = null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (workspaceId) {
+    params.set("workspace_id", workspaceId);
+  }
+  return requestJson(baseUrl, `/api/v1/team/audit-log?${params.toString()}`, { token });
 }
 
 export async function executeTeamDelegation(baseUrl, token, taskId) {

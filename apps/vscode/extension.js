@@ -45,7 +45,62 @@ function initialState(context) {
     lastIntent: "",
     lastModel: "",
     lastRoutingReason: "",
+    confidenceScore: null,
+    confidenceLabel: "",
+    reviewRequired: false,
+    routingTier: "",
+    fallbackUsed: false,
+    panelTab: "chat",
+    teamWorkspaces: [],
+    teamOutput: "",
+    teamWorkspaceName: "Core team",
+    teamKnowledgeQuery: "",
+    coworkPlans: [],
+    coworkRuns: [],
+    coworkOutput: "",
+    coworkShellCommand: "dir",
+    coworkExtractPath: "",
   };
+}
+
+function applyRoutingSignal(source = {}) {
+  if (!panelState) {
+    return;
+  }
+  if (source.intent) {
+    panelState.lastIntent = source.intent;
+  }
+  if (source.model_used || source.model) {
+    panelState.lastModel = source.model_used || source.model;
+  }
+  if (source.routing_reason) {
+    panelState.lastRoutingReason = source.routing_reason;
+  }
+  if (source.confidence_score !== undefined && source.confidence_score !== null) {
+    panelState.confidenceScore = source.confidence_score;
+  }
+  if (source.confidence_label) {
+    panelState.confidenceLabel = source.confidence_label;
+  }
+  if (source.review_required !== undefined) {
+    panelState.reviewRequired = Boolean(source.review_required);
+  }
+  if (source.routing_tier) {
+    panelState.routingTier = source.routing_tier;
+  }
+  if (source.fallback_used !== undefined) {
+    panelState.fallbackUsed = Boolean(source.fallback_used);
+  }
+}
+
+function formatRoutingSignalSummary() {
+  if (!panelState?.confidenceLabel && panelState?.confidenceScore == null) {
+    return "";
+  }
+  const score = Math.round((panelState.confidenceScore || 0) * 100);
+  const review = panelState.reviewRequired ? " · review required" : "";
+  const tier = panelState.routingTier ? ` · ${panelState.routingTier}` : "";
+  return `confidence ${panelState.confidenceLabel || "unknown"} ${score}%${review}${tier}`;
 }
 
 async function loadSharedModule(context, relativePath) {
@@ -170,7 +225,8 @@ function updateStatusBarState() {
   sessionStatusBarItem.show();
 
   if (proposalId) {
-    proposalStatusBarItem.text = `$(git-pull-request) ${panelState?.proposalStatus || "pending"} ${shortLabel(proposalId, 14)}`;
+    const confidenceSuffix = panelState?.reviewRequired ? " · review" : "";
+    proposalStatusBarItem.text = `$(git-pull-request) ${panelState?.proposalStatus || "pending"} ${shortLabel(proposalId, 14)}${confidenceSuffix}`;
     proposalStatusBarItem.tooltip = proposalTarget
       ? `Current proposal: ${proposalId}\nTarget: ${proposalTarget}`
       : `Current proposal: ${proposalId}`;
@@ -322,11 +378,17 @@ async function streamPrompt(context, prompt, currentFile) {
   })) {
     if (event.type === "route") {
       const response = event.payload || {};
-      panelState.lastIntent = response.intent || "";
-      panelState.lastModel = response.model_used || "";
-      panelState.lastRoutingReason = response.routing_reason || "";
+      applyRoutingSignal(response);
       pushEvent(`route:${response.intent}:${response.model_used}`);
+      const confidenceSummary = formatRoutingSignalSummary();
+      if (confidenceSummary) {
+        pushEvent(confidenceSummary);
+      }
       continue;
+    }
+
+    if (event.type === "run_started" || event.type === "complete") {
+      applyRoutingSignal(event.payload || {});
     }
     const summary = sse.formatEvent(event);
     const payload = event?.payload || {};
@@ -362,6 +424,22 @@ async function streamPrompt(context, prompt, currentFile) {
   const api = await loadSharedModule(context, "api.js");
   panelState.chatMessages = await api.listMessages(panelState.baseUrl, panelState.token, sessionId);
   await refreshUsage(context);
+}
+
+async function refreshTeamData(context) {
+  const api = await loadSharedModule(context, "api.js");
+  const result = await api.listTeamWorkspaces(panelState.baseUrl, panelState.token);
+  panelState.teamWorkspaces = result.workspaces || [];
+}
+
+async function refreshCoworkData(context) {
+  const api = await loadSharedModule(context, "api.js");
+  const [plans, runs] = await Promise.all([
+    api.listCoworkPlans(panelState.baseUrl, panelState.token),
+    api.listCoworkRuns(panelState.baseUrl, panelState.token),
+  ]);
+  panelState.coworkPlans = plans.plans || [];
+  panelState.coworkRuns = runs.runs || [];
 }
 
 async function runAgentLoop(context, verifyCommand) {
@@ -640,6 +718,132 @@ function ensurePanel(context) {
         await refreshSessions(context);
         pushEvent(`workflow:fork:${forked.session_id}`);
         setBusy(false);
+        return;
+      }
+
+      if (message.type === "setPanelTab") {
+        panelState.panelTab = message.tab || "chat";
+        postState();
+        return;
+      }
+
+      if (message.type === "teamRefresh") {
+        setBusy(true);
+        setError("");
+        await refreshTeamData(context);
+        panelState.teamOutput = `${panelState.teamWorkspaces.length} workspace(s) loaded`;
+        pushEvent(`team:${panelState.teamWorkspaces.length} workspace(s)`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamCreateWorkspace") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const workspace = await api.createTeamWorkspace(panelState.baseUrl, panelState.token, {
+          name: message.name || panelState.teamWorkspaceName,
+          description: "Created from VS Code",
+        });
+        await refreshTeamData(context);
+        panelState.teamOutput = `Created ${workspace.workspace_id}: ${workspace.name}`;
+        pushEvent(`team:created:${workspace.workspace_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamRebuildKb") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const kb = await api.rebuildProjectKnowledge(panelState.baseUrl, panelState.token, {
+          session_id: sessionId,
+          title: message.title || "VS Code knowledge index",
+        });
+        panelState.teamOutput = kb.summary || `Knowledge rebuilt (${kb.knowledge_id})`;
+        pushEvent(`team:kb:${kb.knowledge_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamQueryKnowledge") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const result = await api.queryProjectKnowledge(panelState.baseUrl, panelState.token, {
+          session_id: sessionId,
+          query: message.query || panelState.teamKnowledgeQuery,
+          limit: 6,
+        });
+        const lines = (result.results || []).map((item) => `${item.path}: ${item.excerpt}`);
+        panelState.teamOutput = lines.length ? lines.join("\n\n") : "No matches.";
+        pushEvent(`team:query:${lines.length} hit(s)`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkRefresh") {
+        setBusy(true);
+        setError("");
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${panelState.coworkPlans.length} plan(s), ${panelState.coworkRuns.length} run(s)`;
+        pushEvent(`cowork:${panelState.coworkPlans.length} plan(s)`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkShell") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const command = message.command || panelState.coworkShellCommand;
+        const plan = await api.createCoworkPlan(panelState.baseUrl, panelState.token, {
+          session_id: sessionId,
+          title: "VS Code shell task",
+          task_type: "shell",
+          command,
+        });
+        const run = await api.runCoworkPlan(panelState.baseUrl, panelState.token, plan.plan_id, true);
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${run.status}: ${run.summary}`;
+        pushEvent(`cowork:shell:${run.status}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkExtract") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const extraction = await api.extractCoworkData(panelState.baseUrl, panelState.token, {
+          session_id: sessionId,
+          source_path: message.sourcePath || panelState.coworkExtractPath,
+        });
+        panelState.coworkOutput = `${extraction.method}: ${(extraction.text_excerpt || "").slice(0, 500)}`;
+        pushEvent(`cowork:extract:${extraction.extraction_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "coworkRunPlan") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const run = await api.runCoworkPlan(
+          panelState.baseUrl,
+          panelState.token,
+          message.planId,
+          Boolean(message.approved),
+        );
+        await refreshCoworkData(context);
+        panelState.coworkOutput = `${run.status}: ${run.summary}`;
+        pushEvent(`cowork:run:${run.status}`);
+        setBusy(false);
+        return;
       }
     } catch (error) {
       setBusy(false);
@@ -667,6 +871,12 @@ function seedPrompt(context, mode) {
   });
 }
 
+function openPanelTab(context, tab) {
+  ensurePanel(context);
+  panelState.panelTab = tab;
+  postState();
+}
+
 function activate(context) {
   sessionStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   proposalStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
@@ -692,6 +902,12 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("codeforge.refreshProposalDiff", async () => {
       await refreshProposalGitDiff(context);
+    }),
+    vscode.commands.registerCommand("codeforge.openTeam", () => {
+      openPanelTab(context, "team");
+    }),
+    vscode.commands.registerCommand("codeforge.openCowork", () => {
+      openPanelTab(context, "cowork");
     }),
     vscode.commands.registerCommand("codeforge.runAgentLoop", async () => {
       const panel = ensurePanel(context);
