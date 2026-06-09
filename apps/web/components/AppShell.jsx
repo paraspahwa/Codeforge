@@ -19,7 +19,7 @@ export default function AppShell({ children }) {
   const pathname = usePathname();
   const { userId, token, login, logout } = useAuth();
   const toast = useToast();
-  const [loginInput, setLoginInput] = useState("paras");
+  const [loginInput, setLoginInput] = useState("dev-user");
   const [loggingIn, setLoggingIn] = useState(false);
 
   async function handleLogin(event) {

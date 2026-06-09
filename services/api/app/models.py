@@ -11,7 +11,7 @@ class SessionCreateRequest(BaseModel):
 
 class SessionCreateResponse(BaseModel):
     session_id: str
-    ws_url: str
+    stream_url: str
     created_at: datetime
 
 

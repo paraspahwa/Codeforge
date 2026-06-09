@@ -13,6 +13,21 @@
   ],
   "main": "./extension.js",
   "contributes": {
+    "configuration": {
+      "title": "CodeForge",
+      "properties": {
+        "codeforge.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "CodeForge API base URL"
+        },
+        "codeforge.userId": {
+          "type": "string",
+          "default": "dev-user",
+          "description": "Dev login user id"
+        }
+      }
+    },
     "commands": [
       {
         "command": "codeforge.openPanel",

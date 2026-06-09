@@ -39,5 +39,12 @@ def get_current_user(authorization: str | None = Header(default=None)) -> AuthUs
 
 def get_current_user_optional(
     authorization: str | None = Header(default=None),
-) -> AuthUser:
-    return get_current_user(authorization=authorization)
+) -> AuthUser | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        user_id = _token_to_user_id(token)
+    except HTTPException:
+        return None
+    return AuthUser(user_id=user_id)

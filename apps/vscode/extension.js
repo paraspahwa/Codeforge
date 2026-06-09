@@ -7,12 +7,17 @@ let panelState = null;
 let sessionStatusBarItem = null;
 let proposalStatusBarItem = null;
 
+function getExtensionConfig() {
+  return vscode.workspace.getConfiguration("codeforge");
+}
+
 function initialState(context) {
+  const config = getExtensionConfig();
   const workspacePath = getWorkspacePath();
   const editorContext = getEditorContext();
   return {
-    baseUrl: "http://127.0.0.1:8000",
-    userId: "paras",
+    baseUrl: config.get("apiBaseUrl", "http://127.0.0.1:8000"),
+    userId: config.get("userId", "dev-user"),
     token: "",
     workspacePath,
     currentFile: editorContext.currentFile,

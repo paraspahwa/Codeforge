@@ -3,6 +3,7 @@ import hmac
 import json
 import os
 import time
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import httpx
@@ -11,16 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
-from .auth import AuthUser, dev_auth_enabled, get_current_user, get_current_user_optional
+from .auth import AuthUser, dev_auth_enabled, get_current_user
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
-from .cache import RedisSessionStore
+from .routers import platform as platform_router
+from .state import (
+    RATE_LIMIT_PER_MINUTE,
+    generation_client,
+    redis_session_store,
+    task_queue,
+    vector_store,
+)
 from .deploy_ops import build_synthesis_rollout_plan
 from .deploy_ops import validate_synthesis_rollout
-from .model_router import GenerationClient
 from .projects_team import ProjectsTeamError, projects_team_service
-from .task_queue import TaskQueue
-from .vector_store import VectorStore
 from .db import (
     insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
@@ -49,6 +54,7 @@ from .db import (
     upsert_user_subscription,
 )
 from .file_ops import apply_proposed_content
+from .project_paths import normalize_project_path, resolved_project_path
 from .file_ops import read_file_content, read_file_excerpt, read_file_line_count, repo_relative_path, resolve_repo_path
 from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_log, git_merge_assist, git_stage, git_status, git_worktree_create, git_worktree_list
 from .shell_ops import ShellError, prepare_shell_execution, stream_shell_execution
@@ -150,15 +156,25 @@ from .models import (
     utc_now,
 )
 
-app = FastAPI(title="CodeForge API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    init_db()
+    configure_tracing(application)
+    await cowork_service.start()
 
-redis_session_store = RedisSessionStore()
-vector_store = VectorStore()
-task_queue = TaskQueue()
-generation_client = GenerationClient()
+    redis_session_store.set("stack:last_startup", utc_now().isoformat(), ttl_seconds=3600)
+    vector_store.upsert_text(
+        item_id="stack_bootstrap",
+        text="CodeForge startup heartbeat",
+        metadata={"source": "startup"},
+    )
 
-RATE_LIMIT_PER_MINUTE = int(os.getenv("CODEFORGE_RATE_LIMIT_PER_MINUTE", "60"))
+    yield
 
+    await cowork_service.stop()
+
+
+app = FastAPI(title="CodeForge API", version="0.1.0", lifespan=lifespan)
 
 def _enforce_rate_limit(scope: str, identity: str, limit: int) -> None:
     window = int(time.time() // 60)
@@ -244,6 +260,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(platform_router.router)
+
 
 @app.middleware("http")
 async def attach_trace_id(request: Request, call_next):
@@ -252,61 +270,6 @@ async def attach_trace_id(request: Request, call_next):
     if trace_id:
         response.headers["x-trace-id"] = trace_id
     return response
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    init_db()
-    configure_tracing(app)
-    await cowork_service.start()
-
-    # Seed stack-level heartbeat keys for diagnostics.
-    redis_session_store.set("stack:last_startup", utc_now().isoformat(), ttl_seconds=3600)
-    vector_store.upsert_text(
-        item_id="stack_bootstrap",
-        text="CodeForge startup heartbeat",
-        metadata={"source": "startup"},
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await cowork_service.stop()
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/api/v1/platform/stack-status")
-def platform_stack_status(user: AuthUser = Depends(get_current_user_optional)) -> dict[str, object]:
-    _ = user
-    return {
-        "status": "ok",
-        "redis": {
-            "backend": redis_session_store.backend,
-            "healthy": redis_session_store.ping(),
-        },
-        "vector_store": {
-            "backend": vector_store.backend,
-            "healthy": vector_store.ping(),
-            "embedding_source": vector_store.embedding_source,
-        },
-        "task_queue": {
-            "backend": task_queue.backend,
-            "healthy": task_queue.health(),
-        },
-        "generation": {
-            "backend": generation_client.backend,
-        },
-    }
-
-
-@app.post("/api/v1/platform/queue-ping")
-def platform_queue_ping(user: AuthUser = Depends(get_current_user_optional)) -> dict[str, object]:
-    _ = user
-    return task_queue.enqueue("app.celery_worker.noop_task", {"source": "api"})
 
 
 @app.post("/api/v1/auth/dev-login", response_model=DevLoginResponse)
@@ -333,10 +296,10 @@ def create_session(payload: SessionCreateRequest, response: Response, user: Auth
     )
 
     _attach_trace_id(response)
-    ws_base = os.getenv("CODEFORGE_PUBLIC_WS_BASE", "ws://localhost:8000").rstrip("/")
+    api_base = os.getenv("CODEFORGE_PUBLIC_API_BASE", "http://localhost:8000").rstrip("/")
     return SessionCreateResponse(
         session_id=session_id,
-        ws_url=f"{ws_base}/api/v1/sessions/{session_id}/ws",
+        stream_url=f"{api_base}/api/v1/sessions/{session_id}/stream",
         created_at=created_at,
     )
 
@@ -777,7 +740,7 @@ def _session_project_path(session_id: str, user: AuthUser) -> str:
     session = get_session_for_user(session_id=session_id, user_id=user.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session["project_path"]
+    return resolved_project_path(session)
 
 
 @app.get("/api/v1/sessions/{session_id}/files/preview", response_model=FilePreviewResponse)
@@ -854,7 +817,7 @@ def create_cowork_plan(payload: CoworkPlanRequest, user: AuthUser = Depends(get_
         plan = cowork_service.create_plan(
             user_id=user.user_id,
             session_id=payload.session_id,
-            project_path=session["project_path"],
+            project_path=resolved_project_path(session),
             title=payload.title,
             task_type=payload.task_type,
             command=payload.command,
@@ -906,7 +869,7 @@ def create_cowork_job(payload: CoworkJobCreateRequest, user: AuthUser = Depends(
         job = cowork_service.create_job(
             user_id=user.user_id,
             session_id=payload.session_id,
-            project_path=session["project_path"],
+            project_path=resolved_project_path(session),
             title=payload.title,
             trigger_type=payload.trigger_type,
             interval_seconds=payload.interval_seconds,
@@ -957,7 +920,7 @@ async def extract_cowork_data(
         plan = cowork_service.create_plan(
             user_id=user.user_id,
             session_id=payload.session_id,
-            project_path=session["project_path"],
+            project_path=resolved_project_path(session),
             title=f"Extract data from {payload.source_path}",
             task_type="extract",
             command=None,
@@ -1025,7 +988,7 @@ def rebuild_project_knowledge(
         state = projects_team_service.rebuild_knowledge(
             user_id=user.user_id,
             session_id=payload.session_id,
-            project_path=session["project_path"],
+            project_path=resolved_project_path(session),
             title=payload.title,
         )
     except ProjectsTeamError as exc:
@@ -1191,7 +1154,7 @@ def resolve_session_share(share_id: str, user: AuthUser = Depends(get_current_us
         session_id=share["session_id"],
         owner_id=share["owner_id"],
         access_level=share["access_level"],
-        project_path=session["project_path"],
+        project_path=resolved_project_path(session),
         model_preference=session["model_preference"],
         expires_at=share["expires_at"],
     )
@@ -1444,7 +1407,7 @@ def session_git_status(session_id: str, user: AuthUser = Depends(get_current_use
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        status = git_status(session["project_path"])
+        status = git_status(resolved_project_path(session))
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1468,7 +1431,7 @@ def session_git_diff(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        diff = git_diff(session["project_path"], path)
+        diff = git_diff(resolved_project_path(session), path)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1486,7 +1449,7 @@ def session_git_log(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        log = git_log(session["project_path"], limit=limit)
+        log = git_log(resolved_project_path(session), limit=limit)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1504,7 +1467,7 @@ def session_git_stage(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        stage = git_stage(session["project_path"], payload.paths, payload.all_files)
+        stage = git_stage(resolved_project_path(session), payload.paths, payload.all_files)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1522,7 +1485,7 @@ def session_git_commit(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        commit = git_commit(session["project_path"], payload.message)
+        commit = git_commit(resolved_project_path(session), payload.message)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1540,7 +1503,7 @@ def session_git_branch(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        branch = git_branch(session["project_path"], payload.branch, create=payload.create)
+        branch = git_branch(resolved_project_path(session), payload.branch, create=payload.create)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1554,7 +1517,7 @@ def session_git_worktree_list(session_id: str, user: AuthUser = Depends(get_curr
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        result = git_worktree_list(session["project_path"])
+        result = git_worktree_list(resolved_project_path(session))
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1572,7 +1535,7 @@ def session_git_worktree_create(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        result = git_worktree_create(session["project_path"], payload.branch)
+        result = git_worktree_create(resolved_project_path(session), payload.branch)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1590,7 +1553,7 @@ def session_git_merge_assist(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        result = git_merge_assist(session["project_path"], target_branch)
+        result = git_merge_assist(resolved_project_path(session), target_branch)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1608,7 +1571,7 @@ def session_git_conflict_guide(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        result = git_conflict_resolution_guide(session["project_path"], target_branch)
+        result = git_conflict_resolution_guide(resolved_project_path(session), target_branch)
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1627,7 +1590,7 @@ def session_git_conflict_assist_apply(
 
     try:
         result = git_conflict_assisted_apply(
-            project_path=session["project_path"],
+            project_path=resolved_project_path(session),
             target_branch=payload.target_branch,
             strategy=payload.strategy,
             paths=payload.paths,
@@ -1658,7 +1621,7 @@ async def session_shell_stream(
 
     try:
         # Validate up front so blocked commands fail before the stream starts.
-        prepare_shell_execution(session["project_path"], payload.command)
+        prepare_shell_execution(resolved_project_path(session), payload.command)
     except ShellError as exc:
         add_span_event("shell.validation_failed", {"error": str(exc)})
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1667,7 +1630,7 @@ async def session_shell_stream(
         sequence = 0
         add_span_event("shell.stream_opened", {"command": payload.command})
         async for event in stream_shell_execution(
-            session["project_path"],
+            resolved_project_path(session),
             payload.command,
             timeout_seconds=payload.timeout_seconds,
         ):
@@ -1684,7 +1647,7 @@ async def session_shell_stream(
 @app.get("/api/v1/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,
-    user: AuthUser = Depends(get_current_user_optional),
+    user: AuthUser = Depends(get_current_user),
 ) -> StreamingResponse:
     _enforce_rate_limit("stream", user.user_id, RATE_LIMIT_PER_MINUTE)
     session = get_session_for_user(session_id=session_id, user_id=user.user_id)
@@ -1707,7 +1670,7 @@ async def stream_session(
             run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,
-                project_path=session.get("project_path") if session else None,
+                project_path=resolved_project_path(session) if session else None,
                 current_file=None,
             )
             trace_id = current_trace_id()
@@ -1831,7 +1794,11 @@ def decide_proposal(
     if payload.action == "approve":
         if proposal["original_content"] == proposal["proposed_content"]:
             raise HTTPException(status_code=400, detail="Proposal does not contain an applicable change")
-        applied = apply_proposed_content(session["project_path"], proposal["target_file"], proposal["proposed_content"])
+        applied = apply_proposed_content(
+            resolved_project_path(session),
+            proposal["target_file"],
+            proposal["proposed_content"],
+        )
         if not applied:
             raise HTTPException(status_code=400, detail="Unable to apply proposal safely")
         next_status = "approved"

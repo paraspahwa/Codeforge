@@ -1,5 +1,5 @@
 {
-  "family": "codeforge-api-production-task",
+  "family": "codeforge-worker-production-task",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [
     "FARGATE"
@@ -10,58 +10,30 @@
   "taskRoleArn": "arn:aws:iam::111111111111:role/codeforgeApiTaskRoleProd",
   "containerDefinitions": [
     {
-      "name": "codeforge-api",
+      "name": "codeforge-worker",
       "image": "111111111111.dkr.ecr.ap-south-1.amazonaws.com/codeforge-api:latest",
       "essential": true,
-      "portMappings": [
-        {
-          "containerPort": 8000,
-          "hostPort": 8000,
-          "protocol": "tcp"
-        }
+      "command": [
+        "celery",
+        "-A",
+        "app.celery_worker:celery_app",
+        "worker",
+        "--loglevel=info"
       ],
       "environment": [
-        {
-          "name": "OTEL_SERVICE_NAME",
-          "value": "codeforge-api"
-        },
-        {
-          "name": "OTEL_ENVIRONMENT",
-          "value": "production"
-        },
         {
           "name": "CODEFORGE_ENV",
           "value": "production"
         },
         {
-          "name": "OPENAI_BASE_URL",
-          "value": "https://api.openai.com/v1"
-        },
-        {
-          "name": "CODEFORGE_SYNTHESIS_MODEL",
-          "value": "gpt-4o-mini"
+          "name": "OTEL_ENVIRONMENT",
+          "value": "production"
         }
       ],
       "secrets": [
         {
           "name": "DATABASE_URL",
           "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/prod/DATABASE_URL"
-        },
-        {
-          "name": "SUPABASE_JWT_SECRET",
-          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/prod/SUPABASE_JWT_SECRET"
-        },
-        {
-          "name": "RAZORPAY_KEY_ID",
-          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/prod/RAZORPAY_KEY_ID"
-        },
-        {
-          "name": "RAZORPAY_KEY_SECRET",
-          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/prod/RAZORPAY_KEY_SECRET"
-        },
-        {
-          "name": "OPENAI_API_KEY",
-          "valueFrom": "arn:aws:ssm:ap-south-1:111111111111:parameter/codeforge/prod/OPENAI_API_KEY"
         },
         {
           "name": "REDIS_URL",
@@ -83,7 +55,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/codeforge-api-prod",
+          "awslogs-group": "/ecs/codeforge-worker-prod",
           "awslogs-region": "ap-south-1",
           "awslogs-stream-prefix": "ecs"
         }

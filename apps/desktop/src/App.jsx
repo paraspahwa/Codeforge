@@ -25,8 +25,8 @@ import {
 } from "./api";
 
 export default function App() {
-  const [userId, setUserId] = useState("paras");
-  const [projectPath, setProjectPath] = useState("c:/Users/paras/Codeforge");
+  const [userId, setUserId] = useState(import.meta.env.VITE_CODEFORGE_USER_ID || "dev-user");
+  const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || "");
   const [token, setToken] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState("");

@@ -27,7 +27,7 @@ import {
 import { formatEvent } from "@codeforge/shared/sse";
 
 const DEFAULT_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
-const DEFAULT_USER_ID = process.env.CODEFORGE_USER_ID || "paras";
+const DEFAULT_USER_ID = process.env.CODEFORGE_USER_ID || "dev-user";
 const DEFAULT_PROJECT_PATH = process.cwd();
 const DEFAULT_MODEL = process.env.CODEFORGE_MODEL || "deepseek-v4-flash";
 const MAX_MESSAGES = 30;

@@ -2,7 +2,7 @@ const vscode = acquireVsCodeApi();
 
 const state = {
   baseUrl: "http://127.0.0.1:8000",
-  userId: "paras",
+  userId: "dev-user",
   workspacePath: "",
   currentFile: "",
   selectionPreview: "",

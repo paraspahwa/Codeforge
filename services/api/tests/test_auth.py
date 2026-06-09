@@ -5,7 +5,7 @@ import os
 import pytest
 from fastapi import HTTPException
 
-from app.auth import AuthUser, _token_to_user_id, dev_auth_enabled
+from app.auth import AuthUser, _token_to_user_id, dev_auth_enabled, get_current_user_optional
 
 
 def test_dev_auth_enabled_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -34,3 +34,15 @@ def test_invalid_token_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_auth_user_dataclass() -> None:
     user = AuthUser(user_id="test-user")
     assert user.user_id == "test-user"
+
+
+def test_optional_auth_allows_anonymous_access() -> None:
+    assert get_current_user_optional(None) is None
+    assert get_current_user_optional("Basic abc") is None
+
+
+def test_optional_auth_accepts_dev_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_ENV", "development")
+    user = get_current_user_optional("Bearer dev_ci-bot")
+    assert user is not None
+    assert user.user_id == "ci-bot"
