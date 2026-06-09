@@ -59,6 +59,22 @@ export default function ChatPage() {
     getUsageSummary(token)
       .then(setUsage)
       .catch(() => undefined);
+
+    const resumeSessionId = localStorage.getItem("codeforge_resume_session");
+    if (resumeSessionId) {
+      localStorage.removeItem("codeforge_resume_session");
+      listMessages(resumeSessionId, token)
+        .then((stored) => {
+          setSessionId(resumeSessionId);
+          setMessages(
+            stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
+          );
+          setAgentEvents([]);
+          setPendingProposal(null);
+          toast.push(`Resumed session ${resumeSessionId}`, "success");
+        })
+        .catch((error) => toast.push(error.message));
+    }
     // toast is stable; refresh only when auth changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, token]);

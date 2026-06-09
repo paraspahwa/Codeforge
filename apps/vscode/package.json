@@ -52,6 +52,10 @@
       {
         "command": "codeforge.refreshProposalDiff",
         "title": "CodeForge: Refresh Proposal Git Diff"
+      },
+      {
+        "command": "codeforge.runAgentLoop",
+        "title": "CodeForge: Run Verify / Fix Loop"
       }
     ],
     "menus": {

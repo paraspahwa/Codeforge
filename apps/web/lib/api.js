@@ -1,4 +1,5 @@
 import * as shared from "@codeforge/shared/api";
+import { createSessionStream } from "@codeforge/shared/agent";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -98,12 +99,16 @@ export async function createSessionShare(token, sessionId, accessLevel = "view",
   return shared.createSessionShare(API_BASE, token, sessionId, accessLevel, expiresInHours);
 }
 
-export async function sendMessage(sessionId, content, token) {
-  return shared.sendMessage(API_BASE, token, sessionId, { content, context: null });
+export async function sendMessage(sessionId, content, token, context = null) {
+  return shared.sendMessage(API_BASE, token, sessionId, { content, context });
 }
 
 export async function getProposal(sessionId, proposalId, token) {
   return shared.getProposal(API_BASE, token, sessionId, proposalId);
+}
+
+export async function listProposals(sessionId, token, limit = 50) {
+  return shared.listProposals(API_BASE, token, sessionId, limit);
 }
 
 export async function decideProposal(sessionId, proposalId, action, token) {
@@ -115,66 +120,5 @@ export async function listMessages(sessionId, token) {
 }
 
 export function streamSession(sessionId, token, onData) {
-  const controller = new AbortController();
-  const handle = {
-    close: () => controller.abort(),
-    onerror: null,
-  };
-
-  (async () => {
-    const response = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/stream`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "text/event-stream",
-      },
-      signal: controller.signal,
-    });
-
-    if (!response.ok || !response.body) {
-      throw new Error(`Streaming failed with status ${response.status}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-
-      let boundary;
-      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-        const chunk = buffer.slice(0, boundary).trim();
-        buffer = buffer.slice(boundary + 2);
-
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) {
-            continue;
-          }
-          const payload = line.slice(6).trim();
-          if (!payload) {
-            continue;
-          }
-          try {
-            onData(JSON.parse(payload));
-          } catch {
-            onData({ type: "token", content: payload });
-          }
-        }
-      }
-    }
-  })().catch((error) => {
-    if (controller.signal.aborted) {
-      return;
-    }
-    if (typeof handle.onerror === "function") {
-      handle.onerror(error);
-    }
-  });
-
-  return handle;
+  return createSessionStream(API_BASE, token, sessionId, onData);
 }

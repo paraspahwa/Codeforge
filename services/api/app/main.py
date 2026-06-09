@@ -31,6 +31,7 @@ from .projects_team import ProjectsTeamError, projects_team_service
 from .db import (
     insert_cowork_reliability_snapshot,
     get_agent_proposal_for_user,
+    list_agent_proposals_for_session,
     list_cowork_reliability_snapshots,
     get_routing_benchmark_baseline,
     get_usage_summary_for_user,
@@ -1795,6 +1796,20 @@ async def stream_session(
             )
 
     return _attach_trace_id(StreamingResponse(event_generator(), media_type="text/event-stream"))
+
+
+@app.get("/api/v1/sessions/{session_id}/proposals", response_model=list[AgentProposal])
+def list_proposals(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[AgentProposal]:
+    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    rows = list_agent_proposals_for_session(session_id=session_id, user_id=user.user_id, limit=limit)
+    return [AgentProposal(**row) for row in rows]
 
 
 @app.get("/api/v1/sessions/{session_id}/proposals/{proposal_id}", response_model=AgentProposal)

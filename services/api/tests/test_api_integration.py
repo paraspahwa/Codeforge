@@ -79,3 +79,24 @@ def test_agent_loop_endpoint(client, tmp_path: Path, monkeypatch) -> None:
     body = response.json()
     assert body["passed"] is True
     assert body["session_id"] == session_id
+
+
+def test_list_proposals_endpoint(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "proposal-demo"
+    project.mkdir()
+
+    login = client.post("/api/v1/auth/dev-login", json={"user_id": "proposal-list-user"})
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"project_path": str(project), "model_preference": "auto"},
+    )
+    session_id = created.json()["session_id"]
+
+    response = client.get(f"/api/v1/sessions/{session_id}/proposals", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == []

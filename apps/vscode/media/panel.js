@@ -10,6 +10,9 @@ const state = {
   currentSessionId: "",
   sessions: [],
   events: [],
+  chatMessages: [],
+  loopVerify: "pytest -q",
+  loopSummary: "",
   proposalId: "",
   proposalStatus: "",
   proposal: null,
@@ -67,7 +70,7 @@ function render() {
         </div>
         <div class="status">
           <span>${state.currentSessionId ? `Session ${escapeHtml(state.currentSessionId)}` : "No session"}</span>
-          <span>${state.usage ? `Usage ${state.usage.total_requests}/${state.usage.request_limit}` : "Usage unavailable"}</span>
+          <span>${state.usage ? `Usage ${state.usage.requests_used_in_period ?? state.usage.total_requests}/${state.usage.request_limit} (${state.usage.requests_remaining} left)` : "Usage unavailable"}</span>
         </div>
         <div class="context-strip">
           <div class="context-chip">
@@ -101,6 +104,15 @@ function render() {
         ${state.lastError ? `<p class="error">${escapeHtml(state.lastError)}</p>` : ""}
       </section>
 
+      <section class="card">
+        <h2>Verify / Fix Loop</h2>
+        <div class="actions">
+          <input id="loopVerify" value="${escapeHtml(state.loopVerify)}" ${state.busy ? "disabled" : ""} />
+          <button data-action="runAgentLoop" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Run Loop</button>
+        </div>
+        ${state.loopSummary ? `<p class="hint">${escapeHtml(state.loopSummary)}</p>` : ""}
+      </section>
+
       <section class="grid split">
         <div class="card">
           <h2>Sessions</h2>
@@ -130,9 +142,22 @@ function render() {
         </div>
       </section>
 
-      <section class="card">
-        <h2>Activity</h2>
-        <pre class="log">${escapeHtml(state.events.join("\n"))}</pre>
+      <section class="grid split">
+        <div class="card">
+          <h2>Session Messages</h2>
+          <div class="session-list">
+            ${state.chatMessages.length === 0 ? '<p class="muted">No saved messages for this session.</p>' : state.chatMessages.slice(-8).map((message) => `
+              <div class="session-item">
+                <strong>${escapeHtml(message.role)}</strong>
+                <span>${escapeHtml((message.content || "").slice(0, 180))}</span>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="card">
+          <h2>Activity</h2>
+          <pre class="log">${escapeHtml(state.events.join("\n"))}</pre>
+        </div>
       </section>
     </div>
   `;
@@ -173,6 +198,12 @@ function render() {
       }
       if (action === "refreshProposalDiff") {
         vscode.postMessage({ type: "refreshProposalDiff" });
+      }
+      if (action === "runAgentLoop") {
+        vscode.postMessage({
+          type: "runAgentLoop",
+          verifyCommand: document.getElementById("loopVerify").value.trim(),
+        });
       }
     });
   });

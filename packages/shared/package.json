@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./api": "./src/api.js",
+    "./agent": "./src/agentClient.js",
     "./sse": "./src/sse.js"
   }
 }

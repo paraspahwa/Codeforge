@@ -27,6 +27,9 @@ function initialState(context) {
     sessions: [],
     events: [],
     messages: [],
+    chatMessages: [],
+    loopVerify: "pytest -q",
+    loopSummary: "",
     proposalId: "",
     proposalStatus: "",
     proposal: null,
@@ -290,7 +293,7 @@ async function login(context, baseUrl, userId) {
 }
 
 async function streamPrompt(context, prompt, currentFile) {
-  const api = await loadSharedModule(context, "api.js");
+  const agent = await loadSharedModule(context, "agentClient.js");
   const sse = await loadSharedModule(context, "sse.js");
   const sessionId = await ensureSession(context);
   panelState.events = [];
@@ -300,19 +303,27 @@ async function streamPrompt(context, prompt, currentFile) {
   panelState.proposal = null;
   panelState.diffPreview = null;
   panelState.approvalRequest = null;
+  panelState.loopSummary = "";
   postState();
 
-  const response = await api.sendMessage(panelState.baseUrl, panelState.token, sessionId, {
-    content: prompt,
-    context: currentFile ? { current_file: currentFile } : null,
+  const routeContext = agent.buildMessageContext({
+    workspacePath: panelState.workspacePath || getWorkspacePath(),
+    activeFile: currentFile || getCurrentFile(),
+    selection: getSelectionText() || null,
   });
 
-  panelState.lastIntent = response.intent || "";
-  panelState.lastModel = response.model_used || "";
-  panelState.lastRoutingReason = response.routing_reason || "";
-  pushEvent(`route:${response.intent}:${response.model_used}`);
-
-  for await (const event of api.streamSessionEvents(panelState.baseUrl, panelState.token, sessionId)) {
+  for await (const event of agent.runChatTurn(panelState.baseUrl, panelState.token, sessionId, {
+    content: prompt,
+    context: routeContext,
+  })) {
+    if (event.type === "route") {
+      const response = event.payload || {};
+      panelState.lastIntent = response.intent || "";
+      panelState.lastModel = response.model_used || "";
+      panelState.lastRoutingReason = response.routing_reason || "";
+      pushEvent(`route:${response.intent}:${response.model_used}`);
+      continue;
+    }
     const summary = sse.formatEvent(event);
     const payload = event?.payload || {};
     panelState.messages = [...panelState.messages, event].slice(-120);
@@ -343,6 +354,34 @@ async function streamPrompt(context, prompt, currentFile) {
   if (panelState.proposalId) {
     await refreshProposal(context, panelState.proposalId);
   }
+
+  const api = await loadSharedModule(context, "api.js");
+  panelState.chatMessages = await api.listMessages(panelState.baseUrl, panelState.token, sessionId);
+  await refreshUsage(context);
+}
+
+async function runAgentLoop(context, verifyCommand) {
+  const api = await loadSharedModule(context, "api.js");
+  const sessionId = await ensureSession(context);
+  const result = await api.runAgentLoop(panelState.baseUrl, panelState.token, sessionId, {
+    verify_command: verifyCommand,
+    prompt: "Fix verification failures with minimal safe edits.",
+    max_attempts: 3,
+    auto_apply: true,
+    current_file: getCurrentFile() || null,
+  });
+
+  panelState.loopSummary = result.message;
+  pushEvent(result.passed ? `loop:passed:${result.message}` : `loop:failed:${result.message}`);
+  for (const attempt of result.attempts || []) {
+    pushEvent(`loop:attempt:${attempt.attempt}:exit:${attempt.verify_exit_code}`);
+    if (attempt.proposal_id) {
+      panelState.proposalId = attempt.proposal_id;
+      await refreshProposal(context, attempt.proposal_id);
+    }
+  }
+
+  panelState.chatMessages = await api.listMessages(panelState.baseUrl, panelState.token, sessionId);
   await refreshUsage(context);
 }
 
@@ -436,12 +475,26 @@ function ensurePanel(context) {
       }
 
       if (message.type === "selectSession") {
+        setBusy(true);
+        setError("");
         panelState.currentSessionId = message.sessionId || "";
         panelState.proposalId = "";
         panelState.proposalStatus = "";
         panelState.proposal = null;
         panelState.diffPreview = null;
         panelState.approvalRequest = null;
+        panelState.loopSummary = "";
+        if (panelState.token && panelState.currentSessionId) {
+          const api = await loadSharedModule(context, "api.js");
+          panelState.chatMessages = await api.listMessages(
+            panelState.baseUrl,
+            panelState.token,
+            panelState.currentSessionId,
+          );
+        } else {
+          panelState.chatMessages = [];
+        }
+        setBusy(false);
         postState();
         return;
       }
@@ -480,6 +533,15 @@ function ensurePanel(context) {
         setBusy(true);
         setError("");
         await refreshProposalGitDiff(context);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "runAgentLoop") {
+        setBusy(true);
+        setError("");
+        panelState.loopVerify = message.verifyCommand || panelState.loopVerify || "pytest -q";
+        await runAgentLoop(context, panelState.loopVerify);
         setBusy(false);
       }
     } catch (error) {
@@ -533,6 +595,26 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("codeforge.refreshProposalDiff", async () => {
       await refreshProposalGitDiff(context);
+    }),
+    vscode.commands.registerCommand("codeforge.runAgentLoop", async () => {
+      const panel = ensurePanel(context);
+      const verifyCommand = await vscode.window.showInputBox({
+        prompt: "Verification command for the agent loop",
+        value: panelState?.loopVerify || "pytest -q",
+      });
+      if (!verifyCommand) {
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        await runAgentLoop(context, verifyCommand);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusy(false);
+      }
+      panel.reveal(vscode.ViewColumn.Beside);
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
       if (panelRef && panelState) {

@@ -65,6 +65,11 @@ export async function sendMessage(baseUrl, token, sessionId, payload) {
   });
 }
 
+export async function listProposals(baseUrl, token, sessionId, limit = 50) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals?${query}`, { token });
+}
+
 export async function getProposal(baseUrl, token, sessionId, proposalId) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/proposals/${proposalId}`, { token });
 }

@@ -626,6 +626,25 @@ def insert_agent_proposal(
     )
 
 
+def list_agent_proposals_for_session(
+    session_id: str,
+    user_id: str,
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    return _fetchall(
+        """
+        SELECT proposal_id, session_id, user_id, target_file, prompt, patch_preview,
+               status, created_at, resolved_at
+        FROM agent_proposals
+        WHERE session_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (session_id, user_id, limit),
+    )
+
+
 def get_agent_proposal_for_user(proposal_id: str, session_id: str, user_id: str) -> dict[str, Any] | None:
     return _fetchone(
         """

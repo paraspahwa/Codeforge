@@ -101,6 +101,10 @@ export async function sendMessage(token, sessionId, content, projectPath, active
   });
 }
 
+export async function listProposals(token, sessionId, limit = 50) {
+  return shared.listProposals(API_BASE, token, sessionId, limit);
+}
+
 export async function getProposal(token, sessionId, proposalId) {
   return shared.getProposal(API_BASE, token, sessionId, proposalId);
 }

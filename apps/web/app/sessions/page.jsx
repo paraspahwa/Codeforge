@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createSessionShare,
   exportSession,
   listMessages,
+  listProposals,
   listSessions,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { useToast } from "../../lib/toast-context";
+
+const REPLAY_INTERVAL_MS = 2200;
 
 export default function SessionsPage() {
   const { token, ready } = useAuth();
@@ -18,11 +22,27 @@ export default function SessionsPage() {
   const [sessions, setSessions] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
   const [replayMessages, setReplayMessages] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exportFormat, setExportFormat] = useState("json");
   const [shareAccess, setShareAccess] = useState("view");
   const [shareExpiry, setShareExpiry] = useState(72);
   const [shareResult, setShareResult] = useState(null);
+  const playTimerRef = useRef(null);
+
+  const selectedMeta = useMemo(
+    () => sessions.find((entry) => entry.session_id === selectedSession) || null,
+    [selectedSession, sessions],
+  );
+
+  const visibleMessages = useMemo(() => {
+    if (replayMessages.length === 0) {
+      return [];
+    }
+    return replayMessages.slice(0, replayIndex + 1);
+  }, [replayIndex, replayMessages]);
 
   useEffect(() => {
     if (!ready || !token) {
@@ -36,18 +56,100 @@ export default function SessionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, token]);
 
+  useEffect(() => {
+    return () => {
+      if (playTimerRef.current) {
+        window.clearInterval(playTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!playing || replayMessages.length === 0) {
+      if (playTimerRef.current) {
+        window.clearInterval(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      return;
+    }
+
+    playTimerRef.current = window.setInterval(() => {
+      setReplayIndex((previous) => {
+        if (previous >= replayMessages.length - 1) {
+          setPlaying(false);
+          return previous;
+        }
+        return previous + 1;
+      });
+    }, REPLAY_INTERVAL_MS);
+
+    return () => {
+      if (playTimerRef.current) {
+        window.clearInterval(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+    };
+  }, [playing, replayMessages.length]);
+
   async function handleSelect(sessionId) {
     setLoading(true);
     setShareResult(null);
+    setPlaying(false);
     try {
-      const messages = await listMessages(sessionId, token);
+      const [messages, sessionProposals] = await Promise.all([
+        listMessages(sessionId, token),
+        listProposals(sessionId, token),
+      ]);
       setSelectedSession(sessionId);
       setReplayMessages(messages);
+      setProposals(sessionProposals);
+      setReplayIndex(messages.length > 0 ? 0 : -1);
     } catch (error) {
       toast.push(error.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleReplayFirst() {
+    setPlaying(false);
+    setReplayIndex(replayMessages.length > 0 ? 0 : -1);
+  }
+
+  function handleReplayPrev() {
+    setPlaying(false);
+    setReplayIndex((previous) => Math.max(0, previous - 1));
+  }
+
+  function handleReplayNext() {
+    setPlaying(false);
+    setReplayIndex((previous) => Math.min(replayMessages.length - 1, previous + 1));
+  }
+
+  function handleReplayLast() {
+    setPlaying(false);
+    setReplayIndex(Math.max(0, replayMessages.length - 1));
+  }
+
+  function handleTogglePlay() {
+    if (replayMessages.length === 0) {
+      return;
+    }
+    if (replayIndex >= replayMessages.length - 1) {
+      setReplayIndex(0);
+    }
+    setPlaying((previous) => !previous);
+  }
+
+  function handleResumeInChat() {
+    if (!selectedSession) {
+      return;
+    }
+    if (selectedMeta?.project_path) {
+      localStorage.setItem("codeforge_project_path", selectedMeta.project_path);
+    }
+    localStorage.setItem("codeforge_resume_session", selectedSession);
+    toast.push("Opening chat with this session", "success");
   }
 
   async function handleExport() {
@@ -121,6 +223,7 @@ export default function SessionsPage() {
             >
               <span>{entry.session_id}</span>
               <span className="small"> {new Date(entry.created_at).toLocaleString()}</span>
+              {entry.project_path ? <span className="small block">{entry.project_path}</span> : null}
             </button>
           ))}
         </div>
@@ -132,6 +235,50 @@ export default function SessionsPage() {
 
         {selectedSession ? (
           <>
+            {selectedMeta ? (
+              <div className="order-card mt-8">
+                <div className="small">
+                  <strong>Project:</strong> {selectedMeta.project_path}
+                </div>
+                <div className="small">
+                  <strong>Created:</strong> {new Date(selectedMeta.created_at).toLocaleString()}
+                </div>
+                <div className="small">
+                  <strong>Messages:</strong> {replayMessages.length} · <strong>Proposals:</strong> {proposals.length}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="replay-toolbar mt-8">
+              <button type="button" onClick={handleReplayFirst} disabled={loading || replayMessages.length === 0}>
+                First
+              </button>
+              <button type="button" onClick={handleReplayPrev} disabled={loading || replayIndex <= 0}>
+                Prev
+              </button>
+              <button type="button" onClick={handleTogglePlay} disabled={loading || replayMessages.length === 0}>
+                {playing ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                onClick={handleReplayNext}
+                disabled={loading || replayIndex >= replayMessages.length - 1}
+              >
+                Next
+              </button>
+              <button type="button" onClick={handleReplayLast} disabled={loading || replayMessages.length === 0}>
+                Last
+              </button>
+              <span className="small replay-progress">
+                {replayMessages.length > 0
+                  ? `Step ${replayIndex + 1} / ${replayMessages.length}`
+                  : "No messages"}
+              </span>
+              <Link href="/" className="ghost-btn inline-btn" onClick={handleResumeInChat}>
+                Resume in Chat
+              </Link>
+            </div>
+
             <div className="replay-toolbar">
               <select
                 aria-label="Export format"
@@ -179,10 +326,29 @@ export default function SessionsPage() {
               </div>
             ) : null}
 
+            {proposals.length > 0 ? (
+              <div className="mt-8">
+                <h3>Proposals</h3>
+                <div className="proposal-replay-list">
+                  {proposals.map((proposal) => (
+                    <details key={proposal.proposal_id} className="proposal-replay-item">
+                      <summary>
+                        {proposal.target_file} · {proposal.status} · {proposal.proposal_id}
+                      </summary>
+                      <pre className="msg-content">{proposal.patch_preview || "(no preview)"}</pre>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="chat-log chat-log-tall mt-8">
               {replayMessages.length === 0 ? <p className="small">This session has no messages.</p> : null}
-              {replayMessages.map((msg) => (
-                <div className={`msg ${msg.role}`} key={msg.message_id}>
+              {visibleMessages.map((msg, index) => (
+                <div
+                  className={`msg ${msg.role} ${index === replayIndex ? "msg-active" : ""}`}
+                  key={msg.message_id}
+                >
                   <strong>{msg.role === "user" ? "User" : "CodeForge"}</strong>
                   <div className="msg-content">{msg.content}</div>
                   {msg.created_at ? (
