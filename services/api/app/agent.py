@@ -10,7 +10,7 @@ import httpx
 
 from .file_ops import build_patch_preview, infer_target_file, read_file_content, read_file_excerpt
 from .patch_generator import generate_proposed_content_async
-from .model_router import GenerationClient, choose_model
+from .model_router import GenerationClient, model_for_tier
 from .models import AgentEvent, utc_now
 from .tracing import add_span_event, set_span_attributes, traced_span
 
@@ -503,12 +503,29 @@ def classify_request(prompt: str) -> tuple[str, str, float]:
     return decision.intent, decision.model_used, decision.estimated_cost_usd
 
 
+def _enforce_routing_policy(decision: RoutingDecision) -> RoutingDecision:
+    routed = model_for_tier(decision.routing_tier)
+    decision.model_used = routed.model
+    decision.reason = f"{decision.reason} Policy-bound model: {routed.provider}:{routed.model} ({routed.reason})."
+
+    if decision.routing_tier in {"fallback_opus", "fallback_sonnet"}:
+        decision.fallback_used = True
+        decision.review_required = True
+    elif decision.routing_tier in {"cached_pattern", "local_rule", "deepseek_flash", "deepseek_pro", "clarify_first"}:
+        decision.fallback_used = False
+
+    if decision.fallback_used:
+        decision.review_required = True
+
+    if decision.confidence_label == "low":
+        decision.review_required = True
+
+    return decision
+
+
 def route_request(prompt: str) -> RoutingDecision:
     decision = _classify_intent(prompt)
-    routed = choose_model(prompt)
-    decision.model_used = routed.model
-    decision.reason = f"{decision.reason} Model router selected {routed.provider}:{routed.model} ({routed.reason})."
-    return decision
+    return _enforce_routing_policy(decision)
 
 
 def _repository_routing_cases() -> list[RoutingBenchmarkCase]:

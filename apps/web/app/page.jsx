@@ -176,6 +176,12 @@ export default function ChatPage() {
           pushAgentEvents([
             `run: ${evt.payload?.intent ?? "unknown"} via ${evt.payload?.model ?? "unknown"}`,
             evt.payload?.reason ? `why: ${evt.payload.reason}` : null,
+            evt.payload?.confidence_label
+              ? `confidence: ${evt.payload.confidence_label} (${Math.round((evt.payload.confidence_score ?? 0) * 100)}%)`
+              : null,
+            evt.payload?.review_required ? "review: human review recommended" : null,
+            evt.payload?.routing_tier ? `tier: ${evt.payload.routing_tier}` : null,
+            evt.payload?.fallback_used ? "route: fallback model path" : null,
           ]);
         }
 
@@ -219,6 +225,12 @@ export default function ChatPage() {
         }
 
         if (evt.type === "complete") {
+          pushAgentEvents([
+            evt.payload?.confidence_label
+              ? `final confidence: ${evt.payload.confidence_label} (${Math.round((evt.payload.confidence_score ?? 0) * 100)}%)`
+              : null,
+            evt.payload?.review_required ? "final review: human review recommended" : null,
+          ]);
           source.close();
           getUsageSummary(token).then(setUsage).catch(() => undefined);
           setLoading(false);

@@ -67,6 +67,42 @@ function truncate(text, limit) {
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
+function formatRoutingSignal(signal) {
+  if (!signal) {
+    return "Routing: awaiting prompt";
+  }
+
+  const confidence = `${signal.confidence_label || "unknown"} ${Math.round((signal.confidence_score || 0) * 100)}%`;
+  const review = signal.review_required ? " | review required" : "";
+  const tier = signal.routing_tier ? ` | tier ${signal.routing_tier}` : "";
+  const fallback = signal.fallback_used ? " | fallback path" : "";
+  return `Routing: ${signal.intent || "unknown"} via ${signal.model_used || "unknown"} | confidence ${confidence}${review}${tier}${fallback}`;
+}
+
+function routingSignalFromPayload(payload = {}) {
+  return {
+    intent: payload.intent,
+    model_used: payload.model,
+    confidence_score: payload.confidence_score,
+    confidence_label: payload.confidence_label,
+    review_required: Boolean(payload.review_required),
+    routing_tier: payload.routing_tier,
+    fallback_used: Boolean(payload.fallback_used),
+  };
+}
+
+function routingSignalFromMessageResponse(response = {}) {
+  return {
+    intent: response.intent,
+    model_used: response.model_used,
+    confidence_score: response.confidence_score,
+    confidence_label: response.confidence_label,
+    review_required: Boolean(response.review_required),
+    routing_tier: response.routing_tier,
+    fallback_used: Boolean(response.fallback_used),
+  };
+}
+
 function splitPreview(text, limit = MAX_DIFF_LINES) {
   if (!text) {
     return ["No diff yet."];
@@ -266,6 +302,7 @@ function App() {
   const [currentProposal, setCurrentProposal] = useState(null);
   const [activePlan, setActivePlan] = useState(null);
   const [loopState, setLoopState] = useState({ running: false, lastSummary: "" });
+  const [routingSignal, setRoutingSignal] = useState(null);
   const [error, setError] = useState("");
 
   const currentSession = useMemo(
@@ -299,8 +336,18 @@ function App() {
 
       pushEvent(formatEvent(event));
 
-      if (event.type === "run_started" && event.payload?.proposal_id) {
-        proposalId = event.payload.proposal_id;
+      if (event.type === "run_started") {
+        setRoutingSignal(routingSignalFromPayload(event.payload));
+        if (event.payload?.proposal_id) {
+          proposalId = event.payload.proposal_id;
+        }
+      }
+
+      if (event.type === "complete") {
+        setRoutingSignal((previous) => ({
+          ...(previous || {}),
+          ...routingSignalFromPayload(event.payload),
+        }));
       }
 
       if ((event.type === "diff" || event.type === "approval_request") && event.payload?.proposal_id) {
@@ -1283,8 +1330,11 @@ function App() {
         },
       });
 
-      pushEvent(`Model: ${created.model_used} | ${created.intent} | ${created.routing_reason}`);
-      pushEvent(`est. cost INR ${created.estimated_cost}`);
+      const nextRoutingSignal = routingSignalFromMessageResponse(created);
+      setRoutingSignal(nextRoutingSignal);
+      pushEvent(formatRoutingSignal(nextRoutingSignal));
+      pushEvent(`why: ${created.routing_reason || "n/a"}`);
+      pushEvent(`est. cost USD ${created.estimated_cost}`);
 
       let assistantText = "";
       for await (const event of streamSessionEvents(baseUrl, token, sessionId)) {
@@ -1296,14 +1346,21 @@ function App() {
 
         pushEvent(formatEvent(event));
 
-        if (event.type === "run_started" && event.payload?.proposal_id) {
-          pushEvent(`proposal:${event.payload.proposal_id}`);
-          setReviewTitle(`Proposal ${event.payload.proposal_id}`);
-          setCurrentProposalId(event.payload.proposal_id);
-          loadProposal(event.payload.proposal_id, token).catch(() => null);
+        if (event.type === "run_started") {
+          setRoutingSignal(routingSignalFromPayload(event.payload));
+          if (event.payload?.proposal_id) {
+            pushEvent(`proposal:${event.payload.proposal_id}`);
+            setReviewTitle(`Proposal ${event.payload.proposal_id}`);
+            setCurrentProposalId(event.payload.proposal_id);
+            loadProposal(event.payload.proposal_id, token).catch(() => null);
+          }
         }
 
         if (event.type === "complete") {
+          setRoutingSignal((previous) => ({
+            ...(previous || {}),
+            ...routingSignalFromPayload(event.payload),
+          }));
           const proposalSuffix = event.payload?.proposal_id ? ` | proposal ${event.payload.proposal_id}` : "";
           pushEvent(`Completed in ${event.payload?.output_tokens || event.tokens || 0} tokens${proposalSuffix}`);
         }
@@ -1479,7 +1536,12 @@ function App() {
   const eventLines = events.length ? events : ["Waiting for activity..."];
   const treeLines = buildFileTree(projectPath);
   const diffLines = splitPreview(diffPreview || gitSummary, MAX_DIFF_LINES);
-  const reviewLines = [reviewTitle, ...diffLines].slice(0, MAX_DIFF_LINES + 1);
+  const reviewLines = [
+    reviewTitle,
+    truncate(formatRoutingSignal(routingSignal), 78),
+    ...(routingSignal?.review_required ? ["Human review recommended before apply."] : []),
+    ...diffLines,
+  ].slice(0, MAX_DIFF_LINES + 2);
   const shellLines = shellPreview ? shellPreview.split("\n").slice(0, 4) : ["No shell output yet."];
   const paletteHint = paletteOpen ? (findPaletteAction(paletteDraft)?.label || "Type to filter actions") : `Mode: ${activeMode}`;
   const shortcutHint = getModeHint(activeMode);
@@ -1496,7 +1558,10 @@ function App() {
         </Text>
       </Box>
       <Text dimColor>
-        {baseUrl} | model {DEFAULT_MODEL} | project {truncate(projectPath, 36)}
+        {baseUrl} | model {routingSignal?.model_used || DEFAULT_MODEL} | project {truncate(projectPath, 36)}
+      </Text>
+      <Text color={routingSignal?.review_required ? "yellow" : "green"}>
+        {truncate(formatRoutingSignal(routingSignal), 110)}
       </Text>
       <Text dimColor>{shortcutHint}</Text>
       <Newline />

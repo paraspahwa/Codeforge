@@ -12,13 +12,60 @@ class RoutedModel:
     reason: str
 
 
+def model_for_tier(routing_tier: str) -> RoutedModel:
+    tier = (routing_tier or "deepseek_flash").strip().lower()
+    if tier == "fallback_opus":
+        return RoutedModel(
+            "anthropic",
+            os.getenv("CODEFORGE_FRONTIER_MODEL", "claude-opus-4.1"),
+            "frontier_fallback",
+        )
+    if tier == "fallback_sonnet":
+        return RoutedModel(
+            "anthropic",
+            os.getenv("CODEFORGE_FALLBACK_MODEL", "claude-sonnet-4.6"),
+            "hard_debug",
+        )
+    if tier == "deepseek_pro":
+        return RoutedModel(
+            "deepseek",
+            os.getenv("CODEFORGE_COMPLEX_MODEL", "deepseek-v4-pro"),
+            "complex_request",
+        )
+    if tier in {"cached_pattern"}:
+        return RoutedModel("local", "context-cache", "cached_pattern")
+    if tier in {"local_rule"}:
+        return RoutedModel("local", "rule-engine", "local_rule")
+    return RoutedModel(
+        "deepseek",
+        os.getenv("CODEFORGE_DEFAULT_MODEL", "deepseek-v4-flash"),
+        "default_route",
+    )
+
+
 def choose_model(prompt: str) -> RoutedModel:
     text = (prompt or "").lower()
-    if any(k in text for k in ["debug", "incident", "production", "crash"]):
-        return RoutedModel("anthropic", os.getenv("CODEFORGE_FALLBACK_MODEL", "claude-sonnet-4.6"), "hard_debug")
-    if any(k in text for k in ["architecture", "refactor", "complex", "design"]):
-        return RoutedModel("deepseek", os.getenv("CODEFORGE_COMPLEX_MODEL", "deepseek-v4-pro"), "complex_request")
-    return RoutedModel("deepseek", os.getenv("CODEFORGE_DEFAULT_MODEL", "deepseek-v4-flash"), "default_route")
+
+    frontier_keywords = [
+        "frontier",
+        "novel algorithm",
+        "formal proof",
+        "enterprise sev0",
+        "critical architecture failure",
+    ]
+    if any(keyword in text for keyword in frontier_keywords):
+        return model_for_tier("fallback_opus")
+
+    if any(keyword in text for keyword in ["debug", "race condition", "incident", "crash"]):
+        return model_for_tier("fallback_sonnet")
+
+    if any(keyword in text for keyword in ["architecture", "refactor", "multi-file", "optimize", "performance", "design", "system"]):
+        return model_for_tier("deepseek_pro")
+
+    if any(keyword in text for keyword in ["test", "pytest", "npm test", "cargo test", "run tests"]):
+        return model_for_tier("local_rule")
+
+    return model_for_tier("deepseek_flash")
 
 
 class GenerationClient:
