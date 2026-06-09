@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from threading import Lock
+from time import monotonic
 from typing import Any
 
 
@@ -74,3 +75,23 @@ class RedisSessionStore:
             current += amount
             self._memory[key] = current
             return current
+
+    def incr_with_ttl(self, key: str, ttl_seconds: int) -> int:
+        if self._client is not None:
+            try:
+                count = int(self._client.incr(key))
+                if count == 1:
+                    self._client.expire(key, ttl_seconds)
+                return count
+            except Exception:
+                pass
+
+        with self._lock:
+            now = monotonic()
+            entry = self._memory.get(key)
+            if isinstance(entry, tuple) and entry[1] > now:
+                count = entry[0] + 1
+            else:
+                count = 1
+            self._memory[key] = (count, now + ttl_seconds)
+            return count

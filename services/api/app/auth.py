@@ -10,8 +10,12 @@ class AuthUser:
     user_id: str
 
 
+def dev_auth_enabled() -> bool:
+    return os.getenv("CODEFORGE_ENV", "development").strip().lower() != "production"
+
+
 def _token_to_user_id(token: str) -> str:
-    if token.startswith("dev_") and len(token) > 4:
+    if dev_auth_enabled() and token.startswith("dev_") and len(token) > 4:
         return token[4:]
     supabase_secret = os.getenv("SUPABASE_JWT_SECRET")
     if supabase_secret:
@@ -34,10 +38,6 @@ def get_current_user(authorization: str | None = Header(default=None)) -> AuthUs
 
 
 def get_current_user_optional(
-    token: str | None = None,
     authorization: str | None = Header(default=None),
 ) -> AuthUser:
-    if token:
-        user_id = _token_to_user_id(token)
-        return AuthUser(user_id=user_id)
     return get_current_user(authorization=authorization)

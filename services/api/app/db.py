@@ -9,6 +9,18 @@ from psycopg.rows import dict_row
 DB_PATH = Path(__file__).resolve().parent.parent / "codeforge.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+INDEX_STATEMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_sessions_user_created ON sessions(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_logs_user ON usage_logs(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_logs_session ON usage_logs(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_billing_orders_user ON billing_orders(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_proposals_session ON agent_proposals(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_proposals_user ON agent_proposals(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_created ON routing_benchmark_runs(suite, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_cowork_snapshots_created ON cowork_reliability_snapshots(created_at)",
+)
+
 
 def _is_postgres() -> bool:
     return DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
@@ -212,6 +224,8 @@ def init_db() -> None:
                     )
                     """
                 )
+                for statement in INDEX_STATEMENTS:
+                    cur.execute(statement)
         return
 
     conn = _sqlite_connection()
@@ -332,6 +346,8 @@ def init_db() -> None:
             );
             """
         )
+        for statement in INDEX_STATEMENTS:
+            conn.execute(statement)
         conn.commit()
     finally:
         conn.close()
@@ -351,10 +367,12 @@ def get_session_for_user(session_id: str, user_id: str) -> dict[str, Any] | None
     )
 
 
-def list_sessions_for_user(user_id: str) -> list[dict[str, Any]]:
+def list_sessions_for_user(user_id: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
     return _fetchall(
-        "SELECT session_id, project_path, model_preference, created_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC",
-        (user_id,),
+        "SELECT session_id, project_path, model_preference, created_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (user_id, limit, offset),
     )
 
 
@@ -372,10 +390,12 @@ def insert_message(
     )
 
 
-def list_messages_for_session(session_id: str) -> list[dict[str, Any]]:
+def list_messages_for_session(session_id: str, limit: int = 500, offset: int = 0) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 1000))
+    offset = max(0, int(offset))
     return _fetchall(
-        "SELECT message_id, role, content, context_json, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC",
-        (session_id,),
+        "SELECT message_id, role, content, context_json, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
+        (session_id, limit, offset),
     )
 
 
@@ -473,6 +493,13 @@ def insert_billing_webhook(event_id: str, event_type: str, payload_json: str, cr
     _execute(
         "INSERT INTO billing_webhooks(event_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
         (event_id, event_type, payload_json, created_at),
+    )
+
+
+def get_billing_webhook(event_id: str) -> dict[str, Any] | None:
+    return _fetchone(
+        "SELECT event_id, event_type, created_at FROM billing_webhooks WHERE event_id = ?",
+        (event_id,),
     )
 
 

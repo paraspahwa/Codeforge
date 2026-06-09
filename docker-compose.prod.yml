@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: codeforge
       POSTGRES_USER: codeforge
-      POSTGRES_PASSWORD: codeforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,13 +39,16 @@ services:
     container_name: codeforge-api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://codeforge:codeforge@db:5432/codeforge
+      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/codeforge
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       QDRANT_URL: http://qdrant:6333
       OTEL_SERVICE_NAME: codeforge-api
       OTEL_ENVIRONMENT: production
+      CODEFORGE_ENV: production
+      CODEFORGE_CORS_ORIGINS: ${CODEFORGE_CORS_ORIGINS:-http://localhost:3000}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:?SUPABASE_JWT_SECRET must be set}
       CODEFORGE_API_BASE_URL: http://api:8000
       CODEFORGE_USER_ID: paras
       CODEFORGE_MODEL: deepseek-v4-flash
@@ -67,11 +70,12 @@ services:
     restart: unless-stopped
     command: ["celery", "-A", "app.celery_worker:celery_app", "worker", "--loglevel=info"]
     environment:
-      DATABASE_URL: postgresql://codeforge:codeforge@db:5432/codeforge
+      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/codeforge
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       QDRANT_URL: http://qdrant:6333
+      CODEFORGE_ENV: production
     depends_on:
       db:
         condition: service_healthy

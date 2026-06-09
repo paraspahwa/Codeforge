@@ -30,6 +30,10 @@
           "value": "production"
         },
         {
+          "name": "CODEFORGE_ENV",
+          "value": "production"
+        },
+        {
           "name": "OPENAI_BASE_URL",
           "value": "https://api.openai.com/v1"
         },

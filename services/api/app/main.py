@@ -2,15 +2,16 @@ import hashlib
 import hmac
 import json
 import os
+import time
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
-from .auth import AuthUser, get_current_user, get_current_user_optional
+from .auth import AuthUser, dev_auth_enabled, get_current_user, get_current_user_optional
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
 from .cache import RedisSessionStore
@@ -33,6 +34,7 @@ from .db import (
     insert_agent_proposal,
     insert_billing_order,
     insert_billing_webhook,
+    get_billing_webhook,
     insert_message,
     insert_session,
     insert_usage_log,
@@ -155,6 +157,15 @@ vector_store = VectorStore()
 task_queue = TaskQueue()
 generation_client = GenerationClient()
 
+RATE_LIMIT_PER_MINUTE = int(os.getenv("CODEFORGE_RATE_LIMIT_PER_MINUTE", "60"))
+
+
+def _enforce_rate_limit(scope: str, identity: str, limit: int) -> None:
+    window = int(time.time() // 60)
+    count = redis_session_store.incr_with_ttl(f"ratelimit:{scope}:{identity}:{window}", 120)
+    if count > limit:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again in a minute.")
+
 BILLING_PLANS = [
     BillingPlan(plan_id="lite", name="Lite", amount_inr=199, request_limit=300),
     BillingPlan(plan_id="pro", name="Pro", amount_inr=499, request_limit=1000),
@@ -216,9 +227,18 @@ def _evaluate_benchmark_regression(
         return False, ""
     return True, "; ".join(reasons)
 
+_cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CODEFORGE_CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -290,12 +310,17 @@ def platform_queue_ping(user: AuthUser = Depends(get_current_user_optional)) -> 
 
 
 @app.post("/api/v1/auth/dev-login", response_model=DevLoginResponse)
-def dev_login(payload: DevLoginRequest) -> DevLoginResponse:
+def dev_login(payload: DevLoginRequest, request: Request) -> DevLoginResponse:
+    if not dev_auth_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    client_host = request.client.host if request.client else "unknown"
+    _enforce_rate_limit("dev-login", client_host, 10)
     return DevLoginResponse(access_token=f"dev_{payload.user_id}")
 
 
 @app.post("/api/v1/sessions", response_model=SessionCreateResponse)
 def create_session(payload: SessionCreateRequest, response: Response, user: AuthUser = Depends(get_current_user)) -> SessionCreateResponse:
+    _enforce_rate_limit("create-session", user.user_id, 20)
     session_id = f"sess_{uuid4().hex[:12]}"
     created_at = utc_now()
 
@@ -308,16 +333,21 @@ def create_session(payload: SessionCreateRequest, response: Response, user: Auth
     )
 
     _attach_trace_id(response)
+    ws_base = os.getenv("CODEFORGE_PUBLIC_WS_BASE", "ws://localhost:8000").rstrip("/")
     return SessionCreateResponse(
         session_id=session_id,
-        ws_url=f"ws://localhost:8000/api/v1/sessions/{session_id}/ws",
+        ws_url=f"{ws_base}/api/v1/sessions/{session_id}/ws",
         created_at=created_at,
     )
 
 
 @app.get("/api/v1/sessions", response_model=list[SessionListItem])
-def list_sessions(user: AuthUser = Depends(get_current_user)) -> list[SessionListItem]:
-    rows = list_sessions_for_user(user.user_id)
+def list_sessions(
+    user: AuthUser = Depends(get_current_user),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[SessionListItem]:
+    rows = list_sessions_for_user(user.user_id, limit=limit, offset=offset)
     return [SessionListItem(**row) for row in rows]
 
 
@@ -450,6 +480,9 @@ async def billing_webhook(request: Request) -> BillingWebhookResponse:
     event_id = str(event.get("payload", {}).get("payment", {}).get("entity", {}).get("id") or uuid4().hex)
     event_type = str(event.get("event", "unknown"))
 
+    if get_billing_webhook(f"evt_{event_id}") is not None:
+        return BillingWebhookResponse(status="duplicate")
+
     try:
         insert_billing_webhook(
             event_id=f"evt_{event_id}",
@@ -458,8 +491,8 @@ async def billing_webhook(request: Request) -> BillingWebhookResponse:
             created_at=utc_now().isoformat(),
         )
     except Exception:
-        # Webhook retries can deliver the same event multiple times.
-        pass
+        # Concurrent retry inserted the same event between our check and insert.
+        return BillingWebhookResponse(status="duplicate")
 
     return BillingWebhookResponse(status="received")
 
@@ -471,6 +504,7 @@ def post_message(
     response: Response,
     user: AuthUser = Depends(get_current_user),
 ) -> MessageCreateResponse:
+    _enforce_rate_limit("messages", user.user_id, RATE_LIMIT_PER_MINUTE)
     with traced_span(
         "codeforge.session.post_message",
         {
@@ -726,11 +760,16 @@ def deploy_synthesis_rollout_validate(
 
 
 @app.get("/api/v1/sessions/{session_id}/messages", response_model=list[MessageItem])
-def list_messages(session_id: str, user: AuthUser = Depends(get_current_user)) -> list[MessageItem]:
+def list_messages(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[MessageItem]:
     session = get_session_for_user(session_id=session_id, user_id=user.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    rows = list_messages_for_session(session_id)
+    rows = list_messages_for_session(session_id, limit=limit, offset=offset)
     return [MessageItem(**row) for row in rows]
 
 
@@ -1106,7 +1145,8 @@ def create_session_share(
 
 
 @app.get("/api/v1/team/session-share/{share_id}", response_model=SessionShareResolveResponse)
-def resolve_session_share(share_id: str) -> SessionShareResolveResponse:
+def resolve_session_share(share_id: str, user: AuthUser = Depends(get_current_user)) -> SessionShareResolveResponse:
+    _ = user
     try:
         share = projects_team_service.resolve_session_share(share_id=share_id)
     except ProjectsTeamError as exc:
@@ -1137,7 +1177,7 @@ def export_session(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    rows = list_messages_for_session(session_id)
+    rows = list_messages_for_session(session_id, limit=1000)
     if format == "markdown":
         lines = [f"# Session {session_id}", ""]
         for row in rows:
@@ -1616,6 +1656,7 @@ async def stream_session(
     session_id: str,
     user: AuthUser = Depends(get_current_user_optional),
 ) -> StreamingResponse:
+    _enforce_rate_limit("stream", user.user_id, RATE_LIMIT_PER_MINUTE)
     session = get_session_for_user(session_id=session_id, user_id=user.user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")

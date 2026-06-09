@@ -339,6 +339,43 @@ export async function getBillingSubscription(token) {
   return response.json();
 }
 
+export async function exportSession(sessionId, token, format = "json") {
+  const query = new URLSearchParams({ format }).toString();
+  const response = await fetch(`${API_BASE}/api/v1/team/session-export/${sessionId}?${query}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to export session");
+  }
+
+  return response.json();
+}
+
+export async function createSessionShare(token, sessionId, accessLevel = "view", expiresInHours = 72) {
+  const response = await fetch(`${API_BASE}/api/v1/team/session-share`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      access_level: accessLevel,
+      expires_in_hours: expiresInHours,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Failed to create session share");
+  }
+
+  return response.json();
+}
+
 export async function sendMessage(sessionId, content, token) {
   const response = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/messages`, {
     method: "POST",
@@ -403,16 +440,66 @@ export async function listMessages(sessionId, token) {
 }
 
 export function streamSession(sessionId, token, onData) {
-  const streamUrl = `${API_BASE}/api/v1/sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`;
-  const source = new EventSource(streamUrl);
-
-  source.onmessage = (event) => {
-    try {
-      onData(JSON.parse(event.data));
-    } catch {
-      onData({ type: "token", content: event.data });
-    }
+  const controller = new AbortController();
+  const handle = {
+    close: () => controller.abort(),
+    onerror: null,
   };
 
-  return source;
+  (async () => {
+    const response = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/stream`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "text/event-stream",
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Streaming failed with status ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let boundary;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const chunk = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 2);
+
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) {
+            continue;
+          }
+          const payload = line.slice(6).trim();
+          if (!payload) {
+            continue;
+          }
+          try {
+            onData(JSON.parse(payload));
+          } catch {
+            onData({ type: "token", content: payload });
+          }
+        }
+      }
+    }
+  })().catch((error) => {
+    if (controller.signal.aborted) {
+      return;
+    }
+    if (typeof handle.onerror === "function") {
+      handle.onerror(error);
+    }
+  });
+
+  return handle;
 }
