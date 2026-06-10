@@ -7,6 +7,8 @@ COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/terminal/package.json apps/terminal/package.json
 COPY apps/vscode/package.json apps/vscode/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/ui/package.json packages/ui/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
 
 RUN npm ci
 
