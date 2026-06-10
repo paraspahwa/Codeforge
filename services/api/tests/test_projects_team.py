@@ -216,3 +216,93 @@ def test_delegation_rejects_foreign_member_session(client, tmp_path: Path) -> No
         },
     )
     assert owner_allowed.status_code == 200
+
+
+def test_session_export_denied_for_foreign_member_session(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "team-export-perms"
+    project.mkdir()
+
+    owner_login = client.post("/api/v1/auth/dev-login", json={"user_id": "export-owner"})
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    member_a_login = client.post("/api/v1/auth/dev-login", json={"user_id": "export-member-a"})
+    member_a_headers = {"Authorization": f"Bearer {member_a_login.json()['access_token']}"}
+    member_a_session_id = _create_session(client, member_a_headers, project)
+
+    member_b_login = client.post("/api/v1/auth/dev-login", json={"user_id": "export-member-b"})
+    member_b_headers = {"Authorization": f"Bearer {member_b_login.json()['access_token']}"}
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Export perms team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    for member_id in ("export-member-a", "export-member-b"):
+        client.post(
+            f"/api/v1/team/workspaces/{workspace_id}/members",
+            headers=owner_headers,
+            json={"user_id": member_id, "role": "member"},
+        )
+
+    denied = client.get(
+        f"/api/v1/team/session-export/{member_a_session_id}",
+        headers=member_b_headers,
+        params={"workspace_id": workspace_id},
+    )
+    assert denied.status_code == 404
+
+    allowed = client.get(
+        f"/api/v1/team/session-export/{member_a_session_id}",
+        headers=member_a_headers,
+    )
+    assert allowed.status_code == 200
+
+
+def test_delegation_execute_denied_for_foreign_member_session(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "team-execute-perms"
+    project.mkdir()
+
+    owner_login = client.post("/api/v1/auth/dev-login", json={"user_id": "execute-owner"})
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    member_a_login = client.post("/api/v1/auth/dev-login", json={"user_id": "execute-member-a"})
+    member_a_headers = {"Authorization": f"Bearer {member_a_login.json()['access_token']}"}
+    member_a_session_id = _create_session(client, member_a_headers, project)
+
+    member_b_login = client.post("/api/v1/auth/dev-login", json={"user_id": "execute-member-b"})
+    member_b_headers = {"Authorization": f"Bearer {member_b_login.json()['access_token']}"}
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Execute perms team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    for member_id in ("execute-member-a", "execute-member-b"):
+        client.post(
+            f"/api/v1/team/workspaces/{workspace_id}/members",
+            headers=owner_headers,
+            json={"user_id": member_id, "role": "member"},
+        )
+
+    created = client.post(
+        "/api/v1/team/delegations",
+        headers=member_a_headers,
+        json={
+            "workspace_id": workspace_id,
+            "session_id": member_a_session_id,
+            "assigned_role": "reviewer",
+            "task": "Member A task",
+            "priority": "normal",
+        },
+    )
+    assert created.status_code == 200
+    task_id = created.json()["task_id"]
+
+    denied = client.post(f"/api/v1/team/delegations/{task_id}/execute", headers=member_b_headers)
+    assert denied.status_code == 404

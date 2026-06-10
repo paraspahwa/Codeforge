@@ -99,7 +99,7 @@ The workflow expects these names by default:
 8. Production Worker service: `codeforge-worker-service`
 9. ECR repos: `codeforge-api`, `codeforge-web`, `codeforge-worker` (created automatically on first deploy if missing)
 
-The worker ECS service uses the dedicated `codeforge-worker` image (`Dockerfile.worker`) and runs `celery worker --beat` so scheduled cowork jobs tick outside the API process. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API tasks in production.
+The worker ECS service uses the dedicated `codeforge-worker` image (`Dockerfile.worker`) and runs `celery worker --beat` so scheduled cowork jobs tick outside the API process. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on **API** tasks only — that flag gates the API's in-process `_worker_loop`, not Celery beat. Do not set it on worker tasks; beat always calls `tick_cowork_jobs`.
 
 Worker task definitions keep `fs-PLACEHOLDER` in git; the deploy workflow injects the environment-specific EFS filesystem id from GitHub variables before registering the task definition.
 

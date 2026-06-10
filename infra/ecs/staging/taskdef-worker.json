@@ -37,10 +37,6 @@
           "value": "production"
         },
         {
-          "name": "CODEFORGE_COWORK_SCHEDULER_ENABLED",
-          "value": "false"
-        },
-        {
           "name": "OTEL_SERVICE_NAME",
           "value": "codeforge-worker"
         },

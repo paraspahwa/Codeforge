@@ -360,6 +360,7 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState("");
   const [messages, setMessages] = useState([]);
   const [events, setEvents] = useState([]);
+  const [teamLiveEvents, setTeamLiveEvents] = useState([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [streamingAssistant, setStreamingAssistant] = useState("");
@@ -1550,18 +1551,13 @@ function App() {
           setDiffPreview(lines.length ? lines.join("\n") : "No style guides yet.");
           pushEvent(`team: ${lines.length} style guide(s)`);
         } else if (sub === "events") {
-          const lines = [];
-          const iterator = streamTeamEvents(baseUrl, token);
-          const timeout = Date.now() + 5000;
-          for await (const event of iterator) {
-            lines.push(`${event.type || "event"}: ${JSON.stringify(event).slice(0, 120)}`);
-            if (lines.length >= 5 || Date.now() > timeout) {
-              break;
-            }
-          }
           setReviewTitle("Team live events");
-          setDiffPreview(lines.length ? lines.join("\n") : "No events in the last few seconds.");
-          pushEvent(`team: ${lines.length} live event(s)`);
+          setDiffPreview(
+            teamLiveEvents.length
+              ? teamLiveEvents.join("\n")
+              : "Listening for team events… (background stream runs while logged in)",
+          );
+          pushEvent(`team: ${teamLiveEvents.length} buffered live event(s)`);
         } else if (sub === "execute") {
           if (!subArg) {
             throw new Error("Usage: /team execute <task_id>");
@@ -2219,6 +2215,35 @@ function App() {
       })
       .catch(() => setOidcEnabled(false));
   }, [baseUrl]);
+
+  useEffect(() => {
+    if (!token) {
+      setTeamLiveEvents([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        for await (const event of streamTeamEvents(baseUrl, token)) {
+          if (cancelled) {
+            break;
+          }
+          if (event.type === "heartbeat" || event.type === "connected") {
+            continue;
+          }
+          const line = `${event.type || "event"}: ${JSON.stringify(event).slice(0, 120)}`;
+          setTeamLiveEvents((previous) => [line, ...previous].slice(0, 20));
+        }
+      } catch {
+        // Stream reconnects on next login/token change.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, token]);
 
   useInput(async (input, key) => {
     if (paletteOpen) {

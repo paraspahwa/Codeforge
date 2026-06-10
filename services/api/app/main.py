@@ -1689,9 +1689,10 @@ def resolve_session_share(share_id: str, user: AuthUser = Depends(get_current_us
 def export_session(
     session_id: str,
     format: str = "json",
+    workspace_id: str | None = None,
     user: AuthUser = Depends(get_current_user),
 ) -> SessionExportResponse:
-    session = _require_session(session_id, user)
+    session = _require_session(session_id, user, workspace_id=workspace_id)
 
     rows = list_messages_for_session(session_id, limit=1000)
     if format == "markdown":

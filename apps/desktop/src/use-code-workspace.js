@@ -8,6 +8,7 @@ import {
 } from "@codeforge/shared/sse";
 import { canWriteSession } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
+import { loadWorkspaceState, saveWorkspaceState } from "./desktop-auth";
 import { useDesktopNotify } from "./useDesktopNotify";
 import {
   createSession,
@@ -35,25 +36,10 @@ import {
   ultrareviewWorkflow,
 } from "./api";
 
-const STORAGE_KEY = "codeforge.desktop.code";
-
-function loadStoredState() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveStoredState(patch) {
-  const current = loadStoredState();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
-}
-
 export function useCodeWorkspace() {
   const { token } = useDesktopAuth();
   const { statusMessage, errorMessage, reportError, reportSuccess } = useDesktopNotify();
-  const stored = useMemo(() => loadStoredState(), []);
+  const stored = useMemo(() => loadWorkspaceState(), []);
 
   const [projectPath, setProjectPath] = useState(import.meta.env.VITE_CODEFORGE_PROJECT_PATH || stored.projectPath || "");
   const [sessions, setSessions] = useState([]);
@@ -126,7 +112,7 @@ export function useCodeWorkspace() {
     setSessions(list);
     if (!sessionId && list.length > 0) {
       setSessionId(list[0].session_id);
-      saveStoredState({ sessionId: list[0].session_id });
+      saveWorkspaceState({ sessionId: list[0].session_id });
     }
   }
 
@@ -135,7 +121,7 @@ export function useCodeWorkspace() {
       const selected = await open({ directory: true, multiple: false });
       if (selected && typeof selected === "string") {
         setProjectPath(selected);
-        saveStoredState({ projectPath: selected });
+        saveWorkspaceState({ projectPath: selected });
       }
     } catch {
       // Plain Vite dev outside Tauri.
@@ -151,7 +137,7 @@ export function useCodeWorkspace() {
     reportError("");
     try {
       const created = await createSession(token, projectPath.trim());
-      saveStoredState({ projectPath: projectPath.trim(), sessionId: created.session_id });
+      saveWorkspaceState({ projectPath: projectPath.trim(), sessionId: created.session_id });
       setSessionId(created.session_id);
       setMessages([]);
       setPendingProposal(null);
@@ -175,7 +161,7 @@ export function useCodeWorkspace() {
     try {
       const storedMessages = await listMessages(token, nextSessionId);
       setSessionId(nextSessionId);
-      saveStoredState({ sessionId: nextSessionId });
+      saveWorkspaceState({ sessionId: nextSessionId });
       setMessages(
         storedMessages.map((message) => ({
           id: message.message_id,
@@ -455,7 +441,7 @@ export function useCodeWorkspace() {
     try {
       const forked = await forkSession(token, sessionId);
       setSessionId(forked.session_id);
-      saveStoredState({ sessionId: forked.session_id });
+      saveWorkspaceState({ sessionId: forked.session_id });
       setMessages([]);
       await refreshSessions(token);
       reportSuccess(`Forked session ${forked.session_id}`);
@@ -610,7 +596,7 @@ export function useCodeWorkspace() {
   }, [token, sessionId]);
 
   useEffect(() => {
-    saveStoredState({ projectPath, sessionId });
+    saveWorkspaceState({ projectPath, sessionId });
   }, [projectPath, sessionId]);
 
   const changedFiles = [

@@ -389,8 +389,11 @@ export async function listCoworkExtractions(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/cowork/extract", { token });
 }
 
-export async function exportSession(baseUrl, token, sessionId, format = "json") {
-  const query = new URLSearchParams({ format }).toString();
+export async function exportSession(baseUrl, token, sessionId, format = "json", workspaceId = null) {
+  const query = new URLSearchParams({ format });
+  if (workspaceId) {
+    query.set("workspace_id", workspaceId);
+  }
   return requestJson(baseUrl, `/api/v1/team/session-export/${sessionId}?${query}`, { token });
 }
 

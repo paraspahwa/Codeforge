@@ -1,6 +1,43 @@
 export const STORAGE_KEY = "codeforge.desktop.auth";
+/** Workspace prefs (project path, session id) — not auth tokens. */
+export const WORKSPACE_STORAGE_KEY = "codeforge.desktop.workspace";
 export const LEGACY_CODE_STORAGE_KEY = "codeforge.desktop.code";
 export const OIDC_STATE_KEY = "codeforge.desktop.oidc_state";
+
+function readWorkspaceStorage() {
+  try {
+    const current = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "{}");
+    if (Object.keys(current).length > 0) {
+      return current;
+    }
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_CODE_STORAGE_KEY) || "{}");
+    const migrated = { ...legacy };
+    delete migrated.token;
+    delete migrated.userId;
+    if (Object.keys(migrated).length > 0) {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(migrated));
+      localStorage.removeItem(LEGACY_CODE_STORAGE_KEY);
+      return migrated;
+    }
+    return current;
+  } catch {
+    return {};
+  }
+}
+
+export function loadWorkspaceState() {
+  return readWorkspaceStorage();
+}
+
+export function saveWorkspaceState(patch) {
+  const current = readWorkspaceStorage();
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
+}
+
+export function clearWorkspaceState() {
+  localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_CODE_STORAGE_KEY);
+}
 
 export function loadDesktopAuth() {
   try {
@@ -32,17 +69,7 @@ export function saveDesktopAuth(patch) {
 export function clearDesktopAuth() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(OIDC_STATE_KEY);
-
-  try {
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_CODE_STORAGE_KEY) || "{}");
-    if (legacy.token || legacy.userId) {
-      delete legacy.token;
-      delete legacy.userId;
-      localStorage.setItem(LEGACY_CODE_STORAGE_KEY, JSON.stringify(legacy));
-    }
-  } catch {
-    // Ignore legacy parse errors.
-  }
+  clearWorkspaceState();
 }
 
 export function userIdFromToken(accessToken) {

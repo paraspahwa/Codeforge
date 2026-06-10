@@ -196,8 +196,6 @@ services:
 
       OTEL_SERVICE_NAME: codeforge-worker
 
-      CODEFORGE_COWORK_SCHEDULER_ENABLED: "false"
-
       CODEFORGE_DISABLE_PLAYWRIGHT: "false"
 
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright

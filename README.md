@@ -135,9 +135,12 @@ npm run dev:terminal
 
 ## Deploy Notes
 
-- CI builds and deploys separate API, web, and worker images (`Dockerfile.worker` includes Playwright Chromium)
-- Smoke tests verify Celery worker consumption via `GET /api/v1/platform/queue-ping/{job_id}`
-- OIDC redirect URIs: web `http://localhost:3000/auth/callback`, desktop `http://localhost:1420/auth/callback`, terminal `http://127.0.0.1:4583/auth/callback`, VS Code `http://127.0.0.1:4584/auth/callback`
+- CI builds and deploys separate API, web, and worker images
+- **Worker image**: built from `services/api/Dockerfile.worker` (Playwright Chromium + Celery worker/beat). GitHub Actions pushes to ECR repo `codeforge-worker` (set `ECR_REPOSITORY_WORKER` or let deploy workflow auto-create the repo). Use `infra/ecs/{staging,production}/taskdef-worker.json` for ECS — not the legacy root `infra/ecs/taskdef-api.json`.
+- **API image**: `services/api/Dockerfile`. Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API tasks in production so the in-process cowork loop stays off; scheduled cowork ticks run via Celery beat on the worker service.
+- Smoke tests enqueue `queue-ping` and poll `GET /api/v1/platform/queue-ping/{job_id}` until the worker reports success
+- Worker EFS: set GitHub vars `EFS_FILE_SYSTEM_ID_STAGING` / `EFS_FILE_SYSTEM_ID_PRODUCTION`; deploy patches `fs-PLACEHOLDER` in worker taskdefs via `scripts/patch_ecs_worker_efs.py`
+- OIDC: populate ECS SSM `CODEFORGE_OIDC_*` parameters (see `docs/deployment-assets-setup.md`). Redirect URIs: web `http://localhost:3000/auth/callback`, desktop `http://localhost:1420/auth/callback`, terminal `http://127.0.0.1:4583/auth/callback`, VS Code `http://127.0.0.1:4584/auth/callback`
 
 ## Canonical Documents
 

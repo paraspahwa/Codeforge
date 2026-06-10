@@ -7,7 +7,7 @@ Tauri + React desktop client with Code, Cowork, and Team modes.
 - **Code mode**: sessions, chat, git/shell tools, workflows (`/loop`, `/plan`, artifacts, templates)
 - **Cowork mode**: plans, runs, scheduled jobs, browser tasks with explicit approval
 - **Team mode**: workspaces, knowledge, delegations (multi-agent orchestration + step approvals), audit log, live SSE
-- **Auth**: dev login and OIDC SSO via the top app bar (`DesktopAuthContext`); callback path `/auth/callback`
+- **Auth**: dev login and OIDC SSO via the top app bar (`DesktopAuthContext`); callback path `/auth/callback` (Vite SPA fallback + `dist/auth/callback/index.html` copy for Tauri builds)
 
 ## Local development
 
