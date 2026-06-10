@@ -1,110 +1,139 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { Badge } from "@codeforge/ui";
 
 import { useAuth } from "../lib/auth-context";
-import { useToast } from "../lib/toast-context";
+import { useShellBar } from "../lib/shell-context";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Chat" },
-  { href: "/sessions", label: "Sessions" },
-  { href: "/cowork", label: "Cowork" },
-  { href: "/team", label: "Team" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/billing", label: "Billing" },
-  { href: "/settings", label: "Settings" },
+const NAV_GROUPS = [
+  {
+    label: "Build",
+    items: [
+      { href: "/", label: "Chat" },
+      { href: "/sessions", label: "Sessions" },
+    ],
+  },
+  {
+    label: "Automate",
+    items: [{ href: "/cowork", label: "Cowork" }],
+  },
+  {
+    label: "Team",
+    items: [{ href: "/team", label: "Team" }],
+  },
+  {
+    label: "Account",
+    items: [
+      { href: "/analytics", label: "Analytics" },
+      { href: "/billing", label: "Billing" },
+      { href: "/settings", label: "Settings" },
+    ],
+  },
 ];
+
+const PROTECTED_PREFIXES = ["/", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
+
+function isProtectedRoute(pathname) {
+  if (pathname === "/billing") {
+    return false;
+  }
+  return PROTECTED_PREFIXES.some((prefix) =>
+    prefix === "/" ? pathname === "/" : pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
-  const { userId, token, oidcEnabled, login, loginWithOidc, logout } = useAuth();
-  const toast = useToast();
-  const [loginInput, setLoginInput] = useState("dev-user");
-  const [loggingIn, setLoggingIn] = useState(false);
-  const [oidcLoading, setOidcLoading] = useState(false);
+  const router = useRouter();
+  const { userId, token, ready, logout } = useAuth();
+  const { usage, sessionGrant } = useShellBar();
+  const [navOpen, setNavOpen] = useState(false);
 
-  async function handleLogin(event) {
-    event.preventDefault();
-    if (!loginInput.trim()) {
+  useEffect(() => {
+    if (!ready) {
       return;
     }
-    setLoggingIn(true);
-    try {
-      await login(loginInput);
-      toast.push("Logged in", "success");
-    } catch (error) {
-      toast.push(error.message);
-    } finally {
-      setLoggingIn(false);
+    if (!token && isProtectedRoute(pathname)) {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
-  }
+  }, [ready, token, pathname, router]);
 
-  async function handleOidcLogin() {
-    setOidcLoading(true);
-    try {
-      await loginWithOidc();
-    } catch (error) {
-      toast.push(error.message);
-      setOidcLoading(false);
-    }
-  }
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  const sidebar = (
+    <aside className={`sidebar ${navOpen ? "sidebar-open" : ""}`}>
+      <div className="brand">
+        <span className="brand-mark">CF</span>
+        <span>CodeForge</span>
+      </div>
+      <nav>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="nav-group">
+            <p className="nav-group-label small">{group.label}</p>
+            {group.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-link ${pathname === item.href ? "nav-link-active" : ""}`}
+                aria-current={pathname === item.href ? "page" : undefined}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="sidebar-footer small">India-first AI coding assistant</div>
+    </aside>
+  );
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">CF</span>
-          <span>CodeForge</span>
-        </div>
-        <nav>
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-link ${pathname === item.href ? "nav-link-active" : ""}`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-footer small">India-first AI coding assistant</div>
-      </aside>
-
+      <button
+        type="button"
+        className="nav-toggle"
+        aria-label="Toggle navigation"
+        onClick={() => setNavOpen((open) => !open)}
+      >
+        ☰
+      </button>
+      {navOpen ? (
+        <button type="button" className="nav-overlay" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
+      ) : null}
+      {sidebar}
       <div className="content-area">
         <header className="topbar">
           {token ? (
             <div className="topbar-session">
+              {usage ? (
+                <span className="usage-pill small">
+                  {usage.requests_remaining ?? 0} requests left
+                </span>
+              ) : null}
+              {sessionGrant?.viewOnly ? <Badge variant="warning">View-only session</Badge> : null}
+              <Badge variant="primary">Signed in</Badge>
               <span className="small">
-                Signed in as <strong>{userId}</strong>
+                <strong>{userId}</strong>
               </span>
               <button type="button" className="ghost-btn inline-btn" onClick={logout}>
                 Logout
               </button>
             </div>
-          ) : oidcEnabled ? (
-            <div className="topbar-login">
-              <button type="button" onClick={handleOidcLogin} disabled={oidcLoading}>
-                {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
-              </button>
-            </div>
           ) : (
-            <form className="topbar-login" onSubmit={handleLogin}>
-              <input
-                aria-label="Dev user ID"
-                placeholder="Dev user ID"
-                value={loginInput}
-                onChange={(event) => setLoginInput(event.target.value)}
-                disabled={loggingIn}
-              />
-              <button type="submit" disabled={loggingIn || !loginInput.trim()}>
-                {loggingIn ? "Logging in..." : "Login"}
-              </button>
-            </form>
+            <Link href="/login" className="nav-link nav-link-active inline-btn">
+              Sign in
+            </Link>
           )}
         </header>
-        <main className="page">{children}</main>
+        <main id="main-content" className="page">
+          {children}
+        </main>
       </div>
     </div>
   );

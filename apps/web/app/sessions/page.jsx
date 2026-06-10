@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChatMessageList, EmptyState, Skeleton } from "@codeforge/ui";
 
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import {
@@ -199,10 +200,14 @@ export default function SessionsPage() {
   }
 
   if (ready && !token) {
+    return null;
+  }
+
+  if (!ready) {
     return (
-      <section className="panel empty-state">
-        <h2>Sessions</h2>
-        <p className="small">Login from the top bar to browse your session history.</p>
+      <section className="panel">
+        <Skeleton style={{ height: "2rem", marginBottom: "1rem" }} />
+        <Skeleton style={{ height: "16rem" }} />
       </section>
     );
   }
@@ -211,8 +216,10 @@ export default function SessionsPage() {
     <div className="two-col">
       <section className="panel">
         <h2>Session History</h2>
-        {loading && sessions.length === 0 ? <p className="small">Loading...</p> : null}
-        {!loading && sessions.length === 0 ? <p className="small">No sessions yet.</p> : null}
+        {loading && sessions.length === 0 ? <Skeleton style={{ height: "12rem" }} /> : null}
+        {!loading && sessions.length === 0 ? (
+          <EmptyState title="No sessions yet" description="Start a chat session to see history here." />
+        ) : null}
         <div className="session-list session-list-tall">
           {sessions.map((entry) => (
             <button
@@ -280,6 +287,24 @@ export default function SessionsPage() {
               </Link>
             </div>
 
+            {replayMessages.length > 0 ? (
+              <label className="replay-scrubber mt-8">
+                <span className="small">Timeline</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0, replayMessages.length - 1)}
+                  value={Math.max(0, replayIndex)}
+                  onChange={(event) => {
+                    setPlaying(false);
+                    setReplayIndex(Number(event.target.value));
+                  }}
+                  disabled={loading}
+                  aria-label="Replay timeline scrubber"
+                />
+              </label>
+            ) : null}
+
             <div className="replay-toolbar">
               <select
                 aria-label="Export format"
@@ -343,21 +368,18 @@ export default function SessionsPage() {
               </div>
             ) : null}
 
-            <div className="chat-log chat-log-tall mt-8">
-              {replayMessages.length === 0 ? <p className="small">This session has no messages.</p> : null}
-              {visibleMessages.map((msg, index) => (
-                <div
-                  className={`msg ${msg.role} ${index === replayIndex ? "msg-active" : ""}`}
-                  key={msg.message_id}
-                >
-                  <strong>{msg.role === "user" ? "User" : "CodeForge"}</strong>
-                  <div className="msg-content">{msg.content}</div>
-                  {msg.created_at ? (
-                    <div className="small">{new Date(msg.created_at).toLocaleString()}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
+            <ChatMessageList
+              variant="replay"
+              className="mt-8"
+              messages={visibleMessages}
+              activeMessageIndex={replayIndex}
+              sessionId={selectedSession}
+              renderFooter={(msg) =>
+                msg.created_at ? (
+                  <div className="small">{new Date(msg.created_at).toLocaleString()}</div>
+                ) : null
+              }
+            />
           </>
         ) : null}
       </section>

@@ -81,11 +81,10 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+const sessionHelpers = window.CFSessionHelpers || {};
+
 function canWriteSession(session) {
-  if (!session || session.access_source !== "granted") {
-    return true;
-  }
-  return session.access_level === "delegate";
+  return sessionHelpers.canWriteSession ? sessionHelpers.canWriteSession(session) : true;
 }
 
 function sessionAllowsWrite(state) {
@@ -95,19 +94,13 @@ function sessionAllowsWrite(state) {
 
 function viewOnlySessionMessage(state) {
   const session = state.sessions.find((item) => item.session_id === state.currentSessionId);
-  if (!session || canWriteSession(session)) {
-    return "";
-  }
-  const owner = session.owner_user_id ? ` from ${session.owner_user_id}` : "";
-  return `View-only access${owner}. Write actions are disabled.`;
+  return sessionHelpers.viewOnlySessionMessage ? sessionHelpers.viewOnlySessionMessage(session) : "";
 }
 
 function formatSessionListLabel(session) {
-  if (!session || session.access_source !== "granted") {
-    return session?.session_id || "";
-  }
-  const owner = session.owner_user_id ? ` from ${session.owner_user_id}` : "";
-  return `${session.session_id} (granted ${session.access_level || "view"}${owner})`;
+  return sessionHelpers.formatSessionListLabel
+    ? sessionHelpers.formatSessionListLabel(session)
+    : session?.session_id || "";
 }
 
 function render() {

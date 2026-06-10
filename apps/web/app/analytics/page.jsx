@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@codeforge/ui";
+
+import Sparkline from "../../components/Sparkline";
 
 import {
   getCoworkReliability,
@@ -79,13 +82,24 @@ export default function AnalyticsPage() {
   }
 
   if (ready && !token) {
+    return null;
+  }
+
+  if (!ready) {
     return (
-      <section className="panel empty-state">
-        <h2>Analytics</h2>
-        <p className="small">Login from the top bar to view usage and routing analytics.</p>
+      <section className="panel">
+        <Skeleton style={{ height: "2rem", marginBottom: "1rem" }} />
+        <div className="stats-grid">
+          <Skeleton style={{ height: "5rem" }} />
+          <Skeleton style={{ height: "5rem" }} />
+          <Skeleton style={{ height: "5rem" }} />
+        </div>
       </section>
     );
   }
+
+  const reliabilityTrend =
+    coworkHistory?.snapshots?.map((snapshot) => Math.round((1 - (snapshot.failure_rate ?? 0)) * 100)) || [];
 
   return (
     <div className="stack">
@@ -93,6 +107,13 @@ export default function AnalyticsPage() {
         <article className="stat-card">
           <p className="small">Requests (this month)</p>
           <h2>{usage?.requests_used_in_period ?? usage?.total_requests ?? "-"}</h2>
+          <Sparkline
+            values={[
+              usage?.requests_used_in_period ?? 0,
+              usage?.requests_remaining ?? 0,
+              usage?.request_limit ?? 0,
+            ]}
+          />
           <p className="small">
             {usage
               ? `${usage.requests_remaining} of ${usage.request_limit} remaining on ${usage.plan_id}`
@@ -122,6 +143,7 @@ export default function AnalyticsPage() {
               ? `${Math.round((1 - (coworkReliability.recent_failure_rate ?? 0)) * 100)}%`
               : "-"}
           </h2>
+          <Sparkline values={reliabilityTrend.slice(-12)} />
           <p className="small">
             {coworkReliability
               ? `failures ${coworkReliability.recent_failed_runs ?? 0}/${coworkReliability.recent_runs ?? 0} | snapshots ${coworkHistory?.snapshots?.length ?? 0}`

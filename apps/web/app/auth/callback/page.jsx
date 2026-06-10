@@ -41,9 +41,15 @@ export default function OidcCallbackPage() {
   }, [completeOidcLogin, router, searchParams, toast]);
 
   return (
-    <section className="panel empty-state">
-      <h2>Signing in</h2>
-      <p className="small">{message}</p>
-    </section>
+    <div className="login-page">
+      <section className="panel login-card">
+        <div className="brand login-brand">
+          <span className="brand-mark">CF</span>
+          <span>CodeForge</span>
+        </div>
+        <h2>Signing in</h2>
+        <p className="small login-tagline">{message}</p>
+      </section>
+    </div>
   );
 }

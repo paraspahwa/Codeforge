@@ -8,6 +8,7 @@
     "start": "tsx src/cli.jsx"
   },
   "dependencies": {
+    "@codeforge/design-tokens": "file:../../packages/design-tokens",
     "@codeforge/shared": "file:../../packages/shared",
     "ink": "5.2.1",
     "react": "18.3.1",

@@ -65,7 +65,8 @@ import {
   streamShellCommand,
 } from "@codeforge/shared/api";
 import { formatEvent } from "@codeforge/shared/sse";
-import { canWriteSession, formatSessionListLabel } from "@codeforge/shared/sessions";
+import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
+import { inkTheme, paneBorderColor } from "./inkTheme.js";
 
 const DEFAULT_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
 const TERMINAL_OIDC_REDIRECT_URI =
@@ -81,29 +82,51 @@ const MAX_LOOP_ATTEMPTS = 5;
 const MODE_ORDER = ["code", "chat", "review"];
 const PANE_ORDER = ["files", "sessions", "chat", "review", "activity"];
 
-const PALETTE_ACTIONS = [
-  { label: "Mode: Code", value: "mode:code" },
-  { label: "Mode: Chat", value: "mode:chat" },
-  { label: "Mode: Review", value: "mode:review" },
-  { label: "Compact context", value: "compact" },
-  { label: "Ultra review", value: "ultrareview" },
-  { label: "Plan files", value: "plan" },
-  { label: "Rollback plan", value: "rollback" },
-  { label: "Loop verify", value: "loop" },
-  { label: "Fork session", value: "fork" },
-  { label: "Toggle auto mode", value: "auto" },
-  { label: "List artifacts", value: "artifacts" },
-  { label: "List templates", value: "template:list" },
-  { label: "Team workspaces", value: "team:workspaces" },
-  { label: "Cowork plans", value: "cowork:plans" },
-  { label: "Refresh", value: "refresh" },
-  { label: "Clear workspace", value: "clear" },
-  { label: "Git status", value: "git status" },
-  { label: "Git diff", value: "git diff" },
-  { label: "Run shell", value: "run" },
-  { label: "Approve proposal", value: "approve" },
-  { label: "Reject proposal", value: "reject" },
+const PALETTE_CATEGORIES = [
+  {
+    label: "Navigation",
+    actions: [
+      { label: "Mode: Code", value: "mode:code" },
+      { label: "Mode: Chat", value: "mode:chat" },
+      { label: "Mode: Review", value: "mode:review" },
+      { label: "Refresh", value: "refresh" },
+      { label: "Clear workspace", value: "clear" },
+    ],
+  },
+  {
+    label: "Workflows",
+    actions: [
+      { label: "Compact context", value: "compact" },
+      { label: "Ultra review", value: "ultrareview" },
+      { label: "Plan files", value: "plan" },
+      { label: "Rollback plan", value: "rollback" },
+      { label: "Loop verify", value: "loop" },
+      { label: "Fork session", value: "fork" },
+      { label: "Toggle auto mode", value: "auto" },
+    ],
+  },
+  {
+    label: "Team & Cowork",
+    actions: [
+      { label: "Team workspaces", value: "team:workspaces" },
+      { label: "Cowork plans", value: "cowork:plans" },
+      { label: "List artifacts", value: "artifacts" },
+      { label: "List templates", value: "template:list" },
+    ],
+  },
+  {
+    label: "Git & Shell",
+    actions: [
+      { label: "Git status", value: "git status" },
+      { label: "Git diff", value: "git diff" },
+      { label: "Run shell", value: "run" },
+      { label: "Approve proposal", value: "approve" },
+      { label: "Reject proposal", value: "reject" },
+    ],
+  },
 ];
+
+const PALETTE_ACTIONS = PALETTE_CATEGORIES.flatMap((category) => category.actions);
 
 function truncate(text, limit) {
   if (!text) {
@@ -2350,7 +2373,7 @@ function App() {
   return (
     <Box flexDirection="column" padding={1}>
       <Box justifyContent="space-between">
-        <Text color="cyanBright" bold>
+        <Text color={inkTheme.primaryBright} bold>
           CodeForge Terminal
         </Text>
         <Text dimColor>
@@ -2360,37 +2383,40 @@ function App() {
       <Text dimColor>
         {baseUrl} | model {routingSignal?.model_used || DEFAULT_MODEL} | project {truncate(projectPath, 36)}
       </Text>
-      <Text color={routingSignal?.review_required ? "yellow" : "green"}>
+      <Text color={routingSignal?.review_required ? inkTheme.warning : inkTheme.success}>
         {truncate(formatRoutingSignal(routingSignal), 90)} | auto {autoMode ? "on" : "off"}
+        {currentSession && !canWriteSession(currentSession)
+          ? ` | ${truncate(viewOnlySessionMessage(currentSession), 48)}`
+          : ""}
       </Text>
       <Text dimColor>{shortcutHint}</Text>
       <Newline />
       <Box>
-        <Box borderStyle="single" borderColor={activePane === "files" ? "cyan" : undefined} flexDirection="column" width={24} paddingX={1} marginRight={1}>
+        <Box borderStyle="single" borderColor={activePane === "files" ? paneBorderColor : inkTheme.border} flexDirection="column" width={24} paddingX={1} marginRight={1}>
           <Text bold>Files</Text>
           {treeLines.map((line) => (
             <Text key={line}>{line}</Text>
           ))}
         </Box>
-        <Box borderStyle="single" borderColor={activePane === "sessions" ? "cyan" : undefined} flexDirection="column" width={24} paddingX={1} marginRight={1}>
+        <Box borderStyle="single" borderColor={activePane === "sessions" ? paneBorderColor : inkTheme.border} flexDirection="column" width={24} paddingX={1} marginRight={1}>
           <Text bold>Sessions</Text>
           {sessionLines.map((line) => (
             <Text key={line}>{line}</Text>
           ))}
         </Box>
-        <Box borderStyle="single" borderColor={activePane === "chat" ? "cyan" : undefined} flexDirection="column" flexGrow={1} minWidth={30} paddingX={1} marginRight={1}>
+        <Box borderStyle="single" borderColor={activePane === "chat" ? paneBorderColor : inkTheme.border} flexDirection="column" flexGrow={1} minWidth={30} paddingX={1} marginRight={1}>
           <Text bold>Chat</Text>
           {chatLines.map((line) => (
             <Text key={line}>{line}</Text>
           ))}
         </Box>
-        <Box borderStyle="single" borderColor={activePane === "review" ? "cyan" : undefined} flexDirection="column" width={42} paddingX={1} marginRight={1}>
+        <Box borderStyle="single" borderColor={activePane === "review" ? paneBorderColor : inkTheme.border} flexDirection="column" width={42} paddingX={1} marginRight={1}>
           <Text bold>Diff / Review</Text>
           {reviewLines.map((line, index) => (
             <Text key={`${index}-${line}`}>{line}</Text>
           ))}
         </Box>
-        <Box borderStyle="single" borderColor={activePane === "activity" ? "cyan" : undefined} flexDirection="column" width={34} paddingX={1}>
+        <Box borderStyle="single" borderColor={activePane === "activity" ? paneBorderColor : inkTheme.border} flexDirection="column" width={34} paddingX={1}>
           <Text bold>Activity</Text>
           {shellLines.map((line, index) => (
             <Text key={`${index}-${line}`}>{line}</Text>
@@ -2398,21 +2424,23 @@ function App() {
           {eventLines.map((line) => (
             <Text key={line}>{line}</Text>
           ))}
-          {error ? <Text color="red">{error}</Text> : null}
+          {error ? <Text color={inkTheme.danger}>{error}</Text> : null}
         </Box>
       </Box>
       <Newline />
       {paletteOpen ? (
         <Box borderStyle="single" paddingX={1} marginBottom={1}>
-          <Text color="yellow">Palette</Text>
+          <Text color={inkTheme.warning}>Palette</Text>
           <Text>{`: ${paletteDraft || "type to search"}`}</Text>
-          <Text dimColor>
-            {PALETTE_ACTIONS.map((action) => action.label).join(" | ")}
-          </Text>
+          {PALETTE_CATEGORIES.map((category) => (
+            <Text key={category.label} dimColor>
+              {category.label}: {category.actions.map((action) => action.label).join(" · ")}
+            </Text>
+          ))}
         </Box>
       ) : null}
       <Box borderStyle="single" paddingX={1}>
-        <Text color="green">&gt; </Text>
+        <Text color={inkTheme.success}>&gt; </Text>
         <Text>{draft || "Type a prompt or /help"}</Text>
       </Box>
       <Text dimColor>

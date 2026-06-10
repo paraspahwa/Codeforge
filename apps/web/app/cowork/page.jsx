@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
 import {
@@ -240,42 +241,20 @@ export default function CoworkPage() {
   }
 
   if (ready && !token) {
+    return null;
+  }
+
+  if (!ready) {
     return (
-      <section className="panel empty-state">
-        <h2>Cowork</h2>
-        <p className="small">Login from the top bar to run shell, browser, and extraction automations.</p>
+      <section className="panel">
+        <Skeleton style={{ height: "2rem", marginBottom: "1rem" }} />
+        <Skeleton style={{ height: "10rem" }} />
       </section>
     );
   }
 
-  return (
-    <div className="stack">
-      <section className="panel">
-        <h2>Cowork automation</h2>
-        <p className="small">
-          Preview and run tasks against your workspace. Browser tasks need manual approval; scheduled jobs support
-          shell and extract only.
-        </p>
-        {reliability ? (
-          <div className="stats-grid">
-            <article className="stat-card">
-              <p className="small">Enabled jobs</p>
-              <h2>{reliability.enabled_jobs}</h2>
-            </article>
-            <article className="stat-card">
-              <p className="small">Recent failure rate</p>
-              <h2>{(reliability.recent_failure_rate * 100).toFixed(0)}%</h2>
-            </article>
-            <article className="stat-card">
-              <p className="small">Circuit broken</p>
-              <h2>{reliability.circuit_broken_jobs}</h2>
-            </article>
-          </div>
-        ) : null}
-      </section>
-
-      <div className="grid">
-        <section className="panel">
+  const sessionPicker = (
+        <section className="panel cowork-session-bar">
           <h3>Session</h3>
           <p className="small">Project: {projectPath || "Not set — configure in Settings"}</p>
           <button type="button" onClick={handleCreateSession} disabled={loading || !projectPath.trim()}>
@@ -305,7 +284,10 @@ export default function CoworkPage() {
             <p className="small">{viewOnlySessionMessage(currentSession)}</p>
           ) : null}
         </section>
+  );
 
+  const plansTab = (
+    <div className="grid">
         <section className="panel">
           <h3>Create plan</h3>
           <label className="small" htmlFor="planType">
@@ -393,9 +375,27 @@ export default function CoworkPage() {
             </div>
           ) : null}
         </section>
-      </div>
+        <section className="panel">
+          <h3>Plans</h3>
+          {plans.length === 0 ? <EmptyState title="No plans" description="Create a plan to preview automation steps." /> : null}
+          {plans.slice(0, 6).map((plan) => (
+            <button
+              key={plan.plan_id}
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setSelectedPlan(plan);
+                setBrowserApproved(false);
+              }}
+            >
+              {plan.title} ({plan.task_type}) — {plan.status}
+            </button>
+          ))}
+        </section>
+    </div>
+  );
 
-      <div className="grid">
+  const jobsTab = (
         <section className="panel">
           <h3>Scheduled jobs</h3>
           <p className="small">Jobs can run shell or extract tasks on an interval or file change.</p>
@@ -489,7 +489,9 @@ export default function CoworkPage() {
             </div>
           ))}
         </section>
+  );
 
+  const extractionsTab = (
         <section className="panel">
           <h3>Quick extract</h3>
           <label className="small" htmlFor="extractPath">
@@ -510,23 +512,6 @@ export default function CoworkPage() {
           ))}
 
           <hr className="divider" />
-          <h3>Plans</h3>
-          {plans.length === 0 ? <p className="small">No plans yet.</p> : null}
-          {plans.slice(0, 6).map((plan) => (
-            <button
-              key={plan.plan_id}
-              type="button"
-              className="ghost-btn"
-              onClick={() => {
-                setSelectedPlan(plan);
-                setBrowserApproved(false);
-              }}
-            >
-              {plan.title} ({plan.task_type}) — {plan.status}
-            </button>
-          ))}
-
-          <hr className="divider" />
           <h3>Extractions</h3>
           {extractions.length === 0 ? <p className="small">No extractions yet.</p> : null}
           {extractions.slice(0, 5).map((item) => (
@@ -535,7 +520,46 @@ export default function CoworkPage() {
             </div>
           ))}
         </section>
-      </div>
+  );
+
+  const reliabilityTab = reliability ? (
+    <div className="stats-grid">
+      <article className="stat-card">
+        <p className="small">Enabled jobs</p>
+        <h2>{reliability.enabled_jobs}</h2>
+      </article>
+      <article className="stat-card">
+        <p className="small">Recent failure rate</p>
+        <h2>{(reliability.recent_failure_rate * 100).toFixed(0)}%</h2>
+      </article>
+      <article className="stat-card">
+        <p className="small">Circuit broken</p>
+        <h2>{reliability.circuit_broken_jobs}</h2>
+      </article>
+    </div>
+  ) : (
+    <EmptyState title="No reliability data" description="Create jobs and runs to see reliability metrics." />
+  );
+
+  return (
+    <div className="stack">
+      <section className="panel">
+        <h2>Cowork automation</h2>
+        <p className="small">
+          Preview and run tasks against your workspace. Browser tasks need manual approval; scheduled jobs support
+          shell and extract only.
+        </p>
+      </section>
+      {sessionPicker}
+      <Tabs
+        defaultTab="plans"
+        tabs={[
+          { id: "plans", label: "Plans", content: plansTab },
+          { id: "jobs", label: "Jobs", content: jobsTab },
+          { id: "extractions", label: "Extractions", content: extractionsTab },
+          { id: "reliability", label: "Reliability", content: reliabilityTab },
+        ]}
+      />
     </div>
   );
 }

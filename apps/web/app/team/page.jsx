@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 import {
@@ -435,24 +436,20 @@ export default function TeamPage() {
   }
 
   if (ready && !token) {
+    return null;
+  }
+
+  if (!ready) {
     return (
-      <section className="panel empty-state">
-        <h2>Team</h2>
-        <p className="small">Login from the top bar to manage workspaces, knowledge, and delegations.</p>
+      <section className="panel">
+        <Skeleton style={{ height: "2rem", marginBottom: "1rem" }} />
+        <Skeleton style={{ height: "12rem" }} />
       </section>
     );
   }
 
-  return (
-    <div className="stack">
-      <section className="panel">
-        <h2>Team platform</h2>
-        <p className="small">
-          Shared workspaces, project knowledge indexing, and delegated agent tasks for collaborative workflows.
-        </p>
-      </section>
-
-      <div className="grid">
+  const workspacesTab = (
+    <div className="grid">
         <section className="panel">
           <h3>Organizations</h3>
           <p className="small">Billing-tier org entities for plan-aware usage policy.</p>
@@ -584,67 +581,10 @@ export default function TeamPage() {
             </>
           ) : null}
         </section>
+    </div>
+  );
 
-        <section className="panel">
-          <h3>Project knowledge</h3>
-          <label className="small" htmlFor="teamSession">
-            Session
-          </label>
-          <select id="teamSession" value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
-            {sessions.map((session) => (
-              <option key={session.session_id} value={session.session_id}>
-                {formatSessionListLabel(session)}
-              </option>
-            ))}
-          </select>
-          <div className="stack">
-            <button type="button" onClick={handleRebuildKnowledge} disabled={loading || !sessionId}>
-              Rebuild knowledge index
-            </button>
-            <label className="small" htmlFor="knowledgeUpload">
-              Upload knowledge files
-            </label>
-            <input
-              id="knowledgeUpload"
-              type="file"
-              multiple
-              accept=".md,.txt,.json,.yaml,.yml,.py,.js,.jsx,.ts,.tsx,.html,.css,.toml,.sh,.go,.rs,.java"
-              onChange={handleUploadKnowledge}
-              disabled={loading || !sessionId}
-            />
-          </div>
-          {knowledge ? (
-            <p className="small">
-              {knowledge.summary} · {knowledge.items?.length || 0} files indexed
-            </p>
-          ) : (
-            <p className="small">No knowledge index for this session yet.</p>
-          )}
-
-          <label className="small" htmlFor="knowledgeQuery">
-            Query knowledge
-          </label>
-          <input
-            id="knowledgeQuery"
-            value={knowledgeQuery}
-            onChange={(event) => setKnowledgeQuery(event.target.value)}
-            placeholder="auth middleware, billing flow..."
-          />
-          <button type="button" onClick={handleQueryKnowledge} disabled={loading}>
-            Search
-          </button>
-          {knowledgeResults?.results?.length ? (
-            <ul className="small">
-              {knowledgeResults.results.map((item) => (
-                <li key={item.path}>
-                  <strong>{item.path}</strong> — {item.excerpt}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      </div>
-
+  const auditTab = (
       <section className="panel">
         <h3>Audit log</h3>
         {auditEvents.length === 0 ? (
@@ -670,7 +610,9 @@ export default function TeamPage() {
           </ul>
         )}
       </section>
+  );
 
+  const grantsTab = (
       <section className="panel">
         <h3>Session grants</h3>
         <p className="small">Grant workspace members delegated access to your session for team workflows.</p>
@@ -701,7 +643,9 @@ export default function TeamPage() {
           Grant session access
         </button>
       </section>
+  );
 
+  const styleTab = (
       <section className="panel">
         <h3>Shared style guides</h3>
         {styleGuides.length === 0 ? <p className="small">No style guides for this workspace yet.</p> : null}
@@ -737,7 +681,9 @@ export default function TeamPage() {
           Save style guide
         </button>
       </section>
+  );
 
+  const delegationsTab = (
       <section className="panel">
         <h3>Delegations</h3>
         <div className="grid">
@@ -850,6 +796,87 @@ export default function TeamPage() {
           </div>
         </div>
       </section>
+  );
+
+  const knowledgeTab = (
+    <section className="panel">
+      <h3>Project knowledge</h3>
+      <label className="small" htmlFor="teamSession">
+        Session
+      </label>
+      <select id="teamSession" value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
+        {sessions.map((session) => (
+          <option key={session.session_id} value={session.session_id}>
+            {formatSessionListLabel(session)}
+          </option>
+        ))}
+      </select>
+      <div className="stack">
+        <button type="button" onClick={handleRebuildKnowledge} disabled={loading || !sessionId}>
+          Rebuild knowledge index
+        </button>
+        <label className="small" htmlFor="knowledgeUpload">
+          Upload knowledge files
+        </label>
+        <input
+          id="knowledgeUpload"
+          type="file"
+          multiple
+          accept=".md,.txt,.json,.yaml,.yml,.py,.js,.jsx,.ts,.tsx,.html,.css,.toml,.sh,.go,.rs,.java"
+          onChange={handleUploadKnowledge}
+          disabled={loading || !sessionId}
+        />
+      </div>
+      {knowledge ? (
+        <p className="small">
+          {knowledge.summary} · {knowledge.items?.length || 0} files indexed
+        </p>
+      ) : (
+        <EmptyState title="No knowledge index" description="Rebuild or upload files for this session." />
+      )}
+      <label className="small" htmlFor="knowledgeQuery">
+        Query knowledge
+      </label>
+      <input
+        id="knowledgeQuery"
+        value={knowledgeQuery}
+        onChange={(event) => setKnowledgeQuery(event.target.value)}
+        placeholder="auth middleware, billing flow..."
+      />
+      <button type="button" onClick={handleQueryKnowledge} disabled={loading}>
+        Search
+      </button>
+      {knowledgeResults?.results?.length ? (
+        <ul className="small">
+          {knowledgeResults.results.map((item) => (
+            <li key={item.path}>
+              <strong>{item.path}</strong> — {item.excerpt}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+
+  return (
+    <div className="stack">
+      <section className="panel">
+        <h2>Team platform</h2>
+        <p className="small">
+          Shared workspaces, project knowledge indexing, and delegated agent tasks for collaborative workflows.
+        </p>
+      </section>
+      <Tabs
+        defaultTab="workspaces"
+        tabs={[
+          { id: "workspaces", label: "Workspaces", content: workspacesTab },
+          { id: "delegations", label: "Delegations", content: delegationsTab },
+          { id: "knowledge", label: "Knowledge", content: knowledgeTab },
+          { id: "grants", label: "Grants", content: grantsTab },
+          { id: "style", label: "Style guides", content: styleTab },
+          { id: "audit", label: "Audit", content: auditTab },
+        ]}
+      />
     </div>
   );
 }

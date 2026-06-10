@@ -3,6 +3,7 @@ import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { useDesktopAuth } from "./DesktopAuthContext";
+import { useDesktopNotify } from "./useDesktopNotify";
 import {
   applyGitConflictAssist,
   createCoworkJob,
@@ -50,8 +51,7 @@ export default function CoworkWorkspace() {
   const [jobCommand, setJobCommand] = useState("Get-ChildItem");
   const [jobSourcePath, setJobSourcePath] = useState("README.md");
   const [extractPath, setExtractPath] = useState("");
-  const [statusMessage, setStatusMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const { statusMessage, errorMessage, reportError, reportSuccess } = useDesktopNotify();
   const [notifiedRunIds, setNotifiedRunIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [rolloutEnvironment, setRolloutEnvironment] = useState("local");
@@ -210,24 +210,24 @@ export default function CoworkWorkspace() {
 
   async function handleLoadConflictGuide() {
     if (!token || !sessionId) {
-      setErrorMessage("Create/select a session first");
+      reportError("Create/select a session first");
       return;
     }
     if (!conflictTargetBranch.trim()) {
-      setErrorMessage("Target branch is required");
+      reportError("Target branch is required");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const guide = await getGitConflictGuide(token, sessionId, conflictTargetBranch.trim());
       setConflictGuide(guide);
       setConflictApplyResult(null);
       setConflictPaths((guide.conflict_files || []).join("\n"));
-      setStatusMessage(`Conflict guide loaded (${(guide.conflict_files || []).length} files)`);
+      reportSuccess(`Conflict guide loaded (${(guide.conflict_files || []).length} files)`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -235,12 +235,12 @@ export default function CoworkWorkspace() {
 
   async function handleApplyConflictAssist() {
     if (!token || !sessionId) {
-      setErrorMessage("Create/select a session first");
+      reportError("Create/select a session first");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const paths = conflictPaths
         .split(/\r?\n/)
@@ -260,9 +260,9 @@ export default function CoworkWorkspace() {
           has_conflicts: (result.remaining_conflicts || []).length > 0,
         });
       }
-      setStatusMessage(`Applied ${conflictStrategy} strategy to ${(result.applied_paths || []).length} files`);
+      reportSuccess(`Applied ${conflictStrategy} strategy to ${(result.applied_paths || []).length} files`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -270,11 +270,11 @@ export default function CoworkWorkspace() {
 
   async function handleCreateSession() {
     if (!token) {
-      setErrorMessage("Login first");
+      reportError("Login first");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const created = await createSession(token, projectPath);
       const list = await listSessions(token);
@@ -282,9 +282,9 @@ export default function CoworkWorkspace() {
       setSessionId(created.session_id);
       await refreshRolloutPlan(token, rolloutEnvironment);
       await refreshRoutingBenchmark(token, routingBenchmarkSuite);
-      setStatusMessage(`Session ${created.session_id} created`);
+      reportSuccess(`Session ${created.session_id} created`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -292,12 +292,12 @@ export default function CoworkWorkspace() {
 
   async function handleCreatePlan() {
     if (!token || !sessionId) {
-      setErrorMessage("Create/select a session first");
+      reportError("Create/select a session first");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const plan = await createCoworkPlan(token, {
         session_id: sessionId,
@@ -310,10 +310,10 @@ export default function CoworkWorkspace() {
       });
       setSelectedPlan(plan);
       setBrowserApproved(false);
-      setStatusMessage(`Plan ${plan.plan_id} previewed`);
+      reportSuccess(`Plan ${plan.plan_id} previewed`);
       await refreshCoworkData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -325,18 +325,18 @@ export default function CoworkWorkspace() {
     }
 
     if (plan.requires_approval && !browserApproved) {
-      setErrorMessage("Browser tasks require explicit approval before run");
+      reportError("Browser tasks require explicit approval before run");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const run = await runCoworkPlan(token, plan.plan_id, browserApproved);
-      setStatusMessage(`Run ${run.run_id}: ${run.summary}`);
+      reportSuccess(`Run ${run.run_id}: ${run.summary}`);
       await refreshCoworkData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -344,12 +344,12 @@ export default function CoworkWorkspace() {
 
   async function handleCreateJob() {
     if (!token || !sessionId) {
-      setErrorMessage("Create/select a session first");
+      reportError("Create/select a session first");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const job = await createCoworkJob(token, {
         session_id: sessionId,
@@ -361,10 +361,10 @@ export default function CoworkWorkspace() {
         command: jobTaskType === "shell" ? jobCommand : null,
         source_path: jobTaskType === "extract" ? jobSourcePath : null,
       });
-      setStatusMessage(`Job ${job.job_id} created`);
+      reportSuccess(`Job ${job.job_id} created`);
       await refreshCoworkData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -376,12 +376,12 @@ export default function CoworkWorkspace() {
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       await toggleCoworkJob(token, job.job_id, enabled);
       await refreshCoworkData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -389,25 +389,25 @@ export default function CoworkWorkspace() {
 
   async function handleExtractNow() {
     if (!token || !sessionId) {
-      setErrorMessage("Create/select a session first");
+      reportError("Create/select a session first");
       return;
     }
     if (!extractPath.trim()) {
-      setErrorMessage("Pick or enter a source file path first");
+      reportError("Pick or enter a source file path first");
       return;
     }
 
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const extraction = await extractCoworkData(token, {
         session_id: sessionId,
         source_path: extractPath,
       });
-      setStatusMessage(`Extraction ${extraction.extraction_id} completed using ${extraction.method}`);
+      reportSuccess(`Extraction ${extraction.extraction_id} completed using ${extraction.method}`);
       await refreshCoworkData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }

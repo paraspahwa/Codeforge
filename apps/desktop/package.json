@@ -10,7 +10,9 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codeforge/design-tokens": "*",
     "@codeforge/shared": "*",
+    "@codeforge/ui": "*",
     "@tauri-apps/api": "2.0.0",
     "@tauri-apps/plugin-dialog": "2.0.0",
     "@tauri-apps/plugin-global-shortcut": "2.0.0",

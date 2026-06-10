@@ -1,18 +1,29 @@
+@import "../../../packages/design-tokens/tokens.css";
+
 :root {
   color-scheme: dark;
 }
 
 body {
   margin: 0;
-  font-family: Consolas, "Courier New", monospace;
-  background: radial-gradient(circle at top, #1d2838, #0f141b 55%);
-  color: #eef3f7;
+  font-family: var(--cf-font-mono);
+  background: var(--cf-gradient-bg);
+  color: var(--cf-text);
 }
 
 .shell {
   display: grid;
   gap: 14px;
   padding: 16px;
+  min-height: 100vh;
+}
+
+.prompt-card {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  border-color: var(--cf-accent);
+  box-shadow: 0 -8px 24px rgba(2, 6, 23, 0.45);
 }
 
 .tab-bar {
@@ -21,9 +32,9 @@ body {
 }
 
 .tab {
-  border: 1px solid rgba(118, 157, 189, 0.24);
-  background: rgba(9, 14, 20, 0.55);
-  color: #c7d7e8;
+  border: 1px solid var(--cf-border);
+  background: var(--cf-surface);
+  color: var(--cf-muted);
   border-radius: 999px;
   padding: 6px 14px;
   cursor: pointer;
@@ -31,9 +42,10 @@ body {
 }
 
 .tab.active {
-  border-color: rgba(142, 197, 255, 0.55);
-  background: rgba(30, 64, 95, 0.65);
-  color: #eef3f7;
+  border-color: var(--cf-accent);
+  background: var(--cf-primary-soft);
+  color: var(--cf-text);
+  box-shadow: var(--cf-shadow-glow);
 }
 
 .plan-item {
@@ -56,8 +68,8 @@ body {
 }
 
 .card {
-  background: rgba(9, 14, 20, 0.78);
-  border: 1px solid rgba(118, 157, 189, 0.24);
+  background: var(--cf-surface);
+  border: 1px solid var(--cf-border);
   border-radius: 12px;
   padding: 14px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
@@ -77,7 +89,7 @@ h1 {
 h2 {
   font-size: 14px;
   margin-bottom: 10px;
-  color: #8ec5ff;
+  color: var(--cf-accent);
 }
 
 .routing-signal {
@@ -116,7 +128,7 @@ label span,
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #9db5ca;
+  color: var(--cf-muted);
 }
 
 input,
@@ -202,7 +214,7 @@ button[disabled] {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #9db5ca;
+  color: var(--cf-muted);
 }
 
 .context-chip strong {
@@ -262,7 +274,7 @@ button[disabled] {
 
 .session-item span {
   font-size: 11px;
-  color: #9db5ca;
+  color: var(--cf-muted);
 }
 
 .log {

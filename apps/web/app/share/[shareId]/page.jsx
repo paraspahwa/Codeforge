@@ -49,13 +49,15 @@ export default function SharePage() {
 
   if (ready && !token) {
     return (
-      <section className="panel empty-state">
-        <h2>Shared session</h2>
-        <p className="small">Login from the top bar to open this shared session.</p>
-        <Link href="/" className="small">
-          Go to chat
-        </Link>
-      </section>
+      <div className="login-page">
+        <section className="panel login-card">
+          <h2>Shared session</h2>
+          <p className="small login-tagline">Sign in to open this shared session.</p>
+          <Link href={`/login?next=${encodeURIComponent(`/share/${shareId}`)}`} className="small">
+            Sign in
+          </Link>
+        </section>
+      </div>
     );
   }
 

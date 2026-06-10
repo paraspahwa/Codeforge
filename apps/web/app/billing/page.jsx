@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { EmptyState } from "@codeforge/ui";
 
 import {
   createBillingOrder,
@@ -132,7 +133,7 @@ export default function BillingPage() {
           email: `${userId}@codeforge.local`,
         },
         theme: {
-          color: "#2563eb",
+          color: "#0891b2",
         },
       });
 
@@ -214,22 +215,23 @@ export default function BillingPage() {
             </select>
           </>
         ) : null}
-        <div className="plan-list mt-8">
+        <div className="plan-cards mt-8">
           {plans.length === 0 ? <p className="small">Loading plans...</p> : null}
           {plans.map((plan) => {
             const isEffective = effectivePlanId === plan.plan_id;
             const isPersonalActive = subscription?.plan_id === plan.plan_id;
             return (
-              <div className="plan-row" key={plan.plan_id}>
-                <div>
-                  <strong>{plan.name}</strong>
-                  <div className="small">
-                    INR {plan.amount_inr} • {plan.request_limit} requests/month
-                  </div>
-                  {isEffective ? (
-                    <div className="small">Currently applied to your account ({formatPlanSource(effectiveSource)})</div>
-                  ) : null}
-                </div>
+              <article className={`plan-card ${isEffective ? "plan-card-active" : ""}`} key={plan.plan_id}>
+                <h3>{plan.name}</h3>
+                <p className="plan-price">
+                  <span className="plan-currency">₹</span>
+                  {plan.amount_inr.toLocaleString("en-IN")}
+                  <span className="small"> / month</span>
+                </p>
+                <p className="small">{plan.request_limit.toLocaleString("en-IN")} requests/month</p>
+                {isEffective ? (
+                  <p className="small">Active on your account ({formatPlanSource(effectiveSource)})</p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => handleCheckout(plan)}
@@ -237,11 +239,47 @@ export default function BillingPage() {
                 >
                   {isPersonalActive ? "Subscribed" : isEffective && effectiveSource === "organization" ? "Org plan active" : "Subscribe"}
                 </button>
-              </div>
+              </article>
             );
           })}
         </div>
-        {!token && ready ? <p className="small mt-8">Login from the top bar to subscribe.</p> : null}
+
+        {plans.length > 0 ? (
+          <div className="plan-compare mt-8">
+            <h3>Plan comparison</h3>
+            <table className="plan-table">
+              <thead>
+                <tr>
+                  <th>Plan</th>
+                  <th>Price (INR)</th>
+                  <th>Requests / month</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr key={`compare-${plan.plan_id}`}>
+                    <td>{plan.name}</td>
+                    <td>₹{plan.amount_inr.toLocaleString("en-IN")}</td>
+                    <td>{plan.request_limit.toLocaleString("en-IN")}</td>
+                    <td>{effectivePlanId === plan.plan_id ? formatPlanSource(effectiveSource) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {!token && ready ? (
+          <EmptyState
+            title="Sign in to subscribe"
+            description="Plans are visible below. Sign in to start checkout."
+            action={
+              <Link href="/login?next=/billing" className="small">
+                Sign in
+              </Link>
+            }
+          />
+        ) : null}
       </section>
     </div>
   );

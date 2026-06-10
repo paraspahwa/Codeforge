@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
+import { useDesktopNotify } from "./useDesktopNotify";
 import {
   addTeamWorkspaceMember,
   createSessionShare,
@@ -59,8 +60,7 @@ export default function TeamWorkspace() {
   const [grantUserId, setGrantUserId] = useState("");
   const [grantAccessLevel, setGrantAccessLevel] = useState("delegate");
   const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const { statusMessage, errorMessage, reportError, reportSuccess } = useDesktopNotify();
   const streamRef = useRef(null);
 
   const selectedWorkspace = useMemo(
@@ -109,7 +109,7 @@ export default function TeamWorkspace() {
 
   async function handleCreateWorkspace() {
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const workspace = await createTeamWorkspace(token, {
         name: workspaceName,
@@ -117,9 +117,9 @@ export default function TeamWorkspace() {
       });
       setSelectedWorkspaceId(workspace.workspace_id);
       await refreshTeamData(token);
-      setStatusMessage(`Workspace ${workspace.workspace_id} created`);
+      reportSuccess(`Workspace ${workspace.workspace_id} created`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -127,11 +127,11 @@ export default function TeamWorkspace() {
 
   async function handleCreateSessionGrant() {
     if (!selectedWorkspaceId || !sessionId || !grantUserId.trim()) {
-      setErrorMessage("Workspace, session, and granted user ID are required");
+      reportError("Workspace, session, and granted user ID are required");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const grant = await createWorkspaceSessionGrant(token, selectedWorkspaceId, {
         session_id: sessionId,
@@ -140,9 +140,9 @@ export default function TeamWorkspace() {
       });
       setGrantUserId("");
       await refreshTeamData(token);
-      setStatusMessage(`Session grant ${grant.grant_id} created`);
+      reportSuccess(`Session grant ${grant.grant_id} created`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -150,11 +150,11 @@ export default function TeamWorkspace() {
 
   async function handleAddMember() {
     if (!selectedWorkspaceId || !memberUserId.trim()) {
-      setErrorMessage("Select a workspace and enter a member user ID");
+      reportError("Select a workspace and enter a member user ID");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       await addTeamWorkspaceMember(token, selectedWorkspaceId, {
         user_id: memberUserId.trim(),
@@ -162,9 +162,9 @@ export default function TeamWorkspace() {
       });
       setMemberUserId("");
       await refreshTeamData(token);
-      setStatusMessage("Member added");
+      reportSuccess("Member added");
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -172,20 +172,20 @@ export default function TeamWorkspace() {
 
   async function handleRebuildKnowledge() {
     if (!sessionId) {
-      setErrorMessage("Select a session first");
+      reportError("Select a session first");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const kb = await rebuildProjectKnowledge(token, {
         session_id: sessionId,
         title: "Team project knowledge",
       });
       setKnowledge(kb);
-      setStatusMessage(kb.summary);
+      reportSuccess(kb.summary);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -194,19 +194,19 @@ export default function TeamWorkspace() {
   async function handleUploadKnowledge(event) {
     const fileList = event.target.files;
     if (!sessionId || !fileList?.length) {
-      setErrorMessage("Select a session and at least one file");
+      reportError("Select a session and at least one file");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const kb = await uploadProjectKnowledge(token, sessionId, Array.from(fileList));
       setKnowledge(kb);
       await refreshTeamData(token);
-      setStatusMessage(`Uploaded ${kb.uploaded_paths?.length || 0} file(s)`);
+      reportSuccess(`Uploaded ${kb.uploaded_paths?.length || 0} file(s)`);
       event.target.value = "";
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -214,11 +214,11 @@ export default function TeamWorkspace() {
 
   async function handleQueryKnowledge() {
     if (!sessionId || !knowledgeQuery.trim()) {
-      setErrorMessage("Select a session and enter a query");
+      reportError("Select a session and enter a query");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const result = await queryProjectKnowledge(token, {
         session_id: sessionId,
@@ -227,7 +227,7 @@ export default function TeamWorkspace() {
       });
       setKnowledgeResults(result);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -235,11 +235,11 @@ export default function TeamWorkspace() {
 
   async function handleSaveStyleGuide() {
     if (!selectedWorkspaceId || styleGuideTitle.trim().length < 2 || styleGuideContent.trim().length < 8) {
-      setErrorMessage("Select a workspace and provide a title plus at least 8 characters of content");
+      reportError("Select a workspace and provide a title plus at least 8 characters of content");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       if (editingGuideId) {
         await updateTeamStyleGuide(token, selectedWorkspaceId, editingGuideId, {
@@ -247,7 +247,7 @@ export default function TeamWorkspace() {
           guide_type: styleGuideType,
           content: styleGuideContent.trim(),
         });
-        setStatusMessage(`Updated style guide ${editingGuideId}`);
+        reportSuccess(`Updated style guide ${editingGuideId}`);
       } else {
         const guide = await createTeamStyleGuide(token, selectedWorkspaceId, {
           title: styleGuideTitle.trim(),
@@ -255,11 +255,11 @@ export default function TeamWorkspace() {
           content: styleGuideContent.trim(),
         });
         setEditingGuideId(guide.guide_id);
-        setStatusMessage(`Created style guide ${guide.guide_id}`);
+        reportSuccess(`Created style guide ${guide.guide_id}`);
       }
       await refreshTeamData(token);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -274,11 +274,11 @@ export default function TeamWorkspace() {
 
   async function handleCreateDelegation() {
     if (!selectedWorkspaceId || !sessionId || !delegationTask.trim()) {
-      setErrorMessage("Workspace, session, and task are required");
+      reportError("Workspace, session, and task are required");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const delegation = await createTeamDelegation(token, {
         workspace_id: selectedWorkspaceId,
@@ -294,9 +294,9 @@ export default function TeamWorkspace() {
         require_step_approval: requireStepApproval,
       });
       await refreshTeamData(token);
-      setStatusMessage(`Delegation ${delegation.task_id} queued`);
+      reportSuccess(`Delegation ${delegation.task_id} queued`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -304,13 +304,13 @@ export default function TeamWorkspace() {
 
   async function handleExecuteDelegation(taskId) {
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const result = await executeTeamDelegation(token, taskId);
       await refreshTeamData(token);
-      setStatusMessage(`Delegation ${taskId}: ${result.status}`);
+      reportSuccess(`Delegation ${taskId}: ${result.status}`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -318,13 +318,13 @@ export default function TeamWorkspace() {
 
   async function handleDelegationStepDecision(taskId, approved) {
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const result = await approveTeamDelegationStep(token, taskId, { approved });
       await refreshTeamData(token);
-      setStatusMessage(`Delegation ${taskId}: ${result.status}`);
+      reportSuccess(`Delegation ${taskId}: ${result.status}`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -332,17 +332,17 @@ export default function TeamWorkspace() {
 
   async function handleShareSession() {
     if (!sessionId) {
-      setErrorMessage("Select a session first");
+      reportError("Select a session first");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const share = await createSessionShare(token, sessionId);
       setShareOutput(share.share_url || share.share_id);
-      setStatusMessage("Share link created");
+      reportSuccess("Share link created");
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }
@@ -350,17 +350,17 @@ export default function TeamWorkspace() {
 
   async function handleExportSession(format) {
     if (!sessionId) {
-      setErrorMessage("Select a session first");
+      reportError("Select a session first");
       return;
     }
     setLoading(true);
-    setErrorMessage("");
+    reportError("");
     try {
       const exported = await exportSession(token, sessionId, format);
       setShareOutput(`${exported.format} export (${exported.content.length} chars)`);
-      setStatusMessage(`Session exported as ${format}`);
+      reportSuccess(`Session exported as ${format}`);
     } catch (error) {
-      setErrorMessage(error.message);
+      reportError(error.message);
     } finally {
       setLoading(false);
     }

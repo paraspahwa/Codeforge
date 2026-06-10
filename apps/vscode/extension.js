@@ -630,6 +630,7 @@ async function decideProposal(context, action) {
 }
 
 function getHtml(webview, extensionUri) {
+  const helpersUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "sessions-helpers.js"));
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "panel.js"));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "panel.css"));
   const nonce = String(Date.now());
@@ -645,6 +646,7 @@ function getHtml(webview, extensionUri) {
   </head>
   <body>
     <div id="app"></div>
+    <script nonce="${nonce}" src="${helpersUri}"></script>
     <script nonce="${nonce}" src="${scriptUri}"></script>
   </body>
 </html>`;
