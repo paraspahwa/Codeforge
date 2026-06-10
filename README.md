@@ -22,10 +22,12 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 
 ## Repository Layout
 
-- `apps/web`: Next.js dashboard and chat surface
-- `apps/desktop`: React frontend plus Tauri shell
+- `apps/web`: Next.js dashboard and chat surface — see [apps/web/README.md](apps/web/README.md)
+- `apps/desktop`: React frontend plus Tauri shell — see [apps/desktop/README.md](apps/desktop/README.md)
 - `apps/terminal`: Ink terminal client
-- `packages/shared`: Shared API and stream helpers
+- `packages/shared`: Cross-client API, SSE, and session helpers — see [packages/shared/README.md](packages/shared/README.md)
+- `packages/ui`: Shared React components (chat log, buttons, panels) — see [packages/ui/README.md](packages/ui/README.md)
+- `packages/design-tokens`: CSS variables and JSON theme for all clients — see [packages/design-tokens/README.md](packages/design-tokens/README.md)
 - `services/api`: FastAPI backend
 - `docs/`: PRD, implementation plan, index, and tickets
 
