@@ -11,6 +11,7 @@
 
 - [PRD.md](PRD.md): product scope, phases, and success metrics
 - [docs/implementation-plan.md](docs/implementation-plan.md): execution plan and delivery order
+- [docs/frontend-architecture.md](docs/frontend-architecture.md): design tokens, UI kit, web/desktop client layout
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
 - [README.md](README.md): repo setup and current implementation status
 
@@ -35,10 +36,19 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 ## Current Technical Direction
 
 - Backend: FastAPI + Python 3.13
-- Web: Next.js + React
+- Web: Next.js + React + Tailwind (token-backed utilities)
 - Desktop: Tauri + React
 - Terminal: Ink + React
-- Shared package: browser/node API helpers and SSE parsing
+- Shared clients: `@codeforge/design-tokens`, `@codeforge/ui`, `@codeforge/shared` (API, SSE, session grants)
+
+## Recently shipped (shared UI + client refactor batch)
+
+- `@codeforge/design-tokens`: `--cf-*` CSS variables + `theme.json` for terminal Ink theme
+- `@codeforge/ui`: shared React primitives and `ChatMessageList` (web + desktop variants)
+- Web chat refactor: `useChatPage`, `components/chat/*`, `ShellRouter` minimal routes, `/login` page
+- Desktop Code refactor: `useCodeWorkspace`, `toast-context`, `useDesktopNotify`
+- VS Code `sessions-helpers.js` mirrors `@codeforge/shared/sessions` grant semantics
+- Docs: [docs/frontend-architecture.md](docs/frontend-architecture.md), package READMEs under `packages/`
 
 ## Backlog Areas (active)
 
