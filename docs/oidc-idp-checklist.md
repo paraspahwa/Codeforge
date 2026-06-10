@@ -60,7 +60,16 @@ Non-secret env on the API container:
 - `CODEFORGE_OIDC_ENABLED=true`
 - `CODEFORGE_OIDC_TRUST_SUBJECT=false` (use code exchange) or `true` for JWT bearer trust
 
-Production cutover: repeat for `--environment production` after staging SSO is validated.
+Production cutover (after staging SSO is validated):
+
+```bash
+python scripts/patch_ecs_oidc_enabled.py --environment production --enabled true
+# commit taskdef-api.json, deploy production, then either:
+# - set GitHub repo variable VERIFY_OIDC_CUTOVER=true, or
+# - workflow_dispatch with "Run OIDC cutover verification after deploy" checked
+```
+
+`infra/ecs/production/taskdef-api.json` ships with `CODEFORGE_OIDC_ENABLED=true` once cutover is approved.
 
 ## 5. Verify before deploy
 

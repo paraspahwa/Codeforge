@@ -68,7 +68,7 @@ aws ecs describe-task-definition --task-definition codeforge-worker-staging-task
 
 ### Phase 3 — Wire ECS services in Terraform
 
-1. Set in `terraform.tfvars`:
+1. Copy `terraform.tfvars.phase3.example` → `terraform.tfvars` (or set in `terraform.tfvars`):
    - `enable_ecs_services = true`
    - `api_task_definition_arn`, `web_task_definition_arn`, `worker_task_definition_arn`
    - `efs_file_system_id` (match GitHub `EFS_FILE_SYSTEM_ID_*`)

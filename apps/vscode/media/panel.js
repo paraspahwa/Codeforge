@@ -81,6 +81,27 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function canWriteSession(session) {
+  if (!session || session.access_source !== "granted") {
+    return true;
+  }
+  return session.access_level === "delegate";
+}
+
+function sessionAllowsWrite(state) {
+  const session = state.sessions.find((item) => item.session_id === state.currentSessionId);
+  return canWriteSession(session);
+}
+
+function viewOnlySessionMessage(state) {
+  const session = state.sessions.find((item) => item.session_id === state.currentSessionId);
+  if (!session || canWriteSession(session)) {
+    return "";
+  }
+  const owner = session.owner_user_id ? ` from ${session.owner_user_id}` : "";
+  return `View-only access${owner}. Write actions are disabled.`;
+}
+
 function formatSessionListLabel(session) {
   if (!session || session.access_source !== "granted") {
     return session?.session_id || "";
@@ -367,13 +388,14 @@ function render() {
 
       ${chatTab ? `
       <section class="card prompt-card">
+        ${viewOnlySessionMessage(state) ? `<p class="hint">${escapeHtml(viewOnlySessionMessage(state))}</p>` : ""}
         <label>
           <span>Prompt</span>
-          <textarea id="prompt" rows="7" ${state.busy ? "disabled" : ""}>${escapeHtml(state.prompt)}</textarea>
+          <textarea id="prompt" rows="7" ${state.busy || !sessionAllowsWrite(state) ? "disabled" : ""}>${escapeHtml(state.prompt)}</textarea>
         </label>
         <div class="actions">
-          <button data-action="sendPrompt" ${state.busy ? "disabled" : ""}>Send</button>
-          <button data-action="approve" ${state.busy || !state.proposalId ? "disabled" : ""}>Approve</button>
+          <button data-action="sendPrompt" ${state.busy || !sessionAllowsWrite(state) ? "disabled" : ""}>Send</button>
+          <button data-action="approve" ${state.busy || !state.proposalId || !sessionAllowsWrite(state) ? "disabled" : ""}>Approve</button>
           <button data-action="reject" ${state.busy || !state.proposalId ? "disabled" : ""}>Reject</button>
         </div>
         <div class="meta">
@@ -389,9 +411,9 @@ function render() {
       <section class="card">
         <h2>Workflows</h2>
         <div class="actions">
-          <button data-action="compactWorkflow" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Compact</button>
-          <button data-action="ultrareviewWorkflow" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Ultrareview</button>
-          <button data-action="forkSession" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Fork</button>
+          <button data-action="compactWorkflow" ${state.busy || !state.currentSessionId || !sessionAllowsWrite(state) ? "disabled" : ""}>Compact</button>
+          <button data-action="ultrareviewWorkflow" ${state.busy || !state.currentSessionId || !sessionAllowsWrite(state) ? "disabled" : ""}>Ultrareview</button>
+          <button data-action="forkSession" ${state.busy || !state.currentSessionId || !sessionAllowsWrite(state) ? "disabled" : ""}>Fork</button>
         </div>
         <input id="planTargets" value="${escapeHtml(state.planTargets)}" placeholder="plan targets" ${state.busy ? "disabled" : ""} />
         <label class="hint">
@@ -399,9 +421,9 @@ function render() {
           Auto mode
         </label>
         <div class="actions">
-          <button data-action="createWorkflowPlan" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Plan</button>
-          <button data-action="executeWorkflowPlan" ${state.busy || !state.activePlanId ? "disabled" : ""}>Run Plan</button>
-          <button data-action="rollbackWorkflowPlan" ${state.busy || !state.activePlanId ? "disabled" : ""}>Rollback</button>
+          <button data-action="createWorkflowPlan" ${state.busy || !state.currentSessionId || !sessionAllowsWrite(state) ? "disabled" : ""}>Plan</button>
+          <button data-action="executeWorkflowPlan" ${state.busy || !state.activePlanId || !sessionAllowsWrite(state) ? "disabled" : ""}>Run Plan</button>
+          <button data-action="rollbackWorkflowPlan" ${state.busy || !state.activePlanId || !sessionAllowsWrite(state) ? "disabled" : ""}>Rollback</button>
         </div>
         ${state.activePlanId ? `<p class="hint">Plan: ${escapeHtml(state.activePlanId)}</p>` : ""}
         ${state.workflowOutput ? `<pre class="diff-view">${escapeHtml(state.workflowOutput)}</pre>` : ""}
@@ -411,7 +433,7 @@ function render() {
         <h2>Verify / Fix Loop</h2>
         <div class="actions">
           <input id="loopVerify" value="${escapeHtml(state.loopVerify)}" ${state.busy ? "disabled" : ""} />
-          <button data-action="runAgentLoop" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Run Loop</button>
+          <button data-action="runAgentLoop" ${state.busy || !state.currentSessionId || !sessionAllowsWrite(state) ? "disabled" : ""}>Run Loop</button>
         </div>
         ${state.loopSummary ? `<p class="hint">${escapeHtml(state.loopSummary)}</p>` : ""}
       </section>

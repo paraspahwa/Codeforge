@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatSessionListLabel } from "@codeforge/shared/sessions";
+import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
 import {
   applyGitConflictAssist,
@@ -70,9 +70,16 @@ export default function ChatPage() {
   const chatEndRef = useRef(null);
   const streamRef = useRef(null);
 
+  const currentSession = useMemo(
+    () => sessionHistory.find((entry) => entry.session_id === sessionId) || null,
+    [sessionHistory, sessionId],
+  );
+
+  const sessionWritable = useMemo(() => canWriteSession(currentSession), [currentSession]);
+
   const canSend = useMemo(
-    () => Boolean(token && sessionId && prompt.trim() && !loading),
-    [token, sessionId, prompt, loading]
+    () => Boolean(token && sessionId && prompt.trim() && !loading && sessionWritable),
+    [token, sessionId, prompt, loading, sessionWritable],
   );
 
   useEffect(() => {
@@ -596,6 +603,9 @@ export default function ChatPage() {
           </button>
         </div>
         <p className="small mt-8">Active: {sessionId ?? "none"}</p>
+        {!sessionWritable && currentSession ? (
+          <p className="small">{viewOnlySessionMessage(currentSession)}</p>
+        ) : null}
         <p className="small">Last model: {lastModel}</p>
         {usage ? (
           <p className="small">
@@ -628,13 +638,13 @@ export default function ChatPage() {
         {showWorkflows ? (
           <div className="mt-8">
             <div className="replay-toolbar">
-              <button type="button" onClick={handleCompact} disabled={!sessionId || loading}>
+              <button type="button" onClick={handleCompact} disabled={!sessionId || loading || !sessionWritable}>
                 Compact
               </button>
-              <button type="button" onClick={handleUltrareview} disabled={!sessionId || loading}>
+              <button type="button" onClick={handleUltrareview} disabled={!sessionId || loading || !sessionWritable}>
                 Ultrareview
               </button>
-              <button type="button" onClick={handleForkSession} disabled={!sessionId || loading}>
+              <button type="button" onClick={handleForkSession} disabled={!sessionId || loading || !sessionWritable}>
                 Fork Session
               </button>
             </div>
@@ -676,7 +686,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={handleRunLoop}
-                disabled={!sessionId || loading || loopRunning || !loopVerify.trim()}
+                disabled={!sessionId || loading || loopRunning || !loopVerify.trim() || !sessionWritable}
               >
                 {loopRunning ? "Loop running…" : "Run Loop"}
               </button>
@@ -701,13 +711,13 @@ export default function ChatPage() {
               Auto mode (skip high-risk applies)
             </label>
             <div className="replay-toolbar mt-8">
-              <button type="button" onClick={handleCreatePlan} disabled={!sessionId || loading}>
+              <button type="button" onClick={handleCreatePlan} disabled={!sessionId || loading || !sessionWritable}>
                 Create Plan
               </button>
-              <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading}>
+              <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading || !sessionWritable}>
                 Run Plan
               </button>
-              <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading}>
+              <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading || !sessionWritable}>
                 Rollback
               </button>
             </div>
@@ -841,7 +851,7 @@ export default function ChatPage() {
                   disabled={loading}
                 />
                 <div className="mt-6">
-                  <button type="button" onClick={handleApplyConflictAssist} disabled={loading}>
+                  <button type="button" onClick={handleApplyConflictAssist} disabled={loading || !sessionWritable}>
                     Apply Strategy and Stage
                   </button>
                 </div>
@@ -888,7 +898,7 @@ export default function ChatPage() {
                 }
               }
             }}
-            disabled={!token || !sessionId || loading}
+            disabled={!token || !sessionId || loading || !sessionWritable}
           />
           <div className="mt-6">
             <button type="submit" disabled={!canSend}>
@@ -908,7 +918,11 @@ export default function ChatPage() {
             <pre className="proposal-preview">{pendingProposal.patch_preview}</pre>
             {pendingProposal.status === "pending" ? (
               <div className="proposal-actions">
-                <button type="button" onClick={() => handleProposalDecision("approve")} disabled={loading}>
+                <button
+                  type="button"
+                  onClick={() => handleProposalDecision("approve")}
+                  disabled={loading || !sessionWritable}
+                >
                   Approve
                 </button>
                 <button

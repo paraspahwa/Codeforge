@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatSessionListLabel } from "@codeforge/shared/sessions";
+import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
 import {
   createCoworkJob,
@@ -57,6 +57,8 @@ export default function CoworkPage() {
     () => sessions.find((session) => session.session_id === sessionId) || null,
     [sessionId, sessions],
   );
+
+  const sessionWritable = useMemo(() => canWriteSession(currentSession), [currentSession]);
 
   async function refreshCoworkData(activeToken = token) {
     if (!activeToken) {
@@ -299,6 +301,9 @@ export default function CoworkPage() {
           {currentSession?.project_path ? (
             <p className="small">Workspace: {currentSession.project_path}</p>
           ) : null}
+          {!sessionWritable && currentSession ? (
+            <p className="small">{viewOnlySessionMessage(currentSession)}</p>
+          ) : null}
         </section>
 
         <section className="panel">
@@ -367,7 +372,7 @@ export default function CoworkPage() {
             </>
           ) : null}
 
-          <button type="button" onClick={handleCreatePlan} disabled={loading || !sessionId}>
+          <button type="button" onClick={handleCreatePlan} disabled={loading || !sessionId || !sessionWritable}>
             Preview plan
           </button>
 
@@ -460,7 +465,7 @@ export default function CoworkPage() {
               />
             </>
           )}
-          <button type="button" onClick={handleCreateJob} disabled={loading || !sessionId}>
+          <button type="button" onClick={handleCreateJob} disabled={loading || !sessionId || !sessionWritable}>
             Create job
           </button>
 
@@ -491,7 +496,7 @@ export default function CoworkPage() {
             Source path
           </label>
           <input id="extractPath" value={extractPath} onChange={(event) => setExtractPath(event.target.value)} />
-          <button type="button" onClick={handleExtractNow} disabled={loading || !sessionId}>
+          <button type="button" onClick={handleExtractNow} disabled={loading || !sessionId || !sessionWritable}>
             Extract now
           </button>
 

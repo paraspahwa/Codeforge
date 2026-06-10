@@ -1,0 +1,25 @@
+# Phase 3 — wire ECS services after first GitHub deploy registered task definitions.
+# Copy to terraform.tfvars, replace placeholders, then: terraform apply
+
+aws_region          = "ap-south-1"
+name_prefix         = "codeforge-staging"
+vpc_id              = "vpc-xxxxxxxx"
+public_subnet_ids   = ["subnet-aaaaaaaa", "subnet-bbbbbbbb"]
+certificate_arn     = "arn:aws:acm:ap-south-1:111111111111:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+api_host_headers    = ["api-staging.yourdomain.com"]
+
+enable_ecs_services        = true
+cluster_arn                = "arn:aws:ecs:ap-south-1:111111111111:cluster/codeforge-staging"
+private_subnet_ids         = ["subnet-private-aaaa", "subnet-private-bbbb"]
+api_task_definition_arn    = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-api-staging-task:1"
+web_task_definition_arn    = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-web-staging-task:1"
+worker_task_definition_arn = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-worker-staging-task:1"
+efs_file_system_id         = "fs-abc123def456"
+efs_security_group_id      = ""
+
+api_service_name    = "codeforge-api-service"
+web_service_name    = "codeforge-web-service"
+worker_service_name = "codeforge-worker-service"
+
+enable_qdrant_service      = true
+qdrant_task_definition_arn = "arn:aws:ecs:ap-south-1:111111111111:task-definition/codeforge-qdrant-staging-task:1"

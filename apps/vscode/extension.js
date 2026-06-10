@@ -230,6 +230,20 @@ function getProposalTargetFile() {
   return panelState?.proposal?.target_file || panelState?.diffPreview?.file || "";
 }
 
+function canWriteSession(session) {
+  if (!session || session.access_source !== "granted") {
+    return true;
+  }
+  return session.access_level === "delegate";
+}
+
+function assertWritableSession() {
+  const session = panelState.sessions.find((item) => item.session_id === panelState.currentSessionId);
+  if (!canWriteSession(session)) {
+    throw new Error("This session is view-only (granted read access).");
+  }
+}
+
 function updateStatusBarState() {
   if (!sessionStatusBarItem || !proposalStatusBarItem) {
     return;
@@ -745,6 +759,13 @@ function ensurePanel(context) {
       if (message.type === "sendPrompt") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         await streamPrompt(context, message.prompt, getCurrentFile());
         setBusy(false);
         return;
@@ -753,6 +774,15 @@ function ensurePanel(context) {
       if (message.type === "proposalDecision") {
         setBusy(true);
         setError("");
+        if (message.action === "approve") {
+          try {
+            assertWritableSession();
+          } catch (error) {
+            setError(error.message);
+            setBusy(false);
+            return;
+          }
+        }
         await decideProposal(context, message.action);
         setBusy(false);
         return;
@@ -774,6 +804,13 @@ function ensurePanel(context) {
       if (message.type === "runAgentLoop") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         panelState.loopVerify = message.verifyCommand || panelState.loopVerify || "pytest -q";
         await runAgentLoop(context, panelState.loopVerify);
         setBusy(false);
@@ -783,6 +820,13 @@ function ensurePanel(context) {
       if (message.type === "compactWorkflow") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const result = await api.compactWorkflow(panelState.baseUrl, panelState.token, sessionId);
@@ -796,6 +840,13 @@ function ensurePanel(context) {
       if (message.type === "ultrareviewWorkflow") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const result = await api.ultrareviewWorkflow(panelState.baseUrl, panelState.token, sessionId, {});
@@ -808,6 +859,13 @@ function ensurePanel(context) {
       if (message.type === "createWorkflowPlan") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const targets = String(message.targets || "")
@@ -825,6 +883,13 @@ function ensurePanel(context) {
       if (message.type === "executeWorkflowPlan") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const result = await api.executeWorkflowPlan(
@@ -846,6 +911,13 @@ function ensurePanel(context) {
       if (message.type === "rollbackWorkflowPlan") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const result = await api.rollbackWorkflowPlan(
@@ -863,6 +935,13 @@ function ensurePanel(context) {
       if (message.type === "forkSession") {
         setBusy(true);
         setError("");
+        try {
+          assertWritableSession();
+        } catch (error) {
+          setError(error.message);
+          setBusy(false);
+          return;
+        }
         const api = await loadSharedModule(context, "api.js");
         const sessionId = await ensureSession(context);
         const forked = await api.forkSession(panelState.baseUrl, panelState.token, sessionId);

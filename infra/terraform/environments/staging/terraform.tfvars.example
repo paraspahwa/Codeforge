@@ -6,6 +6,7 @@ certificate_arn     = "arn:aws:acm:ap-south-1:111111111111:certificate/xxxxxxxx-
 api_host_headers    = ["api-staging.yourdomain.com"]
 
 # Optional ECS service wiring (set true after first task definition revision exists)
+# Ready-to-apply template: terraform.tfvars.phase3.example
 enable_ecs_services      = false
 cluster_arn              = "arn:aws:ecs:ap-south-1:111111111111:cluster/codeforge-staging"
 private_subnet_ids       = ["subnet-private-aaaa", "subnet-private-bbbb"]

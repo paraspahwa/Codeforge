@@ -6,7 +6,7 @@ import {
   routingSignalFromMessageResponse,
   routingSignalFromPayload,
 } from "@codeforge/shared/sse";
-import { formatSessionListLabel } from "@codeforge/shared/sessions";
+import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   createSession,
@@ -94,7 +94,8 @@ export default function CodeWorkspace() {
     [sessionId, sessions],
   );
 
-  const canSend = Boolean(token && sessionId && prompt.trim() && !loading);
+  const sessionWritable = canWriteSession(currentSession);
+  const canSend = Boolean(token && sessionId && prompt.trim() && !loading && sessionWritable);
 
   useEffect(() => {
     if (!token) {
@@ -680,6 +681,9 @@ export default function CodeWorkspace() {
             ))}
           </select>
           {currentSession ? <p className="muted small">{currentSession.project_path}</p> : null}
+          {!sessionWritable && currentSession ? (
+            <p className="muted small">{viewOnlySessionMessage(currentSession)}</p>
+          ) : null}
 
           <h3>Git</h3>
           {gitStatus ? (
@@ -737,7 +741,7 @@ export default function CodeWorkspace() {
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Ask CodeForge to edit, explain, or review your project…"
-              disabled={!token || !sessionId || loading}
+              disabled={!token || !sessionId || loading || !sessionWritable}
             />
             <button type="submit" disabled={!canSend}>
               {loading ? "Working…" : "Send"}
@@ -758,7 +762,7 @@ export default function CodeWorkspace() {
                 <button
                   type="button"
                   onClick={() => handleProposalDecision("approve")}
-                  disabled={loading || pendingProposal.status === "approved"}
+                  disabled={loading || pendingProposal.status === "approved" || !sessionWritable}
                 >
                   Approve
                 </button>
@@ -807,13 +811,13 @@ export default function CodeWorkspace() {
         <div className="tool-panel">
           <h3>Workflows</h3>
           <div className="button-row">
-            <button type="button" onClick={handleCompact} disabled={!token || !sessionId || loading}>
+            <button type="button" onClick={handleCompact} disabled={!token || !sessionId || loading || !sessionWritable}>
               Compact
             </button>
-            <button type="button" onClick={handleUltrareview} disabled={!token || !sessionId || loading}>
+            <button type="button" onClick={handleUltrareview} disabled={!token || !sessionId || loading || !sessionWritable}>
               Ultrareview
             </button>
-            <button type="button" onClick={handleForkSession} disabled={!token || !sessionId || loading}>
+            <button type="button" onClick={handleForkSession} disabled={!token || !sessionId || loading || !sessionWritable}>
               Fork
             </button>
           </div>
@@ -833,13 +837,13 @@ export default function CodeWorkspace() {
             Auto mode
           </label>
           <div className="button-row">
-            <button type="button" onClick={handleCreatePlan} disabled={!token || !sessionId || loading}>
+            <button type="button" onClick={handleCreatePlan} disabled={!token || !sessionId || loading || !sessionWritable}>
               Plan
             </button>
-            <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading}>
+            <button type="button" onClick={handleExecutePlan} disabled={!activePlanId || loading || !sessionWritable}>
               Run Plan
             </button>
-            <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading}>
+            <button type="button" onClick={handleRollbackPlan} disabled={!activePlanId || loading || !sessionWritable}>
               Rollback
             </button>
           </div>
@@ -925,7 +929,7 @@ export default function CodeWorkspace() {
             <button
               type="button"
               onClick={handleRunLoop}
-              disabled={!token || !sessionId || loopRunning || loading}
+              disabled={!token || !sessionId || loopRunning || loading || !sessionWritable}
             >
               {loopRunning ? "Loop running…" : "Run Loop"}
             </button>

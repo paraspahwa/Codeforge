@@ -47,7 +47,7 @@
         },
         {
           "name": "CODEFORGE_OIDC_ENABLED",
-          "value": "false"
+          "value": "true"
         },
         {
           "name": "CODEFORGE_OIDC_TRUST_SUBJECT",

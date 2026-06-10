@@ -65,7 +65,7 @@ import {
   streamShellCommand,
 } from "@codeforge/shared/api";
 import { formatEvent } from "@codeforge/shared/sse";
-import { formatSessionListLabel } from "@codeforge/shared/sessions";
+import { canWriteSession, formatSessionListLabel } from "@codeforge/shared/sessions";
 
 const DEFAULT_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
 const TERMINAL_OIDC_REDIRECT_URI =
@@ -365,7 +365,14 @@ function App() {
     setEvents((previous) => [line, ...previous].slice(0, MAX_EVENTS));
   };
 
+  const assertWritableSession = (session = currentSession) => {
+    if (!canWriteSession(session)) {
+      throw new Error("This session is view-only (granted read access).");
+    }
+  };
+
   const runAgentTurn = async (sessionId, prompt) => {
+    assertWritableSession();
     await sendMessage(baseUrl, token, sessionId, {
       content: prompt,
       context: {
@@ -722,6 +729,10 @@ function App() {
       return;
     }
 
+    if (action === "approve") {
+      assertWritableSession();
+    }
+
     if (manageBusy) {
       setBusy(true);
     }
@@ -1053,6 +1064,7 @@ function App() {
       if (token && currentSessionId) {
         setBusy(true);
         try {
+          assertWritableSession();
           const sessionId = await ensureSession(token);
           const result = await compactWorkflow(baseUrl, token, sessionId);
           setReviewTitle("Compact summary");
@@ -1080,6 +1092,7 @@ function App() {
       if (token && currentSessionId) {
         setBusy(true);
         try {
+          assertWritableSession();
           const sessionId = await ensureSession(token);
           const result = await ultrareviewWorkflow(baseUrl, token, sessionId, {});
           setReviewTitle(`Ultrareview (${result.risk_level})`);
@@ -1105,6 +1118,10 @@ function App() {
         const tokens = splitShellWords(argument).map(stripQuotes);
         if (tokens.length === 0) {
           throw new Error("Usage: /plan <file1> <file2> ... | /plan run <prompt> | /plan show");
+        }
+
+        if (tokens[0] !== "show") {
+          assertWritableSession();
         }
 
         if (tokens[0] === "run") {
@@ -1142,6 +1159,7 @@ function App() {
 
     if (name === "rollback") {
       try {
+        assertWritableSession();
         rollbackMultiFilePlan();
       } catch (rollbackError) {
         setError(rollbackError.message);
@@ -1164,6 +1182,7 @@ function App() {
       setBusy(true);
       setError("");
       try {
+        assertWritableSession();
         await runLoopWorkflow(options);
       } catch (loopError) {
         setError(loopError.message);
@@ -1181,6 +1200,7 @@ function App() {
       setBusy(true);
       setError("");
       try {
+        assertWritableSession();
         const parentSessionId = currentSessionId;
         const forked = await forkSession(baseUrl, token, parentSessionId);
         setCurrentSessionId(forked.session_id);
@@ -1834,6 +1854,12 @@ function App() {
       }
 
       const subcommand = rest[0] || "status";
+      const gitWriteCommand =
+        ["stage", "commit", "branch", "assist-apply"].includes(subcommand) ||
+        (subcommand === "worktree" && rest[1] === "create");
+      if (gitWriteCommand) {
+        assertWritableSession();
+      }
       setBusy(true);
       setError("");
       try {
@@ -2020,6 +2046,7 @@ function App() {
       setBusy(true);
       setError("");
       try {
+        assertWritableSession();
         pushEvent(`shell> ${argument}`);
         setReviewTitle(`Shell: ${argument}`);
         setShellPreview(`Running in ${projectPath}`);

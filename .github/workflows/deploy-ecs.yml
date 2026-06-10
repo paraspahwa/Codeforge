@@ -11,6 +11,11 @@ on:
         options:
           - staging
           - production
+      verify_oidc_cutover:
+        description: Run OIDC cutover verification after deploy
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -575,7 +580,7 @@ jobs:
           bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"
 
       - name: Verify OIDC cutover readiness
-        if: vars.VERIFY_OIDC_CUTOVER == 'true'
+        if: vars.VERIFY_OIDC_CUTOVER == 'true' || (github.event_name == 'workflow_dispatch' && inputs.verify_oidc_cutover == true)
         env:
           API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_STAGING }}
         run: |
@@ -745,7 +750,7 @@ jobs:
           bash scripts/post_deploy_public_smoke.sh "${API_PUBLIC_URL}" "${WEB_PUBLIC_URL}"
 
       - name: Verify OIDC cutover readiness
-        if: vars.VERIFY_OIDC_CUTOVER == 'true'
+        if: vars.VERIFY_OIDC_CUTOVER == 'true' || (github.event_name == 'workflow_dispatch' && inputs.verify_oidc_cutover == true)
         env:
           API_PUBLIC_URL: ${{ vars.NEXT_PUBLIC_API_BASE_PRODUCTION }}
         run: |
