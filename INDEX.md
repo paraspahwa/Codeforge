@@ -48,6 +48,14 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
 
+## Recently shipped (team perms + desktop SSO + worker scheduler batch)
+
+- Team session access enforcement: workspace membership alone does not expose another member's private session; grants/shares required (`session_access.py`; tests in `test_projects_team.py`)
+- Session export accepts optional `workspace_id` query param; shared `exportSession(..., workspaceId)` helper
+- Desktop: auth vs workspace localStorage split (`codeforge.desktop.auth` / `codeforge.desktop.workspace`); OIDC callback SPA fallback in Vite + Tauri build copy
+- Terminal: background team SSE buffer; `/team events` shows last 20 live events
+- Worker ECS taskdefs: removed `CODEFORGE_COWORK_SCHEDULER_ENABLED` from worker (API-only flag); legacy `infra/ecs/taskdef-api.json` documents OIDC + scheduler defaults
+
 ## Recently shipped (client SSO + Qdrant CI batch)
 
 - Qdrant deploy in `deploy-ecs.yml` when `DEPLOY_QDRANT_SERVICE=true` (registers `taskdef-qdrant.json`)

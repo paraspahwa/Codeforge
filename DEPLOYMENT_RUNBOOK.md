@@ -225,7 +225,20 @@ Production SSM prefix is `codeforge/prod` (not `codeforge/production`).
 - `scripts/patch_ecs_worker_efs.py` — EFS filesystem id for worker tasks
 - `scripts/patch_ecs_oidc_enabled.py` — flip `CODEFORGE_OIDC_ENABLED` on API tasks
 
-### 5.3 Decide production environment values
+### 5.3 Cowork scheduler split (API vs worker)
+
+Cowork scheduled jobs must tick exactly once in production:
+
+| Service | Image | Scheduler behavior |
+| --- | --- | --- |
+| API | `services/api/Dockerfile` | Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` — disables the API in-process `_worker_loop` (`cowork_scheduler.py`) |
+| Worker | `services/api/Dockerfile.worker` | Runs `celery worker --beat`; beat always calls `tick_cowork_jobs` — **do not** set `CODEFORGE_COWORK_SCHEDULER_ENABLED` on worker tasks |
+
+Use environment-specific taskdefs under `infra/ecs/staging/` and `infra/ecs/production/`. The legacy root `infra/ecs/taskdef-api.json` is a template only; CI deploys from the staging/production paths.
+
+Local prod-like compose (`docker-compose.prod.yml`) already sets `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on the API service.
+
+### 5.4 Decide production environment values
 
 Minimum API env vars for production:
 

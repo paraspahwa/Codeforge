@@ -9,6 +9,7 @@ Bring the terminal client closer to Claude Code style interactions.
 - T1.6 split-pane layout: done, sessions/chat/file/diff-review/activity panes are present
 - T1.7 command palette and modes: done, Ctrl+P palette and /mode commands are present
 - T1.8 approval display: done, approval events stream and approve/reject actions are present
+- Team live events: done — background `streamTeamEvents` SSE while logged in; `/team events` shows the last 20 buffered events (heartbeats filtered)
 
 ## Tickets
 
