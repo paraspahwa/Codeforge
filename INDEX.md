@@ -128,6 +128,15 @@ Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
 - Terminal `/sso` and VS Code panel SSO (authorize URL + code paste completion)
 - Desktop + terminal + VS Code style guide create/update parity
 
+## Recently shipped (shared UI layer batch)
+
+- `@codeforge/design-tokens`: `--cf-*` CSS variables + `theme.json` for web, desktop, and terminal theming
+- `@codeforge/ui`: shared React components (`ChatMessageList`, `Button`, `Panel`, `Banner`, etc.) — [packages/ui/README.md](packages/ui/README.md)
+- Web chat refactor: `use-chat-page.js` hook + `components/chat/` presentational panels — [apps/web/README.md](apps/web/README.md)
+- Desktop Code mode refactor: `use-code-workspace.js` hook mirrors web chat architecture
+- Tailwind on web with token-backed color utilities (`cfbg`, `cfprimary`, …)
+- Terminal Ink theme reads `theme.json` via `inkTheme.js`
+
 ## Notes
 
 The current repo intentionally tracks the roadmap in docs first. The tickets under `docs/tickets/` are the build queue for Copilot or a human implementer.
