@@ -12,8 +12,8 @@ India-first Claude Code alternative with four user modes on one shared backend:
 This repository includes a working multi-surface coding assistant platform:
 
 - FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
-- Next.js web app: chat, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
-- Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
+- Next.js web app: decomposed chat UI (`useChatPage` + `components/chat/*`), `/login` gate, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
+- Tauri desktop: **Code** workspace (`useCodeWorkspace` hook; git, shell, loop, proposals) and **Cowork** workspace
 - Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
@@ -25,9 +25,14 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 - `apps/web`: Next.js dashboard and chat surface
 - `apps/desktop`: React frontend plus Tauri shell
 - `apps/terminal`: Ink terminal client
-- `packages/shared`: Shared API and stream helpers
+- `apps/vscode`: VS Code extension webview panel
+- `packages/design-tokens`: Shared `--cf-*` CSS variables and `theme.json`
+- `packages/ui`: Shared React primitives (`Button`, `ChatMessageList`, …)
+- `packages/shared`: Cross-client API, SSE, and session-grant helpers
 - `services/api`: FastAPI backend
-- `docs/`: PRD, implementation plan, index, and tickets
+- `docs/`: PRD, implementation plan, frontend architecture, and tickets
+
+Frontend package and layout details: [docs/frontend-architecture.md](docs/frontend-architecture.md)
 
 ## Local Setup
 

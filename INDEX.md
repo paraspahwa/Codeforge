@@ -13,6 +13,7 @@
 - [docs/implementation-plan.md](docs/implementation-plan.md): execution plan and delivery order
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
 - [README.md](README.md): repo setup and current implementation status
+- [docs/frontend-architecture.md](docs/frontend-architecture.md): shared UI packages, web chat decomposition, session grants
 
 ## Suggested Copilot Prompts
 
@@ -47,6 +48,14 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Bootstrap SSM: Razorpay, OIDC, Qdrant — then OIDC cutover with `patch_ecs_oidc_enabled.py`
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
+
+## Recently shipped (frontend shared UI batch)
+
+- `packages/ui` — shared React primitives consumed by web and desktop
+- `packages/design-tokens` — `--cf-*` CSS variables + `theme.json` for terminal Ink theme
+- Web chat refactor: `useChatPage`, `components/chat/*`, `ShellRouter` minimal routes, `/login` page
+- Desktop Code mode: `useCodeWorkspace` extracts session/workflow logic from `CodeWorkspace.jsx`
+- `packages/shared/README.md` documents API, SSE, and session-grant modules (replaces placeholder)
 
 ## Recently shipped (client SSO + Qdrant CI batch)
 
