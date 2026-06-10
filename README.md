@@ -12,8 +12,9 @@ India-first Claude Code alternative with four user modes on one shared backend:
 This repository includes a working multi-surface coding assistant platform:
 
 - FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
-- Next.js web app: chat, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
+- Next.js web app: chat (`/`), dedicated login (`/login`), sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
 - Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
+- Shared UI layer: `@codeforge/design-tokens`, `@codeforge/ui`, and `@codeforge/shared` used by web, desktop, and terminal
 - Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
@@ -25,9 +26,12 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 - `apps/web`: Next.js dashboard and chat surface
 - `apps/desktop`: React frontend plus Tauri shell
 - `apps/terminal`: Ink terminal client
-- `packages/shared`: Shared API and stream helpers
+- `apps/vscode`: VS Code extension panel
+- `packages/design-tokens`: Shared CSS variables and `theme.json`
+- `packages/ui`: Shared React components (`ChatMessageList`, forms, panels)
+- `packages/shared`: API, SSE, and session-grant client SDK
 - `services/api`: FastAPI backend
-- `docs/`: PRD, implementation plan, index, and tickets
+- `docs/`: PRD, implementation plan, frontend architecture, and tickets
 
 ## Local Setup
 
@@ -44,8 +48,9 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 | --- | --- | --- | --- |
 | API | Python 3.13 venv in `services/api/.venv` | `uvicorn app.main:app --reload --port 8000` | `DATABASE_URL`, `SUPABASE_JWT_SECRET`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `OTEL_SERVICE_NAME`, `OTEL_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Web | Node.js workspace | `npm run dev:web` | `NEXT_PUBLIC_API_BASE` |
-| Desktop | Node.js + Rust (Tauri) | `npm run dev:desktop` | `CODEFORGE_API_BASE_URL` |
+| Desktop | Node.js + Rust (Tauri) | `npm run dev:desktop` | `VITE_CODEFORGE_API_BASE_URL`, `VITE_CODEFORGE_PROJECT_PATH` |
 | Terminal | Node.js workspace | `npm run dev:terminal` | `CODEFORGE_API_BASE_URL`, `CODEFORGE_USER_ID`, `CODEFORGE_MODEL` |
+| VS Code | Node.js workspace | `npm run check:vscode` | Extension reads API base from panel settings |
 
 ### Backend API
 
@@ -142,6 +147,7 @@ npm run dev:terminal
 ## Canonical Documents
 
 - [Implementation plan](docs/implementation-plan.md)
+- [Frontend architecture](docs/frontend-architecture.md) — design tokens, UI kit, web/desktop hooks
 - [Product requirements](PRD.md)
 - [Spec index](INDEX.md)
 - [Roadmap tickets](docs/tickets/README.md)
