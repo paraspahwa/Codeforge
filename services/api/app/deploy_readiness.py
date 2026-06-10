@@ -42,8 +42,8 @@ def collect_deploy_readiness() -> dict[str, Any]:
     _add_check(
         checks,
         name="database_url",
-        ok=bool(os.getenv("DATABASE_URL", "").strip()),
-        detail="DATABASE_URL must be configured for production deployments",
+        ok=bool(os.getenv("DATABASE_URL", "").strip() or os.getenv("PGHOST", "").strip()),
+        detail="DATABASE_URL or PGHOST must be configured for production deployments",
     )
 
     redis_url = os.getenv("REDIS_URL", "").strip()

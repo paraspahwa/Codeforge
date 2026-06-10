@@ -153,14 +153,18 @@ def build_ultrareview_audit(
         "Confirm rollback plan exists for grouped multi-file work.",
     ]
 
+    finding_lines = (
+        [f"- [{item.severity}] {item.message}" for item in findings]
+        or ["- No obvious issues detected from current session state."]
+    )
+
     report_lines = [
         f"Ultrareview for session {session_id}",
         f"Project: {project_path}",
         f"Risk level: {risk_level}",
         "",
         "Findings:",
-        *(f"- [{item.severity}] {item.message}" for item in findings)
-        or ["- No obvious issues detected from current session state."],
+        *finding_lines,
         "",
         "Suggested checks:",
         *(f"- {item}" for item in suggested_checks),

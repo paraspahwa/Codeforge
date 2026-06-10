@@ -80,7 +80,15 @@ services:
 
     environment:
 
-      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/codeforge
+      PGHOST: db
+
+      PGPORT: 5432
+
+      PGUSER: codeforge
+
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+
+      PGDATABASE: codeforge
 
       REDIS_URL: redis://redis:6379/0
 
@@ -182,7 +190,15 @@ services:
 
     environment:
 
-      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/codeforge
+      PGHOST: db
+
+      PGPORT: 5432
+
+      PGUSER: codeforge
+
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+
+      PGDATABASE: codeforge
 
       REDIS_URL: redis://redis:6379/0
 

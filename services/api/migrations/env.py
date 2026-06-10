@@ -11,7 +11,23 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("DATABASE_URL", "").strip()
+def _resolve_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url:
+        return database_url
+    host = os.getenv("PGHOST", "").strip()
+    if not host:
+        return ""
+    from urllib.parse import quote_plus
+
+    user = quote_plus(os.getenv("PGUSER", ""))
+    password = quote_plus(os.getenv("PGPASSWORD", ""))
+    port = os.getenv("PGPORT", "5432")
+    dbname = os.getenv("PGDATABASE", "")
+    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+
+
+database_url = _resolve_database_url()
 if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 

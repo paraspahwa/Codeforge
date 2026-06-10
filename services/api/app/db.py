@@ -42,6 +42,8 @@ INDEX_STATEMENTS = (
 
 
 def _is_postgres() -> bool:
+    if os.getenv("PGHOST", "").strip():
+        return True
     return DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
 
 
@@ -52,6 +54,8 @@ def _sqlite_connection() -> sqlite3.Connection:
 
 
 def _pg_connection() -> psycopg.Connection:
+    if os.getenv("PGHOST", "").strip():
+        return psycopg.connect(row_factory=dict_row)
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
