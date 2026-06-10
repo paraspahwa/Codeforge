@@ -120,6 +120,14 @@ Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
 - Worker deploy: auto-create `codeforge-worker` ECR repo + inject EFS filesystem id from GitHub variables
 - Web Team page: organizations, workspace-org linking, and session grants admin
 
+## Recently shipped (shared UI + client refactor batch)
+
+- `@codeforge/ui` package: `ChatMessageList`, forms, layout, banners — used by web and desktop
+- `@codeforge/design-tokens`: `--cf-*` CSS variables + `theme.json` for terminal Ink theme
+- Web chat refactor: `use-chat-page.js` hook, `components/chat/*`, `SessionProvider`, `/login` page
+- Desktop Code refactor: `use-code-workspace.js` extracts session/stream/workflow state from `CodeWorkspace.jsx`
+- [docs/client-architecture.md](docs/client-architecture.md) — package layers, SSE patterns, session grants, troubleshooting
+
 ## Recently shipped (engineering batch)
 
 - MCP HTTP JSON-RPC transport for remote connector `tools/call` (`services/api/app/mcp_transport.py`)

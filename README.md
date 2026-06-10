@@ -12,7 +12,7 @@ India-first Claude Code alternative with four user modes on one shared backend:
 This repository includes a working multi-surface coding assistant platform:
 
 - FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
-- Next.js web app: chat, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
+- Next.js web app: chat (componentized `useChatPage` + `@codeforge/ui`), sessions/replay, analytics, billing, login/OIDC, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
 - Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
 - Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
@@ -25,9 +25,11 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 - `apps/web`: Next.js dashboard and chat surface
 - `apps/desktop`: React frontend plus Tauri shell
 - `apps/terminal`: Ink terminal client
-- `packages/shared`: Shared API and stream helpers
+- `packages/shared`: Cross-surface API client (`api`, `agent`, `sse`, `sessions`)
+- `packages/ui`: Shared React components (`ChatMessageList`, forms, layout)
+- `packages/design-tokens`: CSS variables and JSON theme for all clients
 - `services/api`: FastAPI backend
-- `docs/`: PRD, implementation plan, index, and tickets
+- `docs/`: PRD, implementation plan, client architecture, and tickets
 
 ## Local Setup
 
@@ -145,6 +147,8 @@ npm run dev:terminal
 ## Canonical Documents
 
 - [Implementation plan](docs/implementation-plan.md)
+- [Client architecture](docs/client-architecture.md)
 - [Product requirements](PRD.md)
 - [Spec index](INDEX.md)
 - [Roadmap tickets](docs/tickets/README.md)
+- [Shared packages](packages/shared/README.md) · [UI components](packages/ui/README.md) · [Design tokens](packages/design-tokens/README.md)
