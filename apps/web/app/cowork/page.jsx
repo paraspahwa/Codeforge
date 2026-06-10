@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 import {
   createCoworkJob,
@@ -291,7 +292,7 @@ export default function CoworkPage() {
             {sessions.length === 0 ? <option value="">No sessions</option> : null}
             {sessions.map((session) => (
               <option key={session.session_id} value={session.session_id}>
-                {session.session_id}
+                {formatSessionListLabel(session)}
               </option>
             ))}
           </select>

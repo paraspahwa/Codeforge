@@ -222,6 +222,19 @@ def list_workspace_session_grants(workspace_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_grants_received_by_user(user_id: str) -> list[dict[str, Any]]:
+    rows = _fetchall(
+        """
+        SELECT grant_id, workspace_id, session_id, granted_to_user_id, granted_by, access_level, created_at
+        FROM workspace_session_grants
+        WHERE granted_to_user_id = ?
+        ORDER BY created_at DESC
+        """,
+        (user_id,),
+    )
+    return [dict(row) for row in rows]
+
+
 def list_session_grants_for_actor(*, session_id: str, user_id: str) -> list[dict[str, Any]]:
     rows = _fetchall(
         """

@@ -6,6 +6,7 @@ import {
   routingSignalFromMessageResponse,
   routingSignalFromPayload,
 } from "@codeforge/shared/sse";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   createSession,
@@ -674,7 +675,7 @@ export default function CodeWorkspace() {
             <option value="">Select session</option>
             {sessions.map((session) => (
               <option key={session.session_id} value={session.session_id}>
-                {session.session_id}
+                {formatSessionListLabel(session)}
               </option>
             ))}
           </select>

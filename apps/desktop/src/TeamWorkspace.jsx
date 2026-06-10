@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
 import {
   addTeamWorkspaceMember,
@@ -7,6 +8,7 @@ import {
   createTeamDelegation,
   createTeamStyleGuide,
   createTeamWorkspace,
+  createWorkspaceSessionGrant,
   executeTeamDelegation,
   exportSession,
   getProjectKnowledge,
@@ -15,6 +17,7 @@ import {
   listTeamDelegations,
   listTeamStyleGuides,
   listTeamWorkspaces,
+  listWorkspaceSessionGrants,
   updateTeamStyleGuide,
   queryProjectKnowledge,
   rebuildProjectKnowledge,
@@ -52,6 +55,9 @@ export default function TeamWorkspace() {
     "Use snake_case for Python modules and keep route handlers thin.",
   );
   const [editingGuideId, setEditingGuideId] = useState("");
+  const [sessionGrants, setSessionGrants] = useState([]);
+  const [grantUserId, setGrantUserId] = useState("");
+  const [grantAccessLevel, setGrantAccessLevel] = useState("delegate");
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -67,7 +73,7 @@ export default function TeamWorkspace() {
       return;
     }
     const workspaceId = selectedWorkspaceId || null;
-    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides] = await Promise.all([
+    const [nextWorkspaces, nextDelegations, nextSessions, nextAudit, nextGuides, nextGrants] = await Promise.all([
       listTeamWorkspaces(activeToken),
       listTeamDelegations(activeToken, workspaceId),
       listSessions(activeToken),
@@ -75,10 +81,14 @@ export default function TeamWorkspace() {
       workspaceId
         ? listTeamStyleGuides(activeToken, workspaceId).catch(() => ({ guides: [] }))
         : Promise.resolve({ guides: [] }),
+      workspaceId
+        ? listWorkspaceSessionGrants(activeToken, workspaceId).catch(() => ({ grants: [] }))
+        : Promise.resolve({ grants: [] }),
     ]);
     setWorkspaces(nextWorkspaces.workspaces || []);
     setDelegations(nextDelegations.delegations || []);
     setStyleGuides(nextGuides.guides || []);
+    setSessionGrants(nextGrants.grants || []);
     setSessions(nextSessions);
     setAuditEvents(nextAudit.events || []);
     if (!selectedWorkspaceId && nextWorkspaces.workspaces?.length) {
@@ -108,6 +118,29 @@ export default function TeamWorkspace() {
       setSelectedWorkspaceId(workspace.workspace_id);
       await refreshTeamData(token);
       setStatusMessage(`Workspace ${workspace.workspace_id} created`);
+    } catch (error) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateSessionGrant() {
+    if (!selectedWorkspaceId || !sessionId || !grantUserId.trim()) {
+      setErrorMessage("Workspace, session, and granted user ID are required");
+      return;
+    }
+    setLoading(true);
+    setErrorMessage("");
+    try {
+      const grant = await createWorkspaceSessionGrant(token, selectedWorkspaceId, {
+        session_id: sessionId,
+        granted_to_user_id: grantUserId.trim(),
+        access_level: grantAccessLevel,
+      });
+      setGrantUserId("");
+      await refreshTeamData(token);
+      setStatusMessage(`Session grant ${grant.grant_id} created`);
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -448,7 +481,7 @@ export default function TeamWorkspace() {
           <select value={sessionId} onChange={(event) => setSessionId(event.target.value)} disabled={loading}>
             {sessions.map((session) => (
               <option key={session.session_id} value={session.session_id}>
-                {session.session_id}
+                {formatSessionListLabel(session)}
               </option>
             ))}
           </select>
@@ -604,6 +637,31 @@ export default function TeamWorkspace() {
               </button>
             ))
           )}
+        </div>
+        <div className="tool-panel">
+          <h3>Session grants</h3>
+          <p className="muted small">Grant workspace members view or delegate access to your session.</p>
+          {sessionGrants.length === 0 ? <p className="muted small">No session grants yet.</p> : null}
+          <ul className="small">
+            {sessionGrants.map((grant) => (
+              <li key={grant.grant_id}>
+                {grant.granted_to_user_id} · {grant.session_id} · {grant.access_level}
+              </li>
+            ))}
+          </ul>
+          <input
+            value={grantUserId}
+            onChange={(event) => setGrantUserId(event.target.value)}
+            placeholder="grant to user id"
+            disabled={loading}
+          />
+          <select value={grantAccessLevel} onChange={(event) => setGrantAccessLevel(event.target.value)} disabled={loading}>
+            <option value="view">View</option>
+            <option value="delegate">Delegate</option>
+          </select>
+          <button type="button" onClick={handleCreateSessionGrant} disabled={!token || !selectedWorkspaceId || !sessionId || loading}>
+            Grant session access
+          </button>
         </div>
         <div className="tool-panel">
           <h3>Audit log</h3>

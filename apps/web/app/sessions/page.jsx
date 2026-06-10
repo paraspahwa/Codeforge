@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import {
   createSessionShare,
   exportSession,
@@ -221,7 +222,7 @@ export default function SessionsPage() {
               onClick={() => handleSelect(entry.session_id)}
               disabled={loading}
             >
-              <span>{entry.session_id}</span>
+              <span>{formatSessionListLabel(entry)}</span>
               <span className="small"> {new Date(entry.created_at).toLocaleString()}</span>
               {entry.project_path ? <span className="small block">{entry.project_path}</span> : null}
             </button>

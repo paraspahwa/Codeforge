@@ -118,3 +118,129 @@ def test_session_grant_rejects_non_member(client, tmp_path: Path) -> None:
         },
     )
     assert denied.status_code == 400
+
+
+def test_view_grant_allows_read_but_blocks_write(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "grant-access"
+    project.mkdir()
+
+    owner_headers = _auth_headers(client, "access-owner")
+    owner_session_id = _create_session(client, owner_headers, project)
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Access team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/members",
+        headers=owner_headers,
+        json={"user_id": "access-member", "role": "member"},
+    )
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/session-grants",
+        headers=owner_headers,
+        json={
+            "session_id": owner_session_id,
+            "granted_to_user_id": "access-member",
+            "access_level": "view",
+        },
+    )
+
+    member_headers = _auth_headers(client, "access-member")
+    listed = client.get(f"/api/v1/sessions/{owner_session_id}/messages", headers=member_headers)
+    assert listed.status_code == 200
+
+    denied = client.post(
+        f"/api/v1/sessions/{owner_session_id}/messages",
+        headers=member_headers,
+        json={"content": "Should be blocked"},
+    )
+    assert denied.status_code == 403
+
+
+def test_delegate_grant_allows_post_message(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "grant-delegate-write"
+    project.mkdir()
+
+    owner_headers = _auth_headers(client, "delegate-owner")
+    owner_session_id = _create_session(client, owner_headers, project)
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "Delegate write", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/members",
+        headers=owner_headers,
+        json={"user_id": "delegate-member", "role": "member"},
+    )
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/session-grants",
+        headers=owner_headers,
+        json={
+            "session_id": owner_session_id,
+            "granted_to_user_id": "delegate-member",
+            "access_level": "delegate",
+        },
+    )
+
+    member_headers = _auth_headers(client, "delegate-member")
+    allowed = client.post(
+        f"/api/v1/sessions/{owner_session_id}/messages",
+        headers=member_headers,
+        json={"content": "Granted delegate write"},
+    )
+    assert allowed.status_code == 200
+
+
+def test_granted_session_appears_in_session_list(client, tmp_path: Path) -> None:
+    init_db()
+    project = tmp_path / "grant-list"
+    project.mkdir()
+
+    owner_headers = _auth_headers(client, "list-owner")
+    owner_session_id = _create_session(client, owner_headers, project)
+
+    workspace = client.post(
+        "/api/v1/team/workspaces",
+        headers=owner_headers,
+        json={"name": "List team", "description": ""},
+    )
+    workspace_id = workspace.json()["workspace_id"]
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/members",
+        headers=owner_headers,
+        json={"user_id": "list-member", "role": "member"},
+    )
+
+    client.post(
+        f"/api/v1/team/workspaces/{workspace_id}/session-grants",
+        headers=owner_headers,
+        json={
+            "session_id": owner_session_id,
+            "granted_to_user_id": "list-member",
+            "access_level": "view",
+        },
+    )
+
+    member_headers = _auth_headers(client, "list-member")
+    listed = client.get("/api/v1/sessions", headers=member_headers)
+    assert listed.status_code == 200
+    items = listed.json()
+    match = next((item for item in items if item["session_id"] == owner_session_id), None)
+    assert match is not None
+    assert match["access_source"] == "granted"
+    assert match["access_level"] == "view"
+    assert match["workspace_id"] == workspace_id
+    assert match["owner_user_id"] == "list-owner"

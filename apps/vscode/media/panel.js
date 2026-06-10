@@ -44,6 +44,9 @@ const state = {
   teamMemberUserId: "",
   teamDelegationTask: "Review recent changes",
   teamStyleGuides: [],
+  teamSessionGrants: [],
+  teamGrantUserId: "",
+  teamGrantAccessLevel: "delegate",
   teamStyleGuideTitle: "API conventions",
   teamStyleGuideType: "style",
   teamStyleGuideContent: "Use snake_case for Python modules and keep handlers thin.",
@@ -76,6 +79,14 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function formatSessionListLabel(session) {
+  if (!session || session.access_source !== "granted") {
+    return session?.session_id || "";
+  }
+  const owner = session.owner_user_id ? ` from ${session.owner_user_id}` : "";
+  return `${session.session_id} (granted ${session.access_level || "view"}${owner})`;
 }
 
 function render() {
@@ -227,6 +238,29 @@ function render() {
             </div>
           `).join("")}
         </div>
+        <h2>Session grants</h2>
+        <div class="session-list">
+          ${state.teamSessionGrants.length === 0 ? '<p class="muted">No session grants.</p>' : state.teamSessionGrants.slice(0, 8).map((grant) => `
+            <div class="session-item">
+              <strong>${escapeHtml(grant.granted_to_user_id)}</strong>
+              <span>${escapeHtml(grant.session_id)} · ${escapeHtml(grant.access_level)}</span>
+            </div>
+          `).join("")}
+        </div>
+        <div class="grid two-up">
+          <label>
+            <span>Grant to user ID</span>
+            <input id="teamGrantUserId" value="${escapeHtml(state.teamGrantUserId)}" ${state.busy ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>Access level</span>
+            <select id="teamGrantAccessLevel" ${state.busy ? "disabled" : ""}>
+              <option value="view" ${state.teamGrantAccessLevel === "view" ? "selected" : ""}>view</option>
+              <option value="delegate" ${state.teamGrantAccessLevel === "delegate" ? "selected" : ""}>delegate</option>
+            </select>
+          </label>
+        </div>
+        <button data-action="teamCreateSessionGrant" ${state.busy || !state.currentSessionId ? "disabled" : ""}>Grant session access</button>
         <h2>Style guides</h2>
         <div class="grid two-up">
           <label>
@@ -388,7 +422,7 @@ function render() {
           <div class="session-list">
             ${state.sessions.length === 0 ? '<p class="muted">No sessions yet.</p>' : state.sessions.map((session) => `
               <button class="session-item ${session.session_id === state.currentSessionId ? "active" : ""}" data-session-id="${escapeHtml(session.session_id)}">
-                <strong>${escapeHtml(session.session_id)}</strong>
+                <strong>${escapeHtml(formatSessionListLabel(session))}</strong>
                 <span>${escapeHtml(session.project_path)}</span>
               </button>
             `).join("")}
@@ -549,6 +583,13 @@ function render() {
           mode: document.getElementById("teamDelegationMode").value,
           roles: document.getElementById("teamDelegationRoles").value.trim(),
           requireStepApproval: document.getElementById("teamRequireStepApproval").checked,
+        });
+      }
+      if (action === "teamCreateSessionGrant") {
+        vscode.postMessage({
+          type: "teamCreateSessionGrant",
+          grantedToUserId: document.getElementById("teamGrantUserId").value.trim(),
+          accessLevel: document.getElementById("teamGrantAccessLevel").value,
         });
       }
       if (action === "teamCreateStyleGuide") {

@@ -34,6 +34,7 @@ import {
   approveTeamDelegationStep,
   createTeamDelegation,
   createTeamWorkspace,
+  createWorkspaceSessionGrant,
   addTeamWorkspaceMember,
   executeTeamDelegation,
   listTeamStyleGuides,
@@ -48,6 +49,7 @@ import {
   listTeamAuditLog,
   listTeamDelegations,
   listTeamWorkspaces,
+  listWorkspaceSessionGrants,
   pairRemoteChannel,
   pushRemoteChannelEvent,
   queryProjectKnowledge,
@@ -63,6 +65,7 @@ import {
   streamShellCommand,
 } from "@codeforge/shared/api";
 import { formatEvent } from "@codeforge/shared/sse";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 const DEFAULT_BASE_URL = process.env.CODEFORGE_API_BASE_URL || "http://127.0.0.1:8000";
 const TERMINAL_OIDC_REDIRECT_URI =
@@ -620,7 +623,7 @@ function App() {
   const buildCompactSummary = () => {
     const lines = [
       `Mode: ${activeMode}`,
-      `Session: ${currentSessionId || "none"}`,
+      `Session: ${currentSession ? formatSessionListLabel(currentSession) : currentSessionId || "none"}`,
       `Project: ${projectPath || "unknown"}`,
       `Proposal: ${currentProposalId ? `${currentProposalId} (${currentProposal?.status || "pending"})` : "none"}`,
       `Plan: ${activePlan ? `${activePlan.planId} (${activePlan.targets.length} files)` : "none"}`,
@@ -1410,6 +1413,34 @@ function App() {
           setReviewTitle(`Delegation ${taskId}`);
           setDiffPreview(`${result.status}: ${result.note || ""}`);
           pushEvent(`team: approve ${result.status}`);
+        } else if (sub === "grants") {
+          const workspaceId = subArg || null;
+          if (!workspaceId) {
+            throw new Error("Usage: /team grants <workspace_id>");
+          }
+          const result = await listWorkspaceSessionGrants(baseUrl, token, workspaceId);
+          const lines = (result.grants || []).map(
+            (grant) => `${grant.grant_id}: ${grant.granted_to_user_id} · ${grant.session_id} · ${grant.access_level}`,
+          );
+          setReviewTitle("Session grants");
+          setDiffPreview(lines.length ? lines.join("\n") : "No session grants yet.");
+          pushEvent(`team: ${lines.length} grant(s)`);
+        } else if (sub === "grant") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const workspaceId = tokens[0];
+          const grantedTo = tokens[1];
+          const accessLevel = (tokens[2] || "delegate").toLowerCase();
+          if (!workspaceId || !grantedTo) {
+            throw new Error("Usage: /team grant <workspace_id> <user_id> [view|delegate]");
+          }
+          const grant = await createWorkspaceSessionGrant(baseUrl, token, workspaceId, {
+            session_id: sessionId,
+            granted_to_user_id: grantedTo,
+            access_level: accessLevel,
+          });
+          setReviewTitle("Session grant created");
+          setDiffPreview(`${grant.grant_id}: ${grantedTo} · ${accessLevel}`);
+          pushEvent(`team: grant ${grant.grant_id}`);
         } else if (sub === "style-guide") {
           const guideTokens = splitShellWords(subArg).map(stripQuotes);
           const guideAction = (guideTokens[0] || "").toLowerCase();

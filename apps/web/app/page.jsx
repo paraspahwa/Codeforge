@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 import {
   applyGitConflictAssist,
@@ -614,7 +615,7 @@ export default function ChatPage() {
               onClick={() => handleSelectSession(entry.session_id)}
               disabled={loading}
             >
-              <span>{entry.session_id}</span>
+              <span>{formatSessionListLabel(entry)}</span>
               <span className="small"> {new Date(entry.created_at).toLocaleString()}</span>
             </button>
           ))}

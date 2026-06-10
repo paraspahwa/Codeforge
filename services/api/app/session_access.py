@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from .db import get_session_by_id, get_session_for_user
+from .db import get_session_by_id, get_session_for_user, list_sessions_for_user
 from .projects_team_store import (
     get_active_session_share_access_level,
     get_workspace,
     has_workspace_session_grant,
+    list_grants_received_by_user,
     list_session_grants_for_actor,
     session_has_active_share,
 )
@@ -125,3 +126,78 @@ def actor_may_write_session(
                 return True
 
     return False
+
+
+def _session_list_entry(
+    *,
+    session: dict[str, Any],
+    access_source: str,
+    access_level: str,
+    workspace_id: str | None,
+    owner_user_id: str,
+) -> dict[str, Any]:
+    return {
+        "session_id": session["session_id"],
+        "project_path": session["project_path"],
+        "model_preference": session["model_preference"],
+        "created_at": session["created_at"],
+        "access_source": access_source,
+        "access_level": access_level,
+        "workspace_id": workspace_id,
+        "owner_user_id": owner_user_id,
+    }
+
+
+def list_accessible_sessions_for_actor(
+    actor_id: str,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+
+    by_id: dict[str, dict[str, Any]] = {}
+
+    for row in list_sessions_for_user(actor_id, limit=500, offset=0):
+        session = get_session_by_id(row["session_id"])
+        if session is None:
+            continue
+        by_id[row["session_id"]] = _session_list_entry(
+            session=session,
+            access_source="owned",
+            access_level="delegate",
+            workspace_id=None,
+            owner_user_id=actor_id,
+        )
+
+    for grant in list_grants_received_by_user(actor_id):
+        if resolve_team_session(
+            actor_id=actor_id,
+            session_id=grant["session_id"],
+            workspace_id=grant["workspace_id"],
+        ) is None:
+            continue
+
+        session = get_session_by_id(grant["session_id"])
+        if session is None:
+            continue
+
+        existing = by_id.get(grant["session_id"])
+        if existing is None:
+            by_id[grant["session_id"]] = _session_list_entry(
+                session=session,
+                access_source="granted",
+                access_level=grant["access_level"],
+                workspace_id=grant["workspace_id"],
+                owner_user_id=session["user_id"],
+            )
+            continue
+
+        if existing["access_source"] == "granted" and grant["access_level"] == "delegate":
+            existing["access_level"] = "delegate"
+            if not existing.get("workspace_id"):
+                existing["workspace_id"] = grant["workspace_id"]
+
+    ordered = sorted(by_id.values(), key=lambda item: item["created_at"], reverse=True)
+    return ordered[offset : offset + limit]

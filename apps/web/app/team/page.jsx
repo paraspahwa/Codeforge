@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 import {
   addTeamWorkspaceMember,
@@ -592,7 +593,7 @@ export default function TeamPage() {
           <select id="teamSession" value={sessionId} onChange={(event) => setSessionId(event.target.value)}>
             {sessions.map((session) => (
               <option key={session.session_id} value={session.session_id}>
-                {session.session_id}
+                {formatSessionListLabel(session)}
               </option>
             ))}
           </select>

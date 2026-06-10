@@ -6,6 +6,7 @@
   "exports": {
     "./api": "./src/api.js",
     "./agent": "./src/agentClient.js",
-    "./sse": "./src/sse.js"
+    "./sse": "./src/sse.js",
+    "./sessions": "./src/sessions.js"
   }
 }

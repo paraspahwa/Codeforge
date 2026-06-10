@@ -20,6 +20,10 @@ class SessionListItem(BaseModel):
     project_path: str
     model_preference: str
     created_at: datetime
+    access_source: Literal["owned", "granted"] = "owned"
+    access_level: Literal["view", "delegate"] = "delegate"
+    workspace_id: str | None = None
+    owner_user_id: str | None = None
 
 
 class MessageContext(BaseModel):

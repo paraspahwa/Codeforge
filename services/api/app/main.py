@@ -64,7 +64,6 @@ from .db import (
     list_routing_benchmark_runs,
     latest_user_message,
     list_messages_for_session,
-    list_sessions_for_user,
     upsert_routing_benchmark_baseline,
     update_agent_proposal_status,
     update_billing_order_status,
@@ -73,7 +72,12 @@ from .db import (
 from .file_ops import apply_proposed_content
 from .project_paths import normalize_project_path, resolved_project_path
 from .org_service import OrgError, org_service
-from .session_access import actor_may_write_session, resolve_session_for_actor, resolve_team_session
+from .session_access import (
+    actor_may_write_session,
+    list_accessible_sessions_for_actor,
+    resolve_session_for_actor,
+    resolve_team_session,
+)
 from .billing_context import build_billing_context
 from .billing_service import (
     BillingError,
@@ -527,7 +531,7 @@ def list_sessions(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[SessionListItem]:
-    rows = list_sessions_for_user(user.user_id, limit=limit, offset=offset)
+    rows = list_accessible_sessions_for_actor(user.user_id, limit=limit, offset=offset)
     return [SessionListItem(**row) for row in rows]
 
 
@@ -710,9 +714,7 @@ def post_message(
             "codeforge.user_id": user.user_id,
         },
     ):
-        session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+        session = _require_session(session_id, user, write=True)
 
         plan_id, request_limit, _requests_used, requests_remaining, _period_start = get_usage_policy(user.user_id)
         set_span_attributes(
@@ -1097,9 +1099,7 @@ def list_messages(
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> list[MessageItem]:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
     rows = list_messages_for_session(session_id, limit=limit, offset=offset)
     return [MessageItem(**row) for row in rows]
 
@@ -1162,7 +1162,7 @@ def apply_session_file(
     payload: FileApplyRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> FileApplyResponse:
-    project_path = _session_project_path(session_id, user)
+    project_path = _session_project_path(session_id, user, write=True)
     resolved = resolve_repo_path(project_path, payload.path)
     if resolved is None:
         raise HTTPException(status_code=404, detail="File not found")
@@ -1181,9 +1181,7 @@ def apply_session_file(
 
 @app.post("/api/v1/cowork/plans", response_model=CoworkPlanResponse)
 def create_cowork_plan(payload: CoworkPlanRequest, user: AuthUser = Depends(get_current_user)) -> CoworkPlanResponse:
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(payload.session_id, user, write=True)
 
     try:
         plan = cowork_service.create_plan(
@@ -1236,9 +1234,7 @@ def list_cowork_runs(user: AuthUser = Depends(get_current_user)) -> CoworkRunLis
 
 @app.post("/api/v1/cowork/jobs", response_model=CoworkJobResponse)
 def create_cowork_job(payload: CoworkJobCreateRequest, user: AuthUser = Depends(get_current_user)) -> CoworkJobResponse:
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(payload.session_id, user, write=True)
 
     try:
         job = cowork_service.create_job(
@@ -1287,9 +1283,7 @@ async def extract_cowork_data(
     payload: CoworkExtractRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> CoworkExtractionResponse:
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(payload.session_id, user, write=True)
 
     try:
         plan = cowork_service.create_plan(
@@ -1376,9 +1370,7 @@ def rebuild_project_knowledge(
     payload: ProjectKnowledgeRebuildRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> ProjectKnowledgeResponse:
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(payload.session_id, user, write=True)
 
     try:
         state = projects_team_service.rebuild_knowledge(
@@ -1401,9 +1393,7 @@ async def upload_project_knowledge(
     files: list[UploadFile] = File(...),
     user: AuthUser = Depends(get_current_user),
 ) -> ProjectKnowledgeUploadResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     uploads: list[tuple[str, bytes]] = []
     for upload in files:
@@ -1701,9 +1691,7 @@ def export_session(
     format: str = "json",
     user: AuthUser = Depends(get_current_user),
 ) -> SessionExportResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     rows = list_messages_for_session(session_id, limit=1000)
     if format == "markdown":
@@ -1998,9 +1986,7 @@ def create_context_pack(
     user: AuthUser = Depends(get_current_user),
 ) -> ContextPackResponse:
     if payload.session_id:
-        session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+        _require_session(payload.session_id, user, write=True)
 
     try:
         pack = context_mcp_service.create_pack(
@@ -2038,9 +2024,7 @@ def list_context_packs(
     user: AuthUser = Depends(get_current_user),
 ) -> ContextPackListResponse:
     if session_id:
-        session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+        _require_session(session_id, user)
 
     packs = context_mcp_service.list_packs(user_id=user.user_id, session_id=session_id)
     return ContextPackListResponse(packs=[ContextPackResponse(**item) for item in packs])
@@ -2051,9 +2035,7 @@ def attach_context_pack(
     payload: ContextPackAttachRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> ContextPackResponse:
-    session = get_session_for_user(session_id=payload.session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(payload.session_id, user, write=True)
 
     try:
         pack = context_mcp_service.attach_pack(
@@ -2069,9 +2051,7 @@ def attach_context_pack(
 
 @app.get("/api/v1/context/session/{session_id}", response_model=SessionContextResponse)
 def get_session_context(session_id: str, user: AuthUser = Depends(get_current_user)) -> SessionContextResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     context = context_mcp_service.compose_session_context(user_id=user.user_id, session_id=session_id)
     seed_query = latest_user_message(session_id)
@@ -2170,9 +2150,7 @@ def invoke_mcp_connector(
 
 @app.get("/api/v1/sessions/{session_id}/git/status", response_model=GitStatusResponse)
 def session_git_status(session_id: str, user: AuthUser = Depends(get_current_user)) -> GitStatusResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         status = git_status(resolved_project_path(session))
@@ -2194,9 +2172,7 @@ def session_git_diff(
     path: str | None = None,
     user: AuthUser = Depends(get_current_user),
 ) -> GitDiffResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         diff = git_diff(resolved_project_path(session), path)
@@ -2212,9 +2188,7 @@ def session_git_log(
     limit: int = 10,
     user: AuthUser = Depends(get_current_user),
 ) -> GitLogResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         log = git_log(resolved_project_path(session), limit=limit)
@@ -2230,9 +2204,7 @@ def session_git_stage(
     payload: GitStageRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> GitStageResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         stage = git_stage(resolved_project_path(session), payload.paths, payload.all_files)
@@ -2248,9 +2220,7 @@ def session_git_commit(
     payload: GitCommitRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> GitCommitResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         commit = git_commit(resolved_project_path(session), payload.message)
@@ -2266,9 +2236,7 @@ def session_git_branch(
     payload: GitBranchRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> GitBranchResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         branch = git_branch(resolved_project_path(session), payload.branch, create=payload.create)
@@ -2280,9 +2248,7 @@ def session_git_branch(
 
 @app.get("/api/v1/sessions/{session_id}/git/worktree/list", response_model=GitWorktreeListResponse)
 def session_git_worktree_list(session_id: str, user: AuthUser = Depends(get_current_user)) -> GitWorktreeListResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         result = git_worktree_list(resolved_project_path(session))
@@ -2298,9 +2264,7 @@ def session_git_worktree_create(
     payload: GitWorktreeCreateRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> GitWorktreeCreateResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         result = git_worktree_create(resolved_project_path(session), payload.branch)
@@ -2316,9 +2280,7 @@ def session_git_merge_assist(
     target_branch: str,
     user: AuthUser = Depends(get_current_user),
 ) -> GitMergeAssistResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         result = git_merge_assist(resolved_project_path(session), target_branch)
@@ -2334,9 +2296,7 @@ def session_git_conflict_guide(
     target_branch: str,
     user: AuthUser = Depends(get_current_user),
 ) -> GitConflictGuideResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     try:
         result = git_conflict_resolution_guide(resolved_project_path(session), target_branch)
@@ -2352,9 +2312,7 @@ def session_git_conflict_assist_apply(
     payload: GitConflictAssistApplyRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> GitConflictAssistApplyResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         result = git_conflict_assisted_apply(
@@ -2375,9 +2333,7 @@ async def session_shell_stream(
     payload: ShellExecuteRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     set_span_attributes(
         {
@@ -2414,9 +2370,7 @@ async def session_shell_stream(
 
 @app.post("/api/v1/sessions/{session_id}/workflows/compact", response_model=CompactWorkflowResponse)
 def session_workflow_compact(session_id: str, user: AuthUser = Depends(get_current_user)) -> CompactWorkflowResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     result = build_compact_summary(
         session_id=session_id,
@@ -2432,9 +2386,7 @@ def session_workflow_ultrareview(
     payload: UltrareviewRequest = UltrareviewRequest(),
     user: AuthUser = Depends(get_current_user),
 ) -> UltrareviewResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     result = build_ultrareview_audit(
         session_id=session_id,
@@ -2451,9 +2403,7 @@ def session_workflow_create_plan(
     payload: PlanCreateRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> PlanResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         result = create_multi_file_plan(
@@ -2481,9 +2431,7 @@ async def session_workflow_execute_plan(
     payload: PlanExecuteRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> PlanExecuteResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     result = await execute_multi_file_plan(
         plan_id=plan_id,
@@ -2508,9 +2456,7 @@ def session_workflow_rollback_plan(
     plan_id: str,
     user: AuthUser = Depends(get_current_user),
 ) -> PlanRollbackResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     try:
         result = rollback_multi_file_plan(
@@ -2532,9 +2478,7 @@ async def session_agent_loop(
     user: AuthUser = Depends(get_current_user),
 ) -> AgentLoopResponse:
     _enforce_rate_limit("agent-loop", user.user_id, RATE_LIMIT_PER_MINUTE)
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     plan_id, request_limit, _requests_used, requests_remaining, _period_start = get_usage_policy(user.user_id)
     if requests_remaining <= 0:
@@ -2566,9 +2510,7 @@ def list_session_artifacts_endpoint(
     session_id: str,
     user: AuthUser = Depends(get_current_user),
 ) -> SessionArtifactListResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
     artifacts = list_session_artifacts(session_id=session_id, user_id=user.user_id)
     return SessionArtifactListResponse(artifacts=[SessionArtifactItem(**item) for item in artifacts])
 
@@ -2579,9 +2521,7 @@ def create_session_artifact_endpoint(
     payload: SessionArtifactCreateRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> SessionArtifactItem:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     artifact = {
         "artifact_id": f"art_{uuid4().hex[:10]}",
@@ -2603,9 +2543,7 @@ def get_session_artifact_endpoint(
     artifact_id: str,
     user: AuthUser = Depends(get_current_user),
 ) -> SessionArtifactItem:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
     artifact = get_session_artifact(artifact_id=artifact_id, user_id=user.user_id)
     if artifact is None or artifact["session_id"] != session_id:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -2618,9 +2556,7 @@ def preview_session_artifact_endpoint(
     artifact_id: str,
     user: AuthUser = Depends(get_current_user),
 ) -> HTMLResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
     artifact = get_session_artifact(artifact_id=artifact_id, user_id=user.user_id)
     if artifact is None or artifact["session_id"] != session_id:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -2683,9 +2619,7 @@ async def stream_session(
     user: AuthUser = Depends(get_current_user),
 ) -> StreamingResponse:
     _enforce_rate_limit("stream", user.user_id, RATE_LIMIT_PER_MINUTE)
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     async def event_generator():
         with traced_span(
@@ -2823,9 +2757,7 @@ def list_proposals(
     user: AuthUser = Depends(get_current_user),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AgentProposal]:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user)
 
     rows = list_agent_proposals_for_session(session_id=session_id, user_id=user.user_id, limit=limit)
     return [AgentProposal(**row) for row in rows]
@@ -2846,9 +2778,7 @@ def decide_proposal(
     payload: ProposalDecisionRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> ProposalDecisionResponse:
-    session = get_session_for_user(session_id=session_id, user_id=user.user_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _require_session(session_id, user, write=True)
 
     proposal = get_agent_proposal_for_user(proposal_id=proposal_id, session_id=session_id, user_id=user.user_id)
     if proposal is None:

@@ -223,6 +223,14 @@ export async function addTeamWorkspaceMember(token, workspaceId, payload) {
   return shared.addTeamWorkspaceMember(API_BASE, token, workspaceId, payload);
 }
 
+export async function createWorkspaceSessionGrant(token, workspaceId, payload) {
+  return shared.createWorkspaceSessionGrant(API_BASE, token, workspaceId, payload);
+}
+
+export async function listWorkspaceSessionGrants(token, workspaceId) {
+  return shared.listWorkspaceSessionGrants(API_BASE, token, workspaceId);
+}
+
 export async function createTeamDelegation(token, payload) {
   return shared.createTeamDelegation(API_BASE, token, payload);
 }

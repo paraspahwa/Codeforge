@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatSessionListLabel } from "@codeforge/shared/sessions";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { useDesktopAuth } from "./DesktopAuthContext";
@@ -487,13 +488,13 @@ export default function CoworkWorkspace() {
         <label htmlFor="session-select">Active Session</label>
         <select id="session-select" value={sessionId} onChange={(event) => setSessionId(event.target.value)} disabled={loading || sessions.length === 0}>
           {sessions.map((session) => (
-            <option key={session.session_id} value={session.session_id}>{session.session_id}</option>
+            <option key={session.session_id} value={session.session_id}>{formatSessionListLabel(session)}</option>
           ))}
         </select>
         {currentSession ? <p className="muted">Project: {currentSession.project_path}</p> : null}
         {sessions.length === 0 ? <p className="muted">No sessions yet.</p> : null}
         {sessions.map((session) => (
-          <div key={session.session_id} className="session-row">{session.session_id}</div>
+          <div key={session.session_id} className="session-row">{formatSessionListLabel(session)}</div>
         ))}
       </section>
 

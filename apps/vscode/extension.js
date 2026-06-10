@@ -64,6 +64,9 @@ function initialState(context) {
     teamDelegationRoles: "reviewer, implementer",
     teamRequireStepApproval: false,
     teamStyleGuides: [],
+    teamSessionGrants: [],
+    teamGrantUserId: "",
+    teamGrantAccessLevel: "delegate",
     teamStyleGuideTitle: "API conventions",
     teamStyleGuideType: "style",
     teamStyleGuideContent: "Use snake_case for Python modules and keep handlers thin.",
@@ -503,18 +506,22 @@ async function streamPrompt(context, prompt, currentFile) {
 async function refreshTeamData(context) {
   const api = await loadSharedModule(context, "api.js");
   const workspaceId = panelState.teamWorkspaces[0]?.workspace_id || null;
-  const [workspaces, delegations, audit, guides] = await Promise.all([
+  const [workspaces, delegations, audit, guides, grants] = await Promise.all([
     api.listTeamWorkspaces(panelState.baseUrl, panelState.token),
     api.listTeamDelegations(panelState.baseUrl, panelState.token, workspaceId),
     api.listTeamAuditLog(panelState.baseUrl, panelState.token, workspaceId, 20),
     workspaceId
       ? api.listTeamStyleGuides(panelState.baseUrl, panelState.token, workspaceId).catch(() => ({ guides: [] }))
       : Promise.resolve({ guides: [] }),
+    workspaceId
+      ? api.listWorkspaceSessionGrants(panelState.baseUrl, panelState.token, workspaceId).catch(() => ({ grants: [] }))
+      : Promise.resolve({ grants: [] }),
   ]);
   panelState.teamWorkspaces = workspaces.workspaces || [];
   panelState.teamDelegations = delegations.delegations || [];
   panelState.teamAuditEvents = audit.events || [];
   panelState.teamStyleGuides = guides.guides || [];
+  panelState.teamSessionGrants = grants.grants || [];
 }
 
 async function refreshCoworkData(context) {
@@ -995,6 +1002,31 @@ function ensurePanel(context) {
         await refreshTeamData(context);
         panelState.teamOutput = `Style guide ${guide.guide_id} saved`;
         pushEvent(`team:style-guide:${guide.guide_id}`);
+        setBusy(false);
+        return;
+      }
+
+      if (message.type === "teamCreateSessionGrant") {
+        setBusy(true);
+        setError("");
+        const api = await loadSharedModule(context, "api.js");
+        const sessionId = await ensureSession(context);
+        const workspaceId = panelState.teamWorkspaces[0]?.workspace_id;
+        const grantedToUserId = (message.grantedToUserId || panelState.teamGrantUserId || "").trim();
+        if (!workspaceId || !grantedToUserId) {
+          setError("Workspace and granted user ID are required");
+          setBusy(false);
+          return;
+        }
+        const grant = await api.createWorkspaceSessionGrant(panelState.baseUrl, panelState.token, workspaceId, {
+          session_id: sessionId,
+          granted_to_user_id: grantedToUserId,
+          access_level: message.accessLevel || panelState.teamGrantAccessLevel || "delegate",
+        });
+        panelState.teamGrantUserId = "";
+        await refreshTeamData(context);
+        panelState.teamOutput = `Session grant ${grant.grant_id} created`;
+        pushEvent(`team:grant:${grant.grant_id}`);
         setBusy(false);
         return;
       }
