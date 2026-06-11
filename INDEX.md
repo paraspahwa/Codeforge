@@ -13,6 +13,7 @@
 - [docs/implementation-plan.md](docs/implementation-plan.md): execution plan and delivery order
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
 - [README.md](README.md): repo setup and current implementation status
+- [docs/API.md](docs/API.md): HTTP endpoint index and auth pattern
 
 ## Suggested Copilot Prompts
 
@@ -39,6 +40,15 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Desktop: Tauri + React
 - Terminal: Ink + React
 - Shared package: browser/node API helpers and SSE parsing
+
+## Recently shipped (phases 7–10: taste, memory, scrape, skills)
+
+- **Phase 7 taste:** proposal decision → rule distillation, taste context in stream, web/desktop/terminal surfaces
+- **Phase 8 RTK + memory:** shell output compression (`CODEFORGE_RTK_ENABLED`), native Postgres/Qdrant memory, Supermemory BYOK
+- **Phase 9 scrape:** ScrapeGraphAI Cowork extraction into project knowledge + agent memory
+- **Phase 10 skills:** curated Anthropic skills pack (`.codeforge/skills/`), `GET /api/v1/skills/{name}`, Settings skill groups
+- API reference: [docs/API.md](docs/API.md)
+- Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) §14–17
 
 ## Backlog Areas (active)
 
