@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button, Input, Panel } from "@codeforge/ui";
 
+import { getDeployReadiness } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { useToast } from "../../lib/toast-context";
 
@@ -23,12 +24,29 @@ export default function LoginPage() {
   const [loginInput, setLoginInput] = useState("dev-user");
   const [loggingIn, setLoggingIn] = useState(false);
   const [oidcLoading, setOidcLoading] = useState(false);
+  const [devLoginAllowed, setDevLoginAllowed] = useState(true);
+  const [showDevLogin, setShowDevLogin] = useState(false);
 
   useEffect(() => {
     if (ready && token) {
       router.replace(nextPath.startsWith("/") ? nextPath : "/");
     }
   }, [ready, token, router, nextPath]);
+
+  useEffect(() => {
+    getDeployReadiness(false)
+      .then((readiness) => {
+        const devBlocked = (readiness.checks || []).some(
+          (check) => check.name === "dev_login_disabled_under_oidc" && check.ok,
+        );
+        setDevLoginAllowed(!devBlocked);
+        setShowDevLogin(!devBlocked);
+      })
+      .catch(() => {
+        setDevLoginAllowed(true);
+        setShowDevLogin(true);
+      });
+  }, []);
 
   async function handleDevLogin(event) {
     event.preventDefault();
@@ -66,9 +84,42 @@ export default function LoginPage() {
         </div>
         <p className="login-tagline">India-first AI coding assistant — affordable, powerful, trustworthy.</p>
         {oidcEnabled ? (
-          <Button type="button" onClick={handleOidcLogin} disabled={oidcLoading} className="login-primary-btn">
-            {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
-          </Button>
+          <>
+            <Button type="button" onClick={handleOidcLogin} disabled={oidcLoading} className="login-primary-btn">
+              {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
+            </Button>
+            <p className="small login-tagline mt-6">
+              Redirect URI: <code>{typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : "/auth/callback"}</code>
+            </p>
+            {devLoginAllowed ? (
+              <>
+                <button
+                  type="button"
+                  className="ghost-btn mt-6"
+                  onClick={() => setShowDevLogin((open) => !open)}
+                >
+                  {showDevLogin ? "Hide development sign-in" : "Use development sign-in"}
+                </button>
+                {showDevLogin ? (
+                  <form onSubmit={handleDevLogin} className="login-form mt-6">
+                    <label className="small" htmlFor="devUserId">
+                      Development user ID
+                    </label>
+                    <Input
+                      id="devUserId"
+                      value={loginInput}
+                      onChange={(event) => setLoginInput(event.target.value)}
+                      disabled={loggingIn}
+                      placeholder="dev-user"
+                    />
+                    <Button type="submit" disabled={loggingIn || !loginInput.trim()} className="login-primary-btn">
+                      {loggingIn ? "Signing in…" : "Continue with dev login"}
+                    </Button>
+                  </form>
+                ) : null}
+              </>
+            ) : null}
+          </>
         ) : (
           <form onSubmit={handleDevLogin} className="login-form">
             <label className="small" htmlFor="devUserId">

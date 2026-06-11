@@ -12,7 +12,7 @@ India-first Claude Code alternative with four user modes on one shared backend:
 This repository includes a working multi-surface coding assistant platform:
 
 - FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
-- Next.js web app: chat, sessions/replay, analytics, billing, **Team** (`/team`), **Cowork** (`/cowork`), share-resume (`/share/[id]`)
+- Next.js web app: chat, **Code workspace** (`/code`), sessions/replay, analytics, billing, settings (taste, memory, RTK, skills), **Team** (`/team`), **Cowork** (`/cowork` + scrape), share-resume (`/share/[id]`), PWA manifest, in-chat slash commands
 - Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
 - Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
@@ -123,6 +123,22 @@ npm run dev:terminal
 - VS Code panel with editor-context sync and workflow commands
 - DB-backed cowork and team persistence (plans, workspaces, shares, delegations)
 - Tier-bound routing policy with benchmark baselines/trends and regression evaluation
+- **Phase 7** taste rules + agent skills (caveman token saver, `.codeforge/skills/` playbooks)
+- **Phase 8** RTK shell compression, native agent memory (Postgres/Qdrant), Supermemory BYOK
+- **Phase 9** ScrapeGraphAI Cowork extraction into project knowledge + memory
+- **Phase 10** curated Anthropic skills pack (`frontend-design`, `webapp-testing`, `mcp-builder`, `skill-creator`, `doc-coauthoring`)
+
+## Web surfaces
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Chat with proposals, workflows, slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/help`) |
+| `/code` | Code workspace — git sidebar, shell, file preview, verify loop |
+| `/settings` | Taste, memory, token saver/skills, MCP, SSO checklist, deploy readiness |
+| `/cowork` | Cowork plans, browser tasks, ScrapeGraphAI quick scrape |
+| `/team` | Workspaces, knowledge, delegations |
+
+Install as PWA: browsers can add CodeForge to the home screen via `manifest.webmanifest` (mobile-friendly chat layout).
 
 ## Known Gaps
 

@@ -23,7 +23,7 @@ Already implemented in this repo:
 - FastAPI API with dev auth, session creation, message persistence, SSE streaming, usage analytics, billing foundations, OpenTelemetry tracing, file ops, git status/diff/log/worktree/merge-assist, and a shell sandbox stream
 - Shared event contract and client helpers for agent runs, file preview/apply, git inspection, worktrees, merge-assist, and shell execution
 - Intent routing and usage-limit enforcement with plan-aware request caps and routing reasons
-- Next.js web app with login, session history, chat, analytics cards, billing plans, checkout integration, and subscription state
+- Next.js web app with login (dev + OIDC SSO), session history, chat with in-chat slash commands, **Code workspace** (`/code`), settings (taste, memory, RTK, skills, SSO checklist), PWA manifest, analytics, billing, cowork/team surfaces
 - Tauri desktop scaffold with tray, notifications, folder picker, global shortcut, and successful Rust compile validation
 - Ink-based terminal client with shared API helpers, `/git` commands, `/run` shell commands, split-pane file/chat/diff/activity layout, proposal approval actions, mode-aware pane navigation, `/compact`, `/ultrareview`, mode shortcuts, and startup validation
 - VS Code extension MVP with a backend-backed panel, inline proposal diff preview, live editor-context sync, status bar actions, editor title actions, and explain/refactor/review command entry points
@@ -40,13 +40,14 @@ Already implemented in this repo:
 - Explicit runtime/config documentation for backend, web, terminal, and tracing assumptions
 - Shared workspace scripts for web, desktop, terminal, and API flows
 
-Partially started:
-
 - Phase 7 taste + skills: proposal feedback capture, taste context, `.codeforge/skills/` discovery, bundled caveman token-saver (MIT), agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
+- Phase 8 RTK shell compression, native agent memory (Postgres/Qdrant), Supermemory BYOK
+- Phase 9 ScrapeGraphAI Cowork extraction into project knowledge + memory
+- Phase 10 curated Anthropic skills pack (frontend-design, webapp-testing, mcp-builder, skill-creator, doc-coauthoring)
 
 Still missing for the full roadmap:
 
-- Production IdP rollout (ECS SSM OIDC parameters and redirect URI registration at the IdP)
+- Production IdP rollout (ECS SSM OIDC parameters and redirect URI registration at the IdP — web SSO UI and callback exist; operator must wire secrets)
 - GitHub `EFS_FILE_SYSTEM_ID_*` variables for worker ECS deploy (workflow injects into taskdefs)
 - Long-horizon PRD integrations (voice, mobile, design-to-code, localization)
 

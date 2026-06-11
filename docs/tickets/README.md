@@ -24,15 +24,21 @@ Completed or in place:
 - Phase 8 RTK + memory (shell output compression; Postgres/Qdrant agent memory; Supermemory BYOK)
 - Phase 9 ScrapeGraphAI Cowork extraction (URL scrape → project knowledge + memory)
 - Phase 10 Anthropic skills pack (frontend-design, webapp-testing, mcp-builder, skill-creator, doc-coauthoring)
+- Web `/code` workspace (git sidebar, shell stream, file preview, verify loop, chat)
+- Web in-chat slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/supermemory`, `/help`)
+- PWA manifest + mobile-friendly chat layout
+- Web OIDC login/callback + Settings → SSO readiness checklist
 
 Partially complete:
 
-- Phase 5: JWKS verification + style guides + multi-agent delegations shipped; client OIDC login UX not wired
+- Phase 5: JWKS verification + style guides + multi-agent delegations shipped
+- Production OIDC: web SSO path exists; IdP app registration + ECS SSM `CODEFORGE_OIDC_*` secrets are operator tasks
 - Enterprise: org-scoped workspace rate limits shipped; billing-tier org entities not modeled
 
 Still ahead (lower priority):
 
-- Client OIDC redirect/login on web/desktop
+- Desktop OIDC redirect/login parity with web
+- Native mobile app (web PWA covers mobile-friendly chat)
 - Delegation approval gates between orchestration steps
 - Session-level permission enforcement hardening across share/delegation paths
 

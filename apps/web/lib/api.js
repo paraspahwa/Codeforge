@@ -406,3 +406,19 @@ export async function executeWorkflowPlan(sessionId, token, planId, payload = {}
 export async function rollbackWorkflowPlan(sessionId, token, planId) {
   return shared.rollbackWorkflowPlan(API_BASE, token, sessionId, planId);
 }
+
+export async function getGitStatus(token, sessionId) {
+  return shared.getGitStatus(API_BASE, token, sessionId);
+}
+
+export async function getGitDiff(token, sessionId, path) {
+  return shared.getGitDiff(API_BASE, token, sessionId, path);
+}
+
+export async function getFilePreview(token, sessionId, path) {
+  return shared.getFilePreview(API_BASE, token, sessionId, path);
+}
+
+export function streamShellCommand(token, sessionId, payload) {
+  return shared.streamShellCommand(API_BASE, token, sessionId, payload);
+}

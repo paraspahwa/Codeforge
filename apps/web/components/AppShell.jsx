@@ -14,6 +14,7 @@ const NAV_GROUPS = [
     label: "Build",
     items: [
       { href: "/", label: "Chat" },
+      { href: "/code", label: "Code" },
       { href: "/sessions", label: "Sessions" },
     ],
   },
@@ -35,15 +36,18 @@ const NAV_GROUPS = [
   },
 ];
 
-const PROTECTED_PREFIXES = ["/", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
+const PROTECTED_PREFIXES = ["/", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
 
 function isProtectedRoute(pathname) {
   if (pathname === "/billing") {
     return false;
   }
-  return PROTECTED_PREFIXES.some((prefix) =>
-    prefix === "/" ? pathname === "/" : pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  return PROTECTED_PREFIXES.some((prefix) => {
+    if (prefix === "/") {
+      return pathname === "/";
+    }
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  });
 }
 
 export default function AppShell({ children }) {

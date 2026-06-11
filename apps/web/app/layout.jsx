@@ -23,12 +23,25 @@ export const metadata = {
   title: "CodeForge",
   description: "India-first AI coding assistant — chat, code, cowork, and team workflows.",
   icons: { icon: "/icon.svg" },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "CodeForge",
+    statusBarStyle: "black-translucent",
+  },
   openGraph: {
     title: "CodeForge",
     description: "India-first AI coding assistant — chat, code, cowork, and team workflows.",
     type: "website",
     images: [{ url: "/icon.svg", width: 64, height: 64, alt: "CodeForge" }],
   },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#6366f1",
 };
 
 export default function RootLayout({ children }) {

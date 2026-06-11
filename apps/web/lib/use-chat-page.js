@@ -29,6 +29,7 @@ import {
   ultrareviewWorkflow,
 } from "./api";
 import { useAuth } from "./auth-context";
+import { runSlashCommand } from "./slash-commands";
 import { useToast } from "./toast-context";
 
 export function useChatPage() {
@@ -215,6 +216,30 @@ export function useChatPage() {
     const userText = prompt.trim();
     setPrompt("");
     setLoading(true);
+
+    if (userText.startsWith("/")) {
+      try {
+        const commandResult = await runSlashCommand({
+          text: userText,
+          token,
+          projectPath: projectPath || null,
+          sessionId,
+        });
+        if (commandResult.handled) {
+          setMessages((prev) => [
+            ...prev,
+            { id: `u_${Date.now()}`, role: "user", content: userText },
+            { id: `a_${Date.now()}`, role: "assistant", content: commandResult.reply || "Done." },
+          ]);
+          return;
+        }
+      } catch (error) {
+        toast.push(error.message);
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
 
     const assistantId = `a_${Date.now()}`;
     setStreamingMessageId(assistantId);

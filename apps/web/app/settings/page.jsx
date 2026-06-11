@@ -10,6 +10,7 @@ import {
   exportMemory,
   getAgentPreferences,
   getDeployReadiness,
+  getOidcConfig,
   getRtkStatus,
   getSupermemoryStatus,
   getTasteRules,
@@ -94,6 +95,7 @@ export default function SettingsPage() {
   const [memorySearchHits, setMemorySearchHits] = useState([]);
   const [memorySaveText, setMemorySaveText] = useState("");
   const [supermemoryStatus, setSupermemoryStatus] = useState(null);
+  const [oidcConfig, setOidcConfig] = useState(null);
 
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || "");
@@ -109,9 +111,12 @@ export default function SettingsPage() {
     listMcpConnectors(token)
       .then((result) => setConnectors(result.connectors ?? []))
       .catch(() => undefined);
-    getDeployReadiness(false)
+    getDeployReadiness(true)
       .then(setDeployReadiness)
       .catch(() => setDeployReadiness(null));
+    getOidcConfig()
+      .then(setOidcConfig)
+      .catch(() => setOidcConfig(null));
     getTasteStats(token)
       .then(setTasteStats)
       .catch(() => setTasteStats(null));
@@ -330,6 +335,53 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+  );
+
+  const authTab = (
+    <section className="panel">
+      <h2>SSO / OIDC</h2>
+      <p className="small">
+        Production SSO uses OpenID Connect. Register the web redirect URI at your IdP and store secrets in ECS SSM
+        (<code>CODEFORGE_OIDC_*</code>). See <code>DEPLOYMENT_RUNBOOK.md</code> and{" "}
+        <code>docs/deployment-assets-setup.md</code>.
+      </p>
+      {oidcConfig ? (
+        <ul className="small mt-6">
+          <li>
+            <strong>Enabled:</strong> {oidcConfig.enabled ? "yes" : "no"}
+          </li>
+          <li>
+            <strong>Issuer:</strong> {oidcConfig.issuer || "(not set)"}
+          </li>
+          <li>
+            <strong>Client ID:</strong> {oidcConfig.client_id ? `${oidcConfig.client_id.slice(0, 8)}…` : "(not set)"}
+          </li>
+          <li>
+            <strong>Redirect URI:</strong> {oidcConfig.redirect_uri || `${API_BASE.replace(/:\d+$/, ":3000")}/auth/callback`}
+          </li>
+          <li>
+            <strong>Scopes:</strong> {oidcConfig.scopes}
+          </li>
+        </ul>
+      ) : (
+        <EmptyState title="OIDC config unavailable" description="Could not load /api/v1/auth/oidc/config." />
+      )}
+      {deployReadiness ? (
+        <>
+          <h3 className="mt-8">OIDC readiness checks</h3>
+          <ul className="small">
+            {(deployReadiness.checks || [])
+              .filter((check) => check.name.includes("oidc") || check.name.includes("dev_login"))
+              .map((check) => (
+                <li key={check.name}>
+                  {check.ok ? "✓" : "✗"} {check.name}
+                  {check.detail ? ` — ${check.detail}` : ""}
+                </li>
+              ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
   );
 
   const deployTab = (
@@ -825,6 +877,7 @@ export default function SettingsPage() {
           { id: "taste", label: "Taste", content: tasteTab },
           { id: "context", label: "Context", content: contextTab },
           { id: "mcp", label: "MCP", content: mcpTab },
+          { id: "auth", label: "SSO", content: authTab },
           { id: "deploy", label: "Deploy", content: deployTab },
         ]}
       />

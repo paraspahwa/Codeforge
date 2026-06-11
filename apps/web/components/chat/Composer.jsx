@@ -54,7 +54,7 @@ export default function Composer({
       ) : null}
       <textarea
         ref={textareaRef}
-        rows={3}        placeholder="Ask CodeForge to refactor, explain, or debug..."
+        rows={3}        placeholder="Ask CodeForge… or /memory, /taste, /caveman, /rtk, /help"
         value={prompt}
         onChange={(event) => onPromptChange(event.target.value)}
         onKeyDown={(event) => {
