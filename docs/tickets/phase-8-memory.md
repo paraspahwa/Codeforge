@@ -39,7 +39,8 @@ API:
 ## Clients
 
 - Terminal: `/rtk`, `/memory`, `/supermemory`
-- Web Settings: **Token Saver** (RTK toggle), **Memory** tab
+- Web and desktop Settings: **Token Saver** (RTK toggle), **Memory** tab
+- Web/desktop Code chat: `/rtk`, `/memory` slash commands
 
 ## Tests
 
