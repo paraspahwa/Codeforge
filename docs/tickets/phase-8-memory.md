@@ -22,9 +22,17 @@ Supported commands include read-only `git`, `pytest`, `npm test`, `cargo test`, 
 API:
 
 - `GET /api/v1/memory`
-- `GET /api/v1/memory/search?q=...`
+- `GET /api/v1/memory/search?q=...` — optional `project_path`; omit to search across all memories for the user
 - `POST /api/v1/memory/save`
 - `GET /api/v1/memory/export`
+
+### Search behavior
+
+`search_memories` merges vector hits (Qdrant/in-memory) with SQL keyword fallback:
+
+- **Vector**: semantic match on `type=agent_memory` points, filtered by `user_id` and optional `project_id`
+- **Keyword**: tokenizes the query on whitespace; each token (≥2 chars) must appear in `content` (AND match). Returns empty when no qualifying tokens.
+- When `project_path` is omitted, keyword search is not scoped to a project (global user memories).
 
 ## Supermemory BYOK
 

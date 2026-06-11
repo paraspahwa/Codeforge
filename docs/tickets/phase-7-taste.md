@@ -37,7 +37,7 @@ Close the "slop over taste" loop by learning from proposal accept/reject/edit fe
 | `GET /api/v1/taste/rules` | Active rules + rendered `taste.md` |
 | `GET /api/v1/taste/stats` | Rejections/approvals per session metrics |
 | `GET /api/v1/taste/export` | Export taste pack for team sync |
-| `POST /api/v1/taste/import` | Import taste pack |
+| `POST /api/v1/taste/import` | Import taste pack (upserts by `rule_text`; default `scope` is `user`) |
 
 Proposal decisions accept optional fields:
 

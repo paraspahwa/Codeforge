@@ -13,6 +13,7 @@ Support shared work, knowledge, and collaboration for teams.
 
 - Team UI: **done (web, desktop Team mode, terminal `/team`, VS Code Team tab)** — workspaces, members, delegations, audit, share/export, knowledge upload/query
 - Real-time team updates: **done** — `GET /api/v1/team/events` SSE; subscribers on web `/team`, desktop Team, VS Code panel
+  - Probe mode: `GET /api/v1/team/events?probe=true` emits a `connected` event and closes (for smoke tests and CI without hanging on the long-lived stream)
 - T5.5 shared style guides: **done** — workspace-scoped `team_style_guides`, CRUD API, compose into session stream + delegations
 - T5.6 multi-agent delegation orchestration: **done** — `sequential` / `supervisor` modes, per-step outputs, agent template role mapping
 - **Still open:** client OIDC login UX; approval gates between delegation steps
