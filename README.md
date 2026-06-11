@@ -2,10 +2,10 @@
 
 India-first Claude Code alternative with four user modes on one shared backend:
 
-- Chat for web and mobile-friendly assistant workflows
+- Chat for web and mobile-friendly assistant workflows (PWA, slash commands)
 - Code for terminal, desktop, and VS Code coding workflows
-- Cowork for desktop and web automation and non-coding ops tasks
-- Projects for shared memory, RAG, session history, and team context
+- Cowork for desktop and web automation, ScrapeGraphAI extraction, and non-coding ops tasks
+- Projects for shared memory (Postgres/Qdrant + Supermemory BYOK), taste rules, RTK compression, agent skills, RAG, session history, and team context
 
 ## Current Status
 
@@ -13,7 +13,7 @@ This repository includes a working multi-surface coding assistant platform:
 
 - FastAPI backend with dev auth, sessions, messages, SSE streaming, usage limits, billing, cowork/team APIs, routing benchmarks, and OpenTelemetry tracing
 - Next.js web app: chat, **Code workspace** (`/code`), sessions/replay, analytics, billing, settings (taste, memory, RTK, skills), **Team** (`/team`), **Cowork** (`/cowork` + scrape), share-resume (`/share/[id]`), PWA manifest, in-chat slash commands
-- Tauri desktop: **Code** workspace (git, shell, loop, proposals) and **Cowork** workspace
+- Tauri desktop: **Code** workspace (git, shell, slash commands, loop, proposals), **Cowork** (incl. ScrapeGraphAI), **Settings** (taste, memory, RTK, skills), **Analytics**, **Billing**
 - Ink terminal: split-pane coding UI with confidence/routing banner, git, loop, plan/rollback
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
@@ -139,6 +139,17 @@ npm run dev:terminal
 | `/team` | Workspaces, knowledge, delegations |
 
 Install as PWA: browsers can add CodeForge to the home screen via `manifest.webmanifest` (mobile-friendly chat layout).
+
+## Testing
+
+```bash
+cd services/api
+.venv\Scripts\activate   # or source .venv/bin/activate
+pytest tests/test_taste.py tests/test_memory.py tests/test_rtk.py tests/test_skills.py tests/test_scrape.py -q
+pytest tests/ -q         # full suite; conftest forces SQLite + in-memory vectors per test (ignores .env.local Supabase/Qdrant)
+```
+
+`tests/conftest.py` clears `DATABASE_URL` and `QDRANT_URL` on each test so local `.env.local` does not slow tests or hit remote services.
 
 ## Known Gaps
 

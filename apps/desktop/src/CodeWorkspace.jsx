@@ -138,7 +138,7 @@ export default function CodeWorkspace() {
               rows={3}
               value={ws.prompt}
               onChange={(event) => ws.setPrompt(event.target.value)}
-              placeholder="Ask CodeForge to edit, explain, or review your project…"
+              placeholder="Ask CodeForge… or /memory, /taste, /caveman, /rtk, /help"
               disabled={!ws.token || !ws.sessionId || ws.loading || !ws.sessionWritable}
             />
             <button type="submit" disabled={!ws.canSend}>

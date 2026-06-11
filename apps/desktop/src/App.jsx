@@ -1,14 +1,25 @@
 import { useState } from "react";
+import AnalyticsWorkspace from "./AnalyticsWorkspace";
+import BillingWorkspace from "./BillingWorkspace";
 import CodeWorkspace from "./CodeWorkspace";
 import CoworkWorkspace from "./CoworkWorkspace";
+import SettingsWorkspace from "./SettingsWorkspace";
 import TeamWorkspace from "./TeamWorkspace";
 import { DesktopAuthProvider, useDesktopAuth } from "./DesktopAuthContext";
 import { ToastProvider } from "./toast-context";
 
 const MODE_GROUPS = [
-  { label: "Build", modes: [{ id: "code", label: "Chat" }] },
+  { label: "Build", modes: [{ id: "code", label: "Code" }] },
   { label: "Automate", modes: [{ id: "cowork", label: "Cowork" }] },
   { label: "Team", modes: [{ id: "team", label: "Team" }] },
+  {
+    label: "Account",
+    modes: [
+      { id: "analytics", label: "Analytics" },
+      { id: "billing", label: "Billing" },
+      { id: "settings", label: "Settings" },
+    ],
+  },
 ];
 
 function DesktopShell() {
@@ -98,6 +109,9 @@ function DesktopShell() {
       {mode === "code" ? <CodeWorkspace /> : null}
       {mode === "cowork" ? <CoworkWorkspace /> : null}
       {mode === "team" ? <TeamWorkspace /> : null}
+      {mode === "analytics" ? <AnalyticsWorkspace /> : null}
+      {mode === "billing" ? <BillingWorkspace /> : null}
+      {mode === "settings" ? <SettingsWorkspace /> : null}
     </div>
   );
 }

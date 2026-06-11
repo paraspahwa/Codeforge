@@ -10,6 +10,7 @@ import { canWriteSession } from "@codeforge/shared/sessions";
 import { useDesktopAuth } from "./DesktopAuthContext";
 import { loadWorkspaceState, saveWorkspaceState } from "./desktop-auth";
 import { useDesktopNotify } from "./useDesktopNotify";
+import { runSlashCommand } from "./slash-commands";
 import {
   createSession,
   decideProposal,
@@ -210,6 +211,29 @@ export function useCodeWorkspace() {
     setPrompt("");
     setLoading(true);
     reportError("");
+
+    if (userText.startsWith("/")) {
+      try {
+        const commandResult = await runSlashCommand({
+          text: userText,
+          token,
+          projectPath: projectPath || null,
+        });
+        if (commandResult.handled) {
+          setMessages((previous) => [
+            ...previous,
+            { id: `user_${Date.now()}`, role: "user", content: userText },
+            { id: `assistant_${Date.now()}`, role: "assistant", content: commandResult.reply || "Done." },
+          ]);
+          return;
+        }
+      } catch (error) {
+        reportError(error.message);
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
 
     const assistantId = `assistant_${Date.now()}`;
     setStreamingMessageId(assistantId);

@@ -1,13 +1,16 @@
 # CodeForge Desktop
 
-Tauri + React desktop client with Code, Cowork, and Team modes.
+Tauri + React desktop client with Code, Cowork, Team, Analytics, Billing, and Settings.
 
 ## Features
 
-- **Code mode**: sessions, chat, git/shell tools, workflows (`/loop`, `/plan`, artifacts, templates)
-- **Cowork mode**: plans, runs, scheduled jobs, browser tasks with explicit approval
-- **Team mode**: workspaces, knowledge, delegations (multi-agent orchestration + step approvals), audit log, live SSE
-- **Auth**: dev login and OIDC SSO via the top app bar (`DesktopAuthContext`); callback path `/auth/callback` (Vite SPA fallback + `dist/auth/callback/index.html` copy for Tauri builds)
+- **Code mode**: sessions, chat with slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/help`), git/shell, workflows, artifacts, templates
+- **Cowork mode**: plans, runs, jobs, browser tasks, OCR extraction, **ScrapeGraphAI scrape** (Phase 9)
+- **Team mode**: workspaces, knowledge, delegations, audit log, live SSE
+- **Settings** (Phases 7–10): taste import/export, agent memory, token saver + skills toggles, RTK, Supermemory status, SSO checklist
+- **Analytics**: usage, routing benchmarks, cowork reliability, synthesis rollout
+- **Billing**: plan/subscription view; Razorpay checkout opens in web app (`VITE_CODEFORGE_WEB_BASE_URL`)
+- **Auth**: dev login and OIDC SSO (`DesktopAuthContext`); callback `/auth/callback`
 
 ## Local development
 
@@ -15,8 +18,27 @@ Tauri + React desktop client with Code, Cowork, and Team modes.
 npm --workspace apps/desktop run dev
 ```
 
-Set `VITE_CODEFORGE_API_BASE_URL` (default `http://localhost:8000`).
+Environment:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `VITE_CODEFORGE_API_BASE_URL` | `http://localhost:8000` | API |
+| `VITE_CODEFORGE_WEB_BASE_URL` | `http://localhost:3000` | Billing checkout link |
+| `VITE_CODEFORGE_PROJECT_PATH` | — | Optional default project path |
 
 ## OIDC
 
 Register `http://localhost:1420/auth/callback` with your IdP when `CODEFORGE_OIDC_ENABLED=true` on the API.
+
+## Production packaging (Tauri)
+
+Release builds are separate from feature work in the monorepo:
+
+```bash
+# Install Rust toolchain + Tauri prerequisites (see https://tauri.app/start/)
+npm --workspace apps/desktop run tauri build
+```
+
+Outputs land in `apps/desktop/src-tauri/target/release/bundle/` (platform-specific `.msi`, `.dmg`, `.deb`, etc.).
+
+CI/release pipeline: wire `tauri build` into your runner with code signing and `VITE_*` production URLs baked at build time. See root `DEPLOYMENT_RUNBOOK.md` for API/worker deploy; desktop artifacts are distributed out-of-band (GitHub Releases, internal MDM, etc.).

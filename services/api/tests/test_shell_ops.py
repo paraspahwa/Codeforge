@@ -29,6 +29,8 @@ def test_shell_allows_safe_echo(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
 
-    root, sanitized, _executable = prepare_shell_execution(str(project), "echo hello")
+    root, sanitized, executable, rtk_applied = prepare_shell_execution(str(project), "echo hello")
     assert root == project.resolve()
     assert sanitized == "echo hello"
+    assert executable
+    assert rtk_applied is False

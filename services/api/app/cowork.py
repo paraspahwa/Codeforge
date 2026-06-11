@@ -376,8 +376,6 @@ async def _run_browser_task(url: str, action: str, *, project_path: str | None =
     playwright_result = await _run_browser_task_playwright(url, action, project_path=project_path)
     if playwright_result is not None and playwright_result.get("status") == "completed":
         return playwright_result
-    if playwright_result is not None and playwright_result.get("engine") == "playwright":
-        return playwright_result
     return await _run_browser_task_httpx(url, action)
 
 

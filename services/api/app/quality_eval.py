@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,11 @@ from .file_ops import apply_proposed_content
 
 
 def _run_verify(project_root: Path, command: str, timeout_seconds: int = 45) -> tuple[int, str]:
+    normalized = command.strip()
+    if normalized.startswith("python ") and "pytest" in normalized:
+        normalized = normalized.replace("python ", f'"{sys.executable}" ', 1)
     completed = subprocess.run(
-        command,
+        normalized,
         shell=True,
         cwd=project_root,
         capture_output=True,

@@ -10,6 +10,7 @@ import {
   createCoworkPlan,
   createSession,
   extractCoworkData,
+  scrapeCoworkData,
   getGitConflictGuide,
   getSynthesisRolloutPlan,
   getSynthesisRolloutValidation,
@@ -51,6 +52,10 @@ export default function CoworkWorkspace() {
   const [jobCommand, setJobCommand] = useState("Get-ChildItem");
   const [jobSourcePath, setJobSourcePath] = useState("README.md");
   const [extractPath, setExtractPath] = useState("");
+  const [scrapeUrl, setScrapeUrl] = useState("https://example.com/docs");
+  const [scrapeFilePath, setScrapeFilePath] = useState("");
+  const [scrapePrompt, setScrapePrompt] = useState("Extract key API endpoints and authentication notes");
+  const [scrapeApproved, setScrapeApproved] = useState(false);
   const { statusMessage, errorMessage, reportError, reportSuccess } = useDesktopNotify();
   const [notifiedRunIds, setNotifiedRunIds] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -304,9 +309,24 @@ export default function CoworkWorkspace() {
         title: planTitle,
         task_type: planType,
         command: planType === "shell" ? planCommand : null,
-        source_path: planType === "extract" ? planSourcePath : null,
-        url: planType === "browser" ? planUrl : null,
+        source_path:
+          planType === "extract"
+            ? planSourcePath
+            : planType === "scrape" && planSourcePath.trim()
+              ? planSourcePath
+              : null,
+        url:
+          planType === "browser"
+            ? planUrl
+            : planType === "scrape" && planUrl.trim()
+              ? planUrl
+              : null,
         browser_action: browserAction,
+        scrape_prompt: planType === "scrape" ? scrapePrompt : null,
+        connector_arguments:
+          planType === "scrape"
+            ? { scrape_prompt: scrapePrompt, ingest_knowledge: true, ingest_memory: true }
+            : {},
       });
       setSelectedPlan(plan);
       setBrowserApproved(false);
@@ -325,7 +345,7 @@ export default function CoworkWorkspace() {
     }
 
     if (plan.requires_approval && !browserApproved) {
-      reportError("Browser tasks require explicit approval before run");
+      reportError("Browser, scrape, and connector tasks require explicit approval before run");
       return;
     }
 
@@ -379,6 +399,39 @@ export default function CoworkWorkspace() {
     reportError("");
     try {
       await toggleCoworkJob(token, job.job_id, enabled);
+      await refreshCoworkData(token);
+    } catch (error) {
+      reportError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleScrapeNow() {
+    if (!token || !sessionId) {
+      reportError("Create/select a session first");
+      return;
+    }
+    if (!scrapePrompt.trim()) {
+      reportError("Enter a scrape prompt");
+      return;
+    }
+    if (!scrapeApproved) {
+      reportError("Approve the scrape task before running");
+      return;
+    }
+
+    setLoading(true);
+    reportError("");
+    try {
+      const result = await scrapeCoworkData(token, {
+        session_id: sessionId,
+        scrape_prompt: scrapePrompt.trim(),
+        url: scrapeFilePath.trim() ? null : scrapeUrl.trim(),
+        source_path: scrapeFilePath.trim() || null,
+        approved: true,
+      });
+      reportSuccess(`Scrape ${result.run_id}: ${result.summary}`);
       await refreshCoworkData(token);
     } catch (error) {
       reportError(error.message);
@@ -673,6 +726,7 @@ export default function CoworkWorkspace() {
           <option value="shell">Shell automation</option>
           <option value="extract">OCR/extraction</option>
           <option value="browser">Browser automation</option>
+          <option value="scrape">Scrape (ScrapeGraphAI)</option>
         </select>
 
         {planType === "shell" ? (
@@ -698,6 +752,32 @@ export default function CoworkWorkspace() {
               <option value="capture_title">Capture page title</option>
               <option value="extract_links">Extract links</option>
             </select>
+          </>
+        ) : null}
+
+        {planType === "scrape" ? (
+          <>
+            <label htmlFor="scrape-plan-url">URL</label>
+            <input id="scrape-plan-url" value={planUrl} onChange={(event) => setPlanUrl(event.target.value)} disabled={loading} />
+            <label htmlFor="scrape-plan-source">Local file (optional)</label>
+            <input
+              id="scrape-plan-source"
+              value={planSourcePath}
+              onChange={(event) => setPlanSourcePath(event.target.value)}
+              disabled={loading}
+            />
+            <label htmlFor="scrape-plan-prompt">Scrape prompt</label>
+            <textarea
+              id="scrape-plan-prompt"
+              rows={3}
+              value={scrapePrompt}
+              onChange={(event) => setScrapePrompt(event.target.value)}
+              disabled={loading}
+            />
+            <label className="approve-toggle">
+              <input type="checkbox" checked={browserApproved} onChange={(event) => setBrowserApproved(event.target.checked)} />
+              I approve running this ScrapeGraphAI task
+            </label>
           </>
         ) : null}
 
@@ -769,6 +849,35 @@ export default function CoworkWorkspace() {
             </button>
           </div>
         ))}
+      </section>
+
+      <section className="card">
+        <h2>Quick scrape (ScrapeGraphAI)</h2>
+        <p className="muted">Phase 9: scrape URLs or local HTML into project knowledge + memory.</p>
+        <label htmlFor="scrape-url">URL</label>
+        <input id="scrape-url" value={scrapeUrl} onChange={(event) => setScrapeUrl(event.target.value)} disabled={loading} />
+        <label htmlFor="scrape-file-path">Local file (optional)</label>
+        <input
+          id="scrape-file-path"
+          value={scrapeFilePath}
+          onChange={(event) => setScrapeFilePath(event.target.value)}
+          disabled={loading}
+        />
+        <label htmlFor="scrape-prompt">Scrape prompt</label>
+        <textarea
+          id="scrape-prompt"
+          rows={3}
+          value={scrapePrompt}
+          onChange={(event) => setScrapePrompt(event.target.value)}
+          disabled={loading}
+        />
+        <label className="approve-toggle">
+          <input type="checkbox" checked={scrapeApproved} onChange={(event) => setScrapeApproved(event.target.checked)} />
+          I approve running this scrape task
+        </label>
+        <button type="button" onClick={handleScrapeNow} disabled={loading || !token || !sessionId}>
+          Run scrape
+        </button>
       </section>
 
       <section className="card">

@@ -305,4 +305,4 @@ def test_delegation_execute_denied_for_foreign_member_session(client, tmp_path: 
     task_id = created.json()["task_id"]
 
     denied = client.post(f"/api/v1/team/delegations/{task_id}/execute", headers=member_b_headers)
-    assert denied.status_code == 404
+    assert denied.status_code == 403

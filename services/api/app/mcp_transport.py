@@ -17,13 +17,13 @@ def invoke_remote_tool(
     arguments: dict[str, Any],
     timeout_seconds: float = 20.0,
 ) -> dict[str, Any]:
+    if tool_name == "ping":
+        return {"ok": True, "tool": "ping", "message": "pong", "echo": arguments}
+
     if transport == "stdio":
         raise ContextMcpError("stdio MCP transport must run locally; register an http connector for remote tools")
     if transport == "websocket":
         raise ContextMcpError("websocket MCP transport is not enabled yet; use http transport")
-
-    if tool_name == "ping":
-        return {"ok": True, "tool": "ping", "message": "pong", "echo": arguments}
 
     if transport != "http":
         raise ContextMcpError(f"Unsupported MCP transport: {transport}")

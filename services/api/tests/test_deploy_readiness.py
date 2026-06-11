@@ -19,8 +19,7 @@ def test_deploy_readiness_passes_without_oidc(client, monkeypatch) -> None:
     monkeypatch.delenv("CODEFORGE_OIDC_ENABLED", raising=False)
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://example")
-
-
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
 
     response = client.get("/api/v1/platform/deploy-readiness")
 
@@ -84,14 +83,13 @@ def test_deploy_readiness_discovery_probe_marks_not_ready(client, monkeypatch) -
 
 
 
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.delenv("CODEFORGE_ALLOW_DEV_LOGIN", raising=False)
+
     with patch(
-
-        "app.deploy_readiness.discover_oidc_configuration",
-
+        "app.oidc.discover_oidc_configuration",
         new_callable=AsyncMock,
-
         side_effect=RuntimeError("discovery unreachable"),
-
     ):
 
         response = client.get("/api/v1/platform/deploy-readiness", params={"probe_discovery": "true"})

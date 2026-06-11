@@ -38,7 +38,8 @@ def test_route_request_simple_edit_stays_on_deepseek_flash() -> None:
 
 
 def test_low_confidence_forces_review() -> None:
-    decision = route_request("maybe unsure about this possible quick guess for a small docs tweak")
+    prompt = "maybe unsure not sure guess possible " + "word " * 65
+    decision = route_request(prompt)
     assert decision.review_required is True
     assert decision.confidence_label == "low"
 

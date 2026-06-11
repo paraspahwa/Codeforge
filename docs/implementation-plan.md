@@ -55,22 +55,23 @@ Still missing for the full roadmap:
 
 Completed:
 
-- Phase 0 stream contracts and startup validation are in place
-- File operations engine is in place
-- Shell sandbox core is in place
-- Git inspection core is in place
-- Git stage/commit/branch workflows are in place
-- Intent router v1 and usage-limit enforcement are in place
+- Phases 0–6 core platform (API, web, desktop, terminal, VS Code, cowork, team, routing benchmarks)
+- Phases 7–10: taste rules, agent skills/caveman, RTK shell compression, native memory + Supermemory BYOK, ScrapeGraphAI cowork scrape, Anthropic skills pack
+- Web + desktop settings for taste/memory/RTK/skills; in-chat slash commands; web `/code` workspace; desktop analytics/billing
+- Delegation step-approval gates (`require_step_approval`, `approve-step` endpoint) on API + web/desktop/terminal/VS Code
+- Session grants and share/delegation write guards (`session_access.py`, `actor_may_write_session`)
+- Routing evals with baseline/trend DB storage; SWE-bench-style `swe-fixtures` quality eval harness
+- Deploy CI synthesis rollout gate; routing + quality regression gates (fail-closed in CI)
 
-Partially complete:
+Operator / production gaps (not code-complete in your environment):
 
-- Phases 3–6 core APIs exist but several exit criteria and client surfaces remain (see phase tickets)
-- Routing evals include policy/repository suites with baseline/trend DB storage; SWE-bench-style quality evals via `swe-fixtures` suite with fail-closed CI gate
-- Deploy CI includes synthesis rollout gate; routing + quality regression gates are fail-closed
+- OIDC IdP registration + ECS SSM `CODEFORGE_OIDC_*` + cutover verification
+- GitHub `EFS_FILE_SYSTEM_ID_STAGING` / `EFS_FILE_SYSTEM_ID_PRODUCTION` for worker taskdefs (`fs-PLACEHOLDER`)
+- Azure OpenAI (or approved synthesis provider) for production synthesis rollout gate — see `DEPLOYMENT_RUNBOOK.md` §12
 
-Not started yet:
+Not started (PRD long-horizon):
 
-- Long-horizon PRD integrations (voice, mobile, design-to-code, localization)
+- Voice control, design-to-code, native mobile app, localization
 
 ## Architecture Tracks
 

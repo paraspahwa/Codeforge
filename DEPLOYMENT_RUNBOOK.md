@@ -620,7 +620,7 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 | Worker EFS | Replace `fs-PLACEHOLDER` in worker taskdefs |
 | Terminal/VS Code OIDC | Paste-code flow; register `http://127.0.0.1:4583` and `:4584` callbacks |
 | Long-horizon PRD | Voice, design-to-code, native mobile, localization |
-| Synthesis production | Azure OpenAI required for prod rollout gate in CI |
+| Synthesis production | Set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` (or `OPENAI_API_KEY` + `CODEFORGE_SYNTHESIS_MODEL`) before production deploy; CI synthesis gate reads `GET /api/v1/platform/synthesis-rollout/validation?environment=production` |
 
 ---
 

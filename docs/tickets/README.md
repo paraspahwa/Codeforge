@@ -28,19 +28,20 @@ Completed or in place:
 - Web in-chat slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/supermemory`, `/help`)
 - PWA manifest + mobile-friendly chat layout
 - Web OIDC login/callback + Settings → SSO readiness checklist
+- Desktop settings (taste, memory, RTK, skills), analytics, billing, cowork scrape UI
+- Delegation step-approval gates (`require_step_approval`, approve-step on all clients)
+- Session grants + share/delegation write enforcement (`session_access.py`)
 
 Partially complete:
 
-- Phase 5: JWKS verification + style guides + multi-agent delegations shipped
-- Production OIDC: web SSO path exists; IdP app registration + ECS SSM `CODEFORGE_OIDC_*` secrets are operator tasks
+- Production OIDC: SSO UI on web/desktop; IdP app registration + ECS SSM `CODEFORGE_OIDC_*` are operator tasks
 - Enterprise: org-scoped workspace rate limits shipped; billing-tier org entities not modeled
+- Terminal/VS Code OIDC uses paste-code flow (desktop has native SSO button)
 
 Still ahead (lower priority):
 
-- Desktop OIDC redirect/login parity with web
 - Native mobile app (web PWA covers mobile-friendly chat)
-- Delegation approval gates between orchestration steps
-- Session-level permission enforcement hardening across share/delegation paths
+- PRD long-horizon: voice, design-to-code, localization
 
 ## Ticket Order
 

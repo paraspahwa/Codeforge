@@ -136,27 +136,33 @@ def test_delegation_step_approval_gate(client) -> None:
         }
     ]
 
+    completed_steps = paused_steps + [
+        {
+            "step_index": 2,
+            "role": "implementer",
+            "status": "completed",
+            "output": "Implemented",
+            "started_at": "2026-01-01T00:00:02+00:00",
+            "completed_at": "2026-01-01T00:00:03+00:00",
+        }
+    ]
+
+    async def _mock_chain(**_kwargs):
+        if _mock_chain.calls == 0:
+            _mock_chain.calls += 1
+            return paused_steps, "Awaiting approval", True
+        if _mock_chain.calls == 1:
+            _mock_chain.calls += 1
+            return paused_steps, "Awaiting approval", True
+        _mock_chain.calls += 1
+        return completed_steps, "All steps complete", False
+
+    _mock_chain.calls = 0
+
     with patch(
         "app.delegation_orchestrator.execute_delegation_chain",
         new_callable=AsyncMock,
-        side_effect=[
-            (paused_steps, "Awaiting approval", True),
-            (
-                paused_steps
-                + [
-                    {
-                        "step_index": 2,
-                        "role": "implementer",
-                        "status": "completed",
-                        "output": "Implemented",
-                        "started_at": "2026-01-01T00:00:02+00:00",
-                        "completed_at": "2026-01-01T00:00:03+00:00",
-                    }
-                ],
-                "All steps complete",
-                False,
-            ),
-        ],
+        side_effect=_mock_chain,
     ):
         executed = client.post(f"/api/v1/team/delegations/{task_id}/execute", headers=headers)
         assert executed.status_code == 200
