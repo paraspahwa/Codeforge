@@ -18,7 +18,7 @@ This repository includes a working multi-surface coding assistant platform:
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
 
-Current implementation focus: surface parity (team/cowork/confidence on all clients), ECS worker deploy, and SWE-bench-style quality evals.
+Current implementation focus: agent extensions (taste, RTK, memory, scrape, skills), production OIDC/EFS hardening, and client SSO parity.
 
 ## Repository Layout
 
@@ -75,9 +75,18 @@ CODEFORGE_MODEL=deepseek-v4-flash
 OPENAI_API_KEY=optional_openai_key_for_synthesis
 OPENAI_BASE_URL=https://api.openai.com/v1
 CODEFORGE_SYNTHESIS_MODEL=gpt-4o-mini
+CODEFORGE_RTK_ENABLED=false
+SUPERMEMORY_CC_API_KEY=
+CODEFORGE_SCRAPE_ENABLED=true
 ```
 
 If `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, the API falls back to console span export so local traces are still visible during development.
+
+Optional agent-extension variables (see [docs/agent-extensions.md](docs/agent-extensions.md)):
+
+- `CODEFORGE_RTK_ENABLED` — wrap shell output through the `rtk` binary for token savings
+- `SUPERMEMORY_CC_API_KEY` — optional Supermemory BYOK for cross-session recall
+- `CODEFORGE_SCRAPE_ENABLED` — enable ScrapeGraphAI Cowork extraction (requires `OPENAI_API_KEY`)
 
 The API uses the database, auth, billing, and tracing variables above. The terminal client reads `CODEFORGE_API_BASE_URL`, `CODEFORGE_USER_ID`, and `CODEFORGE_MODEL` for local defaults.
 
@@ -123,6 +132,12 @@ npm run dev:terminal
 - VS Code panel with editor-context sync and workflow commands
 - DB-backed cowork and team persistence (plans, workspaces, shares, delegations)
 - Tier-bound routing policy with benchmark baselines/trends and regression evaluation
+- **Taste** (Phase 7): proposal feedback → distilled rules injected into agent prompts; `/taste` terminal + web Settings
+- **Agent skills** (Phases 7 + 10): `.codeforge/skills/` playbooks, caveman token-saver, curated Anthropic skills pack; Settings → Token Saver
+- **RTK + memory** (Phase 8): shell output compression via `rtk`; Postgres/Qdrant agent memory; optional Supermemory BYOK
+- **ScrapeGraphAI** (Phase 9): Cowork URL/file extraction into project knowledge and agent memory
+
+Developer reference: [docs/agent-extensions.md](docs/agent-extensions.md). Operator verification: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) sections 14–17.
 
 ## Known Gaps
 
@@ -145,6 +160,8 @@ npm run dev:terminal
 ## Canonical Documents
 
 - [Implementation plan](docs/implementation-plan.md)
+- [Agent extensions (taste, RTK, memory, scrape, skills)](docs/agent-extensions.md)
 - [Product requirements](PRD.md)
 - [Spec index](INDEX.md)
 - [Roadmap tickets](docs/tickets/README.md)
+- [Deployment runbook](DEPLOYMENT_RUNBOOK.md)

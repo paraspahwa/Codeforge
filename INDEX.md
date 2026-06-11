@@ -48,6 +48,18 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
 
+Developer reference for agent extensions: [docs/agent-extensions.md](docs/agent-extensions.md)
+
+## Recently shipped (phases 7–10 agent extensions batch)
+
+- Phase 7 taste: proposal accept/reject/edit → distilled rules; `GET/POST /api/v1/taste/*`; terminal `/taste`; web Settings taste panel
+- Phase 7 + 10 skills: `.codeforge/skills/` discovery; `GET/PUT /api/v1/agent/preferences`; bundled caveman + Anthropic skills pack
+- Phase 8 RTK: `shell_ops.py` wraps supported commands through `rtk`; `GET /api/v1/rtk/status`; terminal `/rtk`; Settings → Token Saver
+- Phase 8 memory: `agent_memories` table + Qdrant index; `GET/POST /api/v1/memory/*`; optional Supermemory BYOK (`/api/v1/supermemory/*`)
+- Phase 9 scrape: `POST /api/v1/cowork/scrape`; Cowork plan type `scrape`; terminal `/cowork scrape`; web Cowork quick scrape
+- API tests: `test_taste.py`, `test_rtk.py`, `test_memory.py`, `test_scrape.py`, `test_skills.py`
+- Shared client helpers in `packages/shared/src/api.js` for taste, skills, RTK, memory, and supermemory
+
 ## Recently shipped (client SSO + Qdrant CI batch)
 
 - Qdrant deploy in `deploy-ecs.yml` when `DEPLOY_QDRANT_SERVICE=true` (registers `taskdef-qdrant.json`)
