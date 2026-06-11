@@ -14,6 +14,19 @@
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
 - [README.md](README.md): repo setup and current implementation status
 
+## Developer Guides
+
+- [services/api/README.md](services/api/README.md): backend layout, test commands, agent personalization APIs (taste, memory, RTK, skills, scrape)
+- [packages/shared/README.md](packages/shared/README.md): shared client SDK exports and usage
+- [.codeforge/skills/README.md](.codeforge/skills/README.md): agent skill playbook format and token saver
+
+### Agent personalization tickets (Phases 7–10)
+
+- [Phase 7 — Taste](docs/tickets/phase-7-taste.md): proposal feedback → taste rules
+- [Phase 8 — RTK + Memory](docs/tickets/phase-8-memory.md): shell compression, native memory, Supermemory BYOK
+- [Phase 9 — Scrape](docs/tickets/phase-9-scrape.md): ScrapeGraphAI Cowork extraction
+- [Phase 10 — Anthropic Skills](docs/tickets/phase-10-anthropic-skills.md): curated skills pack
+
 ## Suggested Copilot Prompts
 
 ### Backend Foundation
@@ -32,6 +45,10 @@ Extend the Ink terminal client according to `docs/tickets/phase-1-terminal.md` s
 
 Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.md` and keep them on the shared API contract.
 
+### Agent Personalization
+
+Extend taste, memory, RTK, skills, or scrape flows per `docs/tickets/phase-7-taste.md` through `phase-10-anthropic-skills.md`. Verify against `services/api/README.md` and the pytest files listed there.
+
 ## Current Technical Direction
 
 - Backend: FastAPI + Python 3.13
@@ -47,6 +64,14 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Bootstrap SSM: Razorpay, OIDC, Qdrant — then OIDC cutover with `patch_ecs_oidc_enabled.py`
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
+
+## Recently shipped (agent personalization + web surfaces batch)
+
+- Phases 7–10: taste rules, RTK shell compression, native/Qdrant memory, Supermemory BYOK, ScrapeGraphAI, Anthropic skills pack
+- Web `/code` workspace (git sidebar, shell stream, verify loop)
+- Web slash commands: `/memory`, `/taste`, `/caveman`, `/rtk`, `/supermemory`, `/help`
+- Web OIDC login/callback; Settings tabs for taste, memory, token saver, skills
+- Backend developer guide: [services/api/README.md](services/api/README.md)
 
 ## Recently shipped (client SSO + Qdrant CI batch)
 
