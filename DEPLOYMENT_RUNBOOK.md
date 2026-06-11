@@ -4,6 +4,8 @@ Step-by-step guide to run CodeForge **locally** and on an **AWS Linux machine**,
 
 Use this runbook when you want to smoke-test the full platform before or after a cloud deploy.
 
+For **cheapest production hosting** (Vercel, Supabase, Cloudflare, VPS), secrets checklist, and a step-by-step tick-list, see [docs/PRODUCTION_DEPLOYMENT_CHECKLIST.md](docs/PRODUCTION_DEPLOYMENT_CHECKLIST.md) and [.env.production.template](.env.production.template).
+
 ---
 
 ## 1. What you are running
