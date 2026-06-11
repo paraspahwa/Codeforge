@@ -18,7 +18,7 @@ This repository includes a working multi-surface coding assistant platform:
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
 
-Current implementation focus: surface parity (team/cowork/confidence on all clients), ECS worker deploy, and SWE-bench-style quality evals.
+Current implementation focus: production OIDC/EFS rollout, enterprise hardening, and SWE-bench-style quality evals. Phases 7–10 (taste, memory/RTK, ScrapeGraphAI, Anthropic skills) are shipped on the API and primary clients.
 
 ## Repository Layout
 
@@ -123,6 +123,10 @@ npm run dev:terminal
 - VS Code panel with editor-context sync and workflow commands
 - DB-backed cowork and team persistence (plans, workspaces, shares, delegations)
 - Tier-bound routing policy with benchmark baselines/trends and regression evaluation
+- Taste learning from proposal feedback with rules export/import and session-stream injection (Phase 7)
+- Agent skills playbooks (`.codeforge/skills/`), bundled caveman token-saver, and curated Anthropic skills pack (Phases 7 + 10)
+- RTK shell output compression, native agent memory (Postgres/Qdrant), and Supermemory BYOK (Phase 8)
+- ScrapeGraphAI Cowork extraction: URL/file scrape → project knowledge + agent memory (Phase 9)
 
 ## Known Gaps
 

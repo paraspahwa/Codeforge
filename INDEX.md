@@ -48,6 +48,13 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
 
+## Recently shipped (memory/taste/team SSE hardening batch)
+
+- Memory search: keyword fallback uses per-token AND matching; omit `project_path` to search all user memories
+- Taste import: default imported rule `scope` is `user`; weight updates count toward import total
+- Team SSE probe: `GET /api/v1/team/events?probe=true` for smoke tests without hanging on the stream
+- Pytest: autouse `fast_local_test_env` in `conftest.py` — per-test SQLite, offline vector store, no inherited `.env.local` DB
+
 ## Recently shipped (client SSO + Qdrant CI batch)
 
 - Qdrant deploy in `deploy-ecs.yml` when `DEPLOY_QDRANT_SERVICE=true` (registers `taskdef-qdrant.json`)

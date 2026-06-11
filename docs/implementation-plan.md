@@ -31,6 +31,10 @@ Already implemented in this repo:
 - Phase 4 cowork mode: DB-backed plans/runs/jobs/extractions, Playwright browser tasks, web `/cowork` and desktop CoworkWorkspace, explicit browser approval boundaries
 - Phase 5 team platform: DB-backed workspaces/knowledge/shares/delegations, web `/team` and `/share/[id]`, knowledge injected into agent stream, delegation execute endpoint
 - Phase 6 routing quality: tier-bound routing policy, benchmark baselines/trends with regression evaluation, confidence signals on web chat and terminal
+- Phase 7 taste + skills: proposal feedback capture, taste context injection, `.codeforge/skills/` discovery, bundled caveman token-saver, agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
+- Phase 8 RTK + memory: shell output compression via `rtk`, native agent memory (SQLite/Postgres + Qdrant), Supermemory BYOK connector (see [phase-8-memory.md](tickets/phase-8-memory.md))
+- Phase 9 ScrapeGraphAI: Cowork scrape tasks with approval gate, knowledge + memory ingest (see [phase-9-scrape.md](tickets/phase-9-scrape.md))
+- Phase 10 Anthropic skills: curated instruction pack (`frontend-design`, `webapp-testing`, `mcp-builder`, `skill-creator`, `doc-coauthoring`) (see [phase-10-anthropic-skills.md](tickets/phase-10-anthropic-skills.md))
 - Context manager and MCP v1 groundwork are implemented with reusable context packs, session context composition, connector registry, and authenticated MCP tool-invoke endpoints
 - Shared stream orchestration has been hardened with run-generated token chunks, inline static verification signals, and single-authority completion events
 - Model-backed response synthesis path is integrated with deterministic fallback and synthesis-source observability in stream payloads
@@ -39,10 +43,6 @@ Already implemented in this repo:
 - Guided conflict-resolution flow is available via API and terminal command workflow with actionable resolution steps
 - Explicit runtime/config documentation for backend, web, terminal, and tracing assumptions
 - Shared workspace scripts for web, desktop, terminal, and API flows
-
-Partially started:
-
-- Phase 7 taste + skills: proposal feedback capture, taste context, `.codeforge/skills/` discovery, bundled caveman token-saver (MIT), agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
 
 Still missing for the full roadmap:
 
@@ -337,6 +337,10 @@ Recommended ticket order:
 6. [Phase 4 - Cowork Mode](docs/tickets/phase-4-cowork.md)
 7. [Phase 5 - Projects and Team Platform](docs/tickets/phase-5-projects-team.md)
 8. [Phase 6 - Quality and Routing](docs/tickets/phase-6-quality-routing.md)
+9. [Phase 7 - Taste (Coding Preferences)](docs/tickets/phase-7-taste.md)
+10. [Phase 8 - RTK and Memory](docs/tickets/phase-8-memory.md)
+11. [Phase 9 - ScrapeGraphAI](docs/tickets/phase-9-scrape.md)
+12. [Phase 10 - Anthropic Skills](docs/tickets/phase-10-anthropic-skills.md)
 
 ## What Is Done vs Left
 
@@ -349,6 +353,10 @@ Done:
 - Phase 3 advanced code features: looped verify/fix workflow, compact summaries, ultrareview audits, and multi-file plan/rollback execution
 - Phase 4 cowork mode: task planning/runs, watchers/scheduled jobs, extraction history, and explicit browser-task approval
 - Phase 5 projects/team platform: project knowledge base, workspace sharing/roles, session share/export, and delegation records
+- Phase 7 taste + skills: proposal feedback → taste rules, skills playbooks, caveman + Anthropic skill packs
+- Phase 8 RTK + memory: shell compression, native agent memory, Supermemory BYOK
+- Phase 9 ScrapeGraphAI Cowork extraction with knowledge/memory ingest
+- Phase 10 curated Anthropic skills pack with project override support
 - Session lifecycle, message persistence, SSE streaming, billing foundations, file ops, git inspection, and shell sandboxing
 - Shared client helpers for file, git, and shell surfaces
 - Terminal file tree, chat, diff/review, and activity panes
@@ -359,7 +367,8 @@ Left:
 
 - Production IdP rollout and ECS SSM secret wiring
 - Replace placeholder EFS filesystem IDs for cloud workspace mounts
-- MCP remote transport and billing-tier org modeling
+- Client OIDC redirect/login UX on web/desktop (terminal/VS Code use paste-code flows today)
+- Session-level permission enforcement hardening across share/delegation paths
 
 ## Non-Goals For The Near Term
 

@@ -747,9 +747,21 @@ Attribution: [.codeforge/skills/THIRD_PARTY_NOTICES.md](.codeforge/skills/THIRD_
 
 ---
 
-## 17. Local pytest (API on Windows)
+## 17. Local pytest (API)
 
-Use Python **3.13** in a venv under `services/api` (avoid system 3.14 until deps catch up):
+Use Python **3.13** in a venv under `services/api` (avoid system 3.14 until deps catch up).
+
+### Test harness defaults
+
+`services/api/tests/conftest.py` applies an autouse `fast_local_test_env` fixture to every test:
+
+- Forces per-test SQLite (`tmp_path/codeforge.db`) even when the shell has `DATABASE_URL` or `.env.local`
+- Clears `OPENAI_API_KEY`, `QDRANT_URL`, and `CODEFORGE_EMBEDDING_MODEL` so tests stay offline
+- Resets the in-process `vector_store` singleton to deterministic in-memory mode
+
+No extra env setup is required for the phase 7–10 test modules.
+
+### Windows (PowerShell)
 
 ```powershell
 cd services\api
@@ -759,7 +771,28 @@ $env:CODEFORGE_ENV = "development"
 .\.venv\Scripts\python -m pytest tests/test_scrape.py tests/test_rtk.py tests/test_memory.py tests/test_skills.py tests/test_taste.py -v
 ```
 
-Full `pytest tests/` may hang on long-running SSE cases; add `--timeout=60` if `pytest-timeout` is installed.
+### Linux / macOS
+
+```bash
+cd services/api
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export CODEFORGE_ENV=development
+python -m pytest tests/test_scrape.py tests/test_rtk.py tests/test_memory.py tests/test_skills.py tests/test_taste.py -v
+```
+
+### SSE endpoints in tests
+
+Long-lived SSE streams should use probe mode where supported:
+
+```bash
+curl -H "Authorization: Bearer <token>" "http://127.0.0.1:8000/api/v1/team/events?probe=true"
+```
+
+`probe=true` returns a single `connected` event and closes — used by `test_team_events_stream_connected` in `test_backlog_completion.py`.
+
+Full `pytest tests/` may still hang on other long-running SSE cases; add `--timeout=60` if `pytest-timeout` is installed.
 
 ---
 
