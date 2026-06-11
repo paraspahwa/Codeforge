@@ -40,9 +40,12 @@ Already implemented in this repo:
 - Explicit runtime/config documentation for backend, web, terminal, and tracing assumptions
 - Shared workspace scripts for web, desktop, terminal, and API flows
 
-Partially started:
+- Phase 7 taste + skills: proposal feedback capture, taste rule distillation, taste context injection, `.codeforge/skills/` discovery, bundled caveman token-saver (MIT), agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
+- Phase 8 RTK + memory: shell output compression via `rtk`, Postgres/Qdrant agent memory, optional Supermemory BYOK (see [phase-8-memory.md](tickets/phase-8-memory.md))
+- Phase 9 ScrapeGraphAI: Cowork URL/file extraction into project knowledge and agent memory (see [phase-9-scrape.md](tickets/phase-9-scrape.md))
+- Phase 10 Anthropic skills pack: curated instruction skills from anthropics/skills (see [phase-10-anthropic-skills.md](tickets/phase-10-anthropic-skills.md))
 
-- Phase 7 taste + skills: proposal feedback capture, taste context, `.codeforge/skills/` discovery, bundled caveman token-saver (MIT), agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
+Developer reference: [agent-extensions.md](agent-extensions.md)
 
 Still missing for the full roadmap:
 
@@ -337,6 +340,10 @@ Recommended ticket order:
 6. [Phase 4 - Cowork Mode](docs/tickets/phase-4-cowork.md)
 7. [Phase 5 - Projects and Team Platform](docs/tickets/phase-5-projects-team.md)
 8. [Phase 6 - Quality and Routing](docs/tickets/phase-6-quality-routing.md)
+9. [Phase 7 - Taste (Coding Preferences)](docs/tickets/phase-7-taste.md)
+10. [Phase 8 - RTK and Memory](docs/tickets/phase-8-memory.md)
+11. [Phase 9 - ScrapeGraphAI](docs/tickets/phase-9-scrape.md)
+12. [Phase 10 - Anthropic Skills](docs/tickets/phase-10-anthropic-skills.md)
 
 ## What Is Done vs Left
 
@@ -349,6 +356,10 @@ Done:
 - Phase 3 advanced code features: looped verify/fix workflow, compact summaries, ultrareview audits, and multi-file plan/rollback execution
 - Phase 4 cowork mode: task planning/runs, watchers/scheduled jobs, extraction history, and explicit browser-task approval
 - Phase 5 projects/team platform: project knowledge base, workspace sharing/roles, session share/export, and delegation records
+- Phase 7 taste + skills: proposal feedback → taste rules, taste context in stream, `.codeforge/skills/` playbooks, caveman token-saver, agent preferences API
+- Phase 8 RTK + memory: shell output compression, native agent memory (Postgres + Qdrant), Supermemory BYOK connector
+- Phase 9 ScrapeGraphAI: Cowork scrape endpoint and plan type with approval gate
+- Phase 10 Anthropic skills pack: frontend-design, webapp-testing, mcp-builder, skill-creator, doc-coauthoring
 - Session lifecycle, message persistence, SSE streaming, billing foundations, file ops, git inspection, and shell sandboxing
 - Shared client helpers for file, git, and shell surfaces
 - Terminal file tree, chat, diff/review, and activity panes

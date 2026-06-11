@@ -533,11 +533,21 @@ Use this checklist after any path. Mark each row: **Pass**, **Fail**, or **Skip*
 | 21 | Session grant | Grant member access | Member can open session |
 | 22 | Vector probe | `deploy-readiness?probe_vector=true` | Qdrant reachable |
 
-### 8.7 Clients
+### 8.7 Agent extensions (phases 7–10)
+
+| # | Test | Action | Pass criteria |
+|---|------|--------|---------------|
+| 27 | Taste stats | `GET /api/v1/taste/stats` or `/taste stats` | Metrics returned |
+| 28 | Skills list | `GET /api/v1/skills` or Settings → Token Saver | Bundled skills listed |
+| 29 | RTK status | `GET /api/v1/rtk/status` or `/rtk status` | `binary_available` reflects image/host |
+| 30 | Memory search | `GET /api/v1/memory/search?q=test` | Native hits or empty array |
+| 31 | Scrape (optional) | `POST /api/v1/cowork/scrape` with `approved: true` | Extraction result or graceful error without `OPENAI_API_KEY` |
+
+### 8.8 Clients
 
 | # | Client | Action | Pass criteria |
 |---|--------|--------|---------------|
-| 23 | Web | Full chat + billing + team pages | No console API errors |
+| 23 | Web | Full chat + billing + team + settings pages | No console API errors |
 | 24 | Terminal | Login + session + routing banner | Connects to API |
 | 25 | Desktop | Code + Cowork tabs | Tray launches; API reachable |
 | 26 | VS Code | Open panel + workflow commands | Panel syncs with API |
@@ -572,6 +582,7 @@ Copy `.env.example` as the source of truth. Critical groups:
 | Vector | `QDRANT_URL`, `OPENAI_API_KEY` | RAG with real embeddings |
 | Web | `NEXT_PUBLIC_API_BASE` | Built into web image at build time |
 | Models | `OPENAI_API_KEY`, `CODEFORGE_MODEL`, synthesis vars | Real LLM responses |
+| Agent extensions | `CODEFORGE_RTK_*`, `SUPERMEMORY_*`, `CODEFORGE_SCRAPE_*` | RTK compression, Supermemory BYOK, ScrapeGraphAI |
 
 Example env files for SSM bootstrap:
 
@@ -637,7 +648,36 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 
 ---
 
-## 14. Phase 8 — RTK and memory (optional)
+## 14. Phase 7 — Taste (coding preferences)
+
+Taste learns from proposal accept/reject/edit feedback and injects distilled rules into agent prompts.
+
+**How feedback flows:**
+
+1. Approve or reject a streamed proposal (optional `note` or `edited_content` on approve).
+2. `taste_service` distills heuristics into weighted rules in `taste_rules`.
+3. Active rules + team style guides compose into the agent stream prompt.
+
+**Verify:**
+
+```bash
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/api/v1/taste/stats | python3 -m json.tool
+
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8000/api/v1/taste/rules | python3 -m json.tool
+```
+
+**Clients:**
+
+- Terminal: `/taste stats`, `/taste rules`, `/taste export`, `/taste import <path>`
+- Web: Settings → Taste panel
+
+See [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md) and [docs/agent-extensions.md](docs/agent-extensions.md).
+
+---
+
+## 15. Phase 8 — RTK and memory (optional)
 
 ### RTK shell compression
 
@@ -686,7 +726,7 @@ curl.exe -H "Authorization: Bearer <token>" "http://127.0.0.1:8000/api/v1/superm
 
 ---
 
-## 15. Phase 9 — ScrapeGraphAI (optional)
+## 16. Phase 9 — ScrapeGraphAI (optional)
 
 Cowork can run natural-language extraction from URLs or local docs via [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai). Results ingest into project knowledge and agent memory.
 
@@ -712,7 +752,7 @@ See [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md).
 
 ---
 
-## 16. Phase 10 — Anthropic skills pack
+## 17. Phase 10 — Anthropic skills pack
 
 Bundled instruction skills adapted from [anthropics/skills](https://github.com/anthropics/skills) (Apache-2.0):
 
@@ -747,7 +787,7 @@ Attribution: [.codeforge/skills/THIRD_PARTY_NOTICES.md](.codeforge/skills/THIRD_
 
 ---
 
-## 17. Local pytest (API on Windows)
+## 18. Local pytest (API on Windows)
 
 Use Python **3.13** in a venv under `services/api` (avoid system 3.14 until deps catch up):
 
@@ -763,9 +803,10 @@ Full `pytest tests/` may hang on long-running SSE cases; add `--timeout=60` if `
 
 ---
 
-## 18. Related docs
+## 19. Related docs
 
 - [README.md](README.md) — repo overview and current status
+- [docs/agent-extensions.md](docs/agent-extensions.md) — developer guide for phases 7–10
 - [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md) — taste rules + caveman/skills
 - [docs/tickets/phase-8-memory.md](docs/tickets/phase-8-memory.md) — RTK + memory implementation notes
 - [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md) — ScrapeGraphAI Cowork extraction
