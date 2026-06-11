@@ -6,14 +6,60 @@ import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 import {
   createContextPack,
   createMcpConnector,
+  exportTaste,
+  exportMemory,
+  getAgentPreferences,
   getDeployReadiness,
+  getRtkStatus,
+  getSupermemoryStatus,
+  getTasteRules,
+  getTasteStats,
+  importTaste,
   listContextPacks,
+  listMemories,
   listMcpConnectors,
+  listSkills,
+  saveMemory,
+  searchMemory,
+  updateAgentPreferences,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
 import { useToast } from "../../lib/toast-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+
+function groupSkillsByCatalog(skills) {
+  const groups = [
+    {
+      id: "project",
+      title: "Project skills",
+      description: "From your repo .codeforge/skills/ — override bundled skills with the same name.",
+      skills: [],
+    },
+    {
+      id: "anthropic",
+      title: "Anthropic curated",
+      description: "Adapted from anthropics/skills (Apache-2.0). Instructions-only; no bundled scripts.",
+      skills: [],
+    },
+    {
+      id: "bundled",
+      title: "CodeForge bundled",
+      description: "Shipped with CodeForge (caveman, pr-conventions, etc.).",
+      skills: [],
+    },
+  ];
+  for (const skill of skills) {
+    if (skill.origin === "project") {
+      groups[0].skills.push(skill);
+    } else if (skill.source?.includes("anthropics/skills")) {
+      groups[1].skills.push(skill);
+    } else {
+      groups[2].skills.push(skill);
+    }
+  }
+  return groups.filter((group) => group.skills.length > 0);
+}
 
 export default function SettingsPage() {
   const { userId, token, ready } = useAuth();
@@ -33,6 +79,21 @@ export default function SettingsPage() {
   const [connectorTransport, setConnectorTransport] = useState("http");
   const [connectorTools, setConnectorTools] = useState("");
   const [deployReadiness, setDeployReadiness] = useState(null);
+  const [tasteStats, setTasteStats] = useState(null);
+  const [tasteRules, setTasteRules] = useState([]);
+  const [tasteMd, setTasteMd] = useState("");
+  const [tasteImportJson, setTasteImportJson] = useState("");
+  const [agentPrefs, setAgentPrefs] = useState(null);
+  const [availableSkills, setAvailableSkills] = useState([]);
+  const [cavemanMode, setCavemanMode] = useState("off");
+  const [enabledSkills, setEnabledSkills] = useState([]);
+  const [rtkEnabled, setRtkEnabled] = useState(false);
+  const [rtkStatus, setRtkStatus] = useState(null);
+  const [memories, setMemories] = useState([]);
+  const [memoryQuery, setMemoryQuery] = useState("");
+  const [memorySearchHits, setMemorySearchHits] = useState([]);
+  const [memorySaveText, setMemorySaveText] = useState("");
+  const [supermemoryStatus, setSupermemoryStatus] = useState(null);
 
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || "");
@@ -51,7 +112,49 @@ export default function SettingsPage() {
     getDeployReadiness(false)
       .then(setDeployReadiness)
       .catch(() => setDeployReadiness(null));
-  }, [ready, token]);
+    getTasteStats(token)
+      .then(setTasteStats)
+      .catch(() => setTasteStats(null));
+    getTasteRules(token)
+      .then((result) => {
+        setTasteRules(result.rules ?? []);
+        setTasteMd(result.taste_md ?? "");
+      })
+      .catch(() => {
+        setTasteRules([]);
+        setTasteMd("");
+      });
+    getAgentPreferences(token)
+      .then((prefs) => {
+        setAgentPrefs(prefs);
+        setCavemanMode(prefs.caveman_mode || "off");
+        setEnabledSkills(prefs.enabled_skills || []);
+        setRtkEnabled(Boolean(prefs.rtk_enabled));
+      })
+      .catch(() => setAgentPrefs(null));
+    getRtkStatus(token)
+      .then(setRtkStatus)
+      .catch(() => setRtkStatus(null));
+    listMemories(token, projectPath || null)
+      .then((result) => setMemories(result.memories ?? []))
+      .catch(() => setMemories([]));
+    getSupermemoryStatus(token, projectPath || null)
+      .then(setSupermemoryStatus)
+      .catch(() => setSupermemoryStatus(null));
+    listSkills(token, projectPath || null)
+      .then((result) => setAvailableSkills(result.skills ?? []))
+      .catch(() => setAvailableSkills([]));
+  }, [ready, token, projectPath]);
+
+  async function refreshTaste() {
+    if (!token) {
+      return;
+    }
+    const [stats, rules] = await Promise.all([getTasteStats(token), getTasteRules(token)]);
+    setTasteStats(stats);
+    setTasteRules(rules.rules ?? []);
+    setTasteMd(rules.taste_md ?? "");
+  }
 
   function handleSaveProjectPath() {
     localStorage.setItem("codeforge_project_path", projectPath.trim());
@@ -82,6 +185,80 @@ export default function SettingsPage() {
       setPackSummary("");
       setPackSnippets("");
       toast.push("Context pack created", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExportTaste() {
+    if (!token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const pack = await exportTaste(token);
+      const blob = new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "codeforge-taste-export.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.push("Taste pack exported", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveAgentPreferences(event) {
+    event.preventDefault();
+    if (!token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const prefs = await updateAgentPreferences(token, {
+        caveman_mode: cavemanMode,
+        enabled_skills: enabledSkills,
+        rtk_enabled: rtkEnabled,
+      });
+      setAgentPrefs(prefs);
+      const status = await getRtkStatus(token);
+      setRtkStatus(status);
+      toast.push("Token saver preferences saved", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleEnabledSkill(skillName) {
+    setEnabledSkills((current) =>
+      current.includes(skillName) ? current.filter((item) => item !== skillName) : [...current, skillName],
+    );
+  }
+
+  async function handleImportTaste(event) {
+    event.preventDefault();
+    if (!tasteImportJson.trim()) {
+      toast.push("Paste a taste export JSON payload first");
+      return;
+    }
+    setLoading(true);
+    try {
+      const pack = JSON.parse(tasteImportJson);
+      const result = await importTaste(token, {
+        version: pack.version || 1,
+        rules: pack.rules || [],
+      });
+      setTasteImportJson("");
+      await refreshTaste();
+      toast.push(`Imported ${result.imported_rules} taste rule(s)`, "success");
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -235,6 +412,330 @@ export default function SettingsPage() {
     </section>
   );
 
+  async function handleMemorySearch(event) {
+    event.preventDefault();
+    if (!token || !memoryQuery.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await searchMemory(token, memoryQuery.trim(), projectPath || null);
+      setMemorySearchHits([
+        ...(result.native || []),
+        ...(result.supermemory || []).map((item) => ({
+          memory_id: `sm_${item.container_tag}`,
+          kind: "external",
+          scope: "supermemory",
+          content: item.memory,
+        })),
+      ]);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMemorySave(event) {
+    event.preventDefault();
+    if (!token || !memorySaveText.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await saveMemory(token, {
+        content: memorySaveText.trim(),
+        project_path: projectPath || null,
+        scope: "personal",
+      });
+      setMemorySaveText("");
+      const result = await listMemories(token, projectPath || null);
+      setMemories(result.memories ?? []);
+      toast.push("Memory saved", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExportMemory() {
+    if (!token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const pack = await exportMemory(token);
+      const blob = new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "codeforge-memory-export.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.push("Memory pack exported", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const tokenSaverTab = !token ? (
+    <EmptyState title="Sign in required" description="Token saver settings require an authenticated session." />
+  ) : (
+    <section className="panel">
+      <h2>Token Saver</h2>
+      <p className="small">
+        Caveman compresses assistant prose (~75%).{" "}
+        <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noreferrer">
+          RTK
+        </a>{" "}
+        compresses shell command output (pytest, git, npm test) before it reaches the agent.
+      </p>
+      <h3 className="mt-8">Caveman prose compression</h3>
+      <p className="small">
+        Based on{" "}
+        <a href="https://github.com/JuliusBrussee/caveman" target="_blank" rel="noreferrer">
+          caveman
+        </a>{" "}
+        (MIT). Code patches and commits stay normal.
+      </p>
+      <form onSubmit={handleSaveAgentPreferences}>
+        <label className="small" htmlFor="caveman-mode">
+          Caveman intensity
+        </label>
+        <select
+          id="caveman-mode"
+          value={cavemanMode}
+          onChange={(event) => setCavemanMode(event.target.value)}
+          disabled={loading}
+        >
+          {(agentPrefs?.available_caveman_modes || ["off", "lite", "full", "ultra"]).map((mode) => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
+        <p className="small mt-4">
+          Tip: say &quot;caveman mode&quot; or &quot;less tokens&quot; in chat to trigger for one turn. Use
+          &quot;stop caveman&quot; to revert.
+        </p>
+        <div className="session-list mt-6">
+          {availableSkills.length === 0 ? (
+            <EmptyState title="No skills found" description="Add .codeforge/skills/*/SKILL.md to your project." />
+          ) : (
+            groupSkillsByCatalog(availableSkills).map((group) => (
+              <div key={group.id} className="mt-6">
+                <h4>{group.title}</h4>
+                <p className="small">{group.description}</p>
+                {group.skills.map((skill) => (
+                  <label className="benchmark-row" key={skill.name} style={{ display: "block" }}>
+                    <input
+                      type="checkbox"
+                      checked={enabledSkills.includes(skill.name)}
+                      onChange={() => toggleEnabledSkill(skill.name)}
+                      disabled={loading || skill.name === "caveman"}
+                    />{" "}
+                    <strong>{skill.name}</strong>
+                    {skill.license ? ` (${skill.license})` : ""}
+                    <div className="small">{skill.description}</div>
+                  </label>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+        <h3 className="mt-8">RTK shell compression</h3>
+        <label className="benchmark-row" style={{ display: "block" }}>
+          <input
+            type="checkbox"
+            checked={rtkEnabled}
+            onChange={(event) => setRtkEnabled(event.target.checked)}
+            disabled={loading || !rtkStatus?.binary_available}
+          />{" "}
+          Enable RTK for sandboxed shell commands
+        </label>
+        {rtkStatus ? (
+          <p className="small mt-4">
+            Binary: {rtkStatus.binary_available ? "available" : "not installed"} | Effective:{" "}
+            {rtkStatus.effective_enabled ? "on" : "off"}
+            {rtkStatus.last_stats?.savings_pct != null
+              ? ` | Last savings ~${rtkStatus.last_stats.savings_pct}%`
+              : ""}
+          </p>
+        ) : null}
+        <div className="mt-6">
+          <button type="submit" disabled={loading}>
+            Save token saver settings
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+
+  const memoryTab = !token ? (
+    <EmptyState title="Sign in required" description="Memory settings require an authenticated session." />
+  ) : (
+    <section className="panel">
+      <h2>Agent Memory</h2>
+      <p className="small">
+        Native cross-session memory (Postgres + Qdrant). Optional Supermemory BYOK connects when{" "}
+        <code>SUPERMEMORY_CC_API_KEY</code> is set.
+      </p>
+      {supermemoryStatus ? (
+        <p className="small mt-4">
+          Supermemory: {supermemoryStatus.configured ? "connected" : "not configured"} | Personal tag:{" "}
+          {supermemoryStatus.personal_container_tag}
+        </p>
+      ) : null}
+      <form onSubmit={handleMemorySearch} className="mt-6">
+        <label className="small" htmlFor="memory-query">
+          Search memories
+        </label>
+        <input
+          id="memory-query"
+          value={memoryQuery}
+          onChange={(event) => setMemoryQuery(event.target.value)}
+          placeholder="auth decision, pytest failures..."
+          disabled={loading}
+        />
+        <div className="mt-6">
+          <button type="submit" disabled={loading || !memoryQuery.trim()}>
+            Search
+          </button>
+        </div>
+      </form>
+      {memorySearchHits.length > 0 ? (
+        <div className="session-list mt-6">
+          {memorySearchHits.map((item) => (
+            <div className="benchmark-row" key={item.memory_id}>
+              <strong>
+                {item.kind}/{item.scope}
+              </strong>
+              <div className="small">{item.content}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <form onSubmit={handleMemorySave} className="mt-8">
+        <label className="small" htmlFor="memory-save">
+          Save memory
+        </label>
+        <textarea
+          id="memory-save"
+          rows={3}
+          value={memorySaveText}
+          onChange={(event) => setMemorySaveText(event.target.value)}
+          placeholder="Remember: we use PGHOST env vars instead of DATABASE_URL with special chars"
+          disabled={loading}
+        />
+        <div className="mt-6">
+          <button type="submit" disabled={loading || !memorySaveText.trim()}>
+            Save memory
+          </button>
+        </div>
+      </form>
+      <div className="mt-8">
+        <button type="button" onClick={handleExportMemory} disabled={loading}>
+          Export memories
+        </button>
+      </div>
+      <div className="session-list mt-8">
+        {memories.length === 0 ? (
+          <EmptyState title="No memories yet" description="Use /memory save or approve architectural proposals." />
+        ) : (
+          memories.map((item) => (
+            <div className="benchmark-row" key={item.memory_id}>
+              <strong>
+                {item.kind}/{item.scope}
+              </strong>
+              <div className="small">{item.content}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+
+  const tasteTab = !token ? (
+    <EmptyState title="Sign in required" description="Coding taste requires an authenticated session." />
+  ) : (
+    <section className="panel">
+      <h2>Coding Taste</h2>
+      <p className="small">
+        Personal constraints learned from proposal approve/reject feedback. Lower rejections per session means better
+        alignment over time.
+      </p>
+      {tasteStats ? (
+        <div className="stats-grid mt-6">
+          <div className="benchmark-row">
+            <strong>{tasteStats.active_rules}</strong>
+            <div className="small">Active rules</div>
+          </div>
+          <div className="benchmark-row">
+            <strong>{tasteStats.rejections}</strong>
+            <div className="small">Rejections</div>
+          </div>
+          <div className="benchmark-row">
+            <strong>{tasteStats.approvals}</strong>
+            <div className="small">Approvals</div>
+          </div>
+          <div className="benchmark-row">
+            <strong>{tasteStats.avg_rejections_per_session}</strong>
+            <div className="small">Avg rejections / session</div>
+          </div>
+        </div>
+      ) : (
+        <EmptyState title="Taste stats unavailable" description="Approve or reject proposals to build your profile." />
+      )}
+      <div className="mt-8">
+        <button type="button" onClick={handleExportTaste} disabled={loading}>
+          Export taste pack
+        </button>
+      </div>
+      <div className="session-list mt-8">
+        {tasteRules.length === 0 ? (
+          <EmptyState
+            title="No taste rules yet"
+            description="Reject or approve code proposals with notes to teach CodeForge your preferences."
+          />
+        ) : (
+          tasteRules.map((rule) => (
+            <div className="benchmark-row" key={rule.rule_id}>
+              <strong>Weight {rule.weight}</strong>
+              <div className="small">{rule.rule_text}</div>
+            </div>
+          ))
+        )}
+      </div>
+      {tasteMd ? (
+        <details className="mt-8">
+          <summary className="small">View taste.md preview</summary>
+          <pre className="small mt-4">{tasteMd}</pre>
+        </details>
+      ) : null}
+      <form onSubmit={handleImportTaste} className="mt-8">
+        <label className="small" htmlFor="taste-import">
+          Import taste pack (JSON)
+        </label>
+        <textarea
+          id="taste-import"
+          rows={6}
+          value={tasteImportJson}
+          placeholder='{"version":1,"rules":[{"rule_text":"Prefer Vitest","weight":3}]}'
+          onChange={(event) => setTasteImportJson(event.target.value)}
+          disabled={loading}
+        />
+        <div className="mt-6">
+          <button type="submit" disabled={loading || !tasteImportJson.trim()}>
+            Import taste pack
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+
   const mcpTab = !token ? (
     <EmptyState title="Sign in required" description="MCP connectors require an authenticated session." />
   ) : (
@@ -310,13 +811,18 @@ export default function SettingsPage() {
     <div className="stack">
       <section className="panel">
         <h2>Settings</h2>
-        <p className="small">Profile, project defaults, context packs, MCP connectors, and deploy readiness.</p>
+        <p className="small">
+          Profile, project defaults, token saver, memory, coding taste, context packs, MCP connectors, and deploy readiness.
+        </p>
       </section>
       <Tabs
         defaultTab="profile"
         tabs={[
           { id: "profile", label: "Profile", content: profileTab },
           { id: "project", label: "Project", content: projectTab },
+          { id: "token-saver", label: "Token Saver", content: tokenSaverTab },
+          { id: "memory", label: "Memory", content: memoryTab },
+          { id: "taste", label: "Taste", content: tasteTab },
           { id: "context", label: "Context", content: contextTab },
           { id: "mcp", label: "MCP", content: mcpTab },
           { id: "deploy", label: "Deploy", content: deployTab },

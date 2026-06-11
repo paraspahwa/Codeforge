@@ -637,9 +637,139 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 
 ---
 
-## 14. Related docs
+## 14. Phase 8 — RTK and memory (optional)
+
+### RTK shell compression
+
+RTK filters pytest/git/npm output before it reaches the agent context. The API and worker Docker images install the Linux `rtk` binary automatically.
+
+**Enable globally (compose / API container):**
+
+```env
+CODEFORGE_RTK_ENABLED=true
+CODEFORGE_RTK_DEBUG=false   # attach raw tail on non-zero exit
+CODEFORGE_RTK_BINARY=       # optional explicit path
+```
+
+**Per-user toggle:** Web Settings → Token Saver, or terminal `/rtk on|off|status|gain`.
+
+**Windows host (API outside Docker):** install RTK from [rtk-ai/rtk releases](https://github.com/rtk-ai/rtk/releases) and add to `PATH`. Shell-hook auto-rewrite requires WSL; CodeForge uses explicit `rtk` wrapping in `shell_ops.py`.
+
+**Verify:**
+
+```bash
+curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/rtk/status
+```
+
+### Native agent memory
+
+Cross-session memory is stored in Postgres (`agent_memories`) and Qdrant. No extra SaaS required.
+
+- Terminal: `/memory search|save|list|export`
+- Web: Settings → **Memory**
+- Auto-capture on `/compact` and approved architectural proposals
+
+### Supermemory BYOK (optional)
+
+Requires [Supermemory Pro](https://supermemory.ai/docs/integrations/claude-code) and an API key.
+
+```env
+SUPERMEMORY_CC_API_KEY=sm_...
+SUPERMEMORY_API_URL=https://api.supermemory.ai
+```
+
+Per-repo overrides: copy [`.codeforge/supermemory.json.example`](.codeforge/supermemory.json.example) to `<project>/.codeforge/supermemory.json`.
+
+```bash
+curl.exe -H "Authorization: Bearer <token>" "http://127.0.0.1:8000/api/v1/supermemory/status"
+```
+
+---
+
+## 15. Phase 9 — ScrapeGraphAI (optional)
+
+Cowork can run natural-language extraction from URLs or local docs via [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai). Results ingest into project knowledge and agent memory.
+
+**Requirements:** `OPENAI_API_KEY` (or compatible LiteLLM provider), `scrapegraphai` in API image (`requirements.txt`).
+
+```env
+CODEFORGE_SCRAPE_ENABLED=true
+CODEFORGE_SCRAPE_MODEL=openai/gpt-4o-mini   # optional
+```
+
+**Quick test:**
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/api/v1/cowork/scrape ^
+  -H "Authorization: Bearer <token>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"session_id\":\"<sid>\",\"scrape_prompt\":\"Extract API endpoints\",\"url\":\"https://example.com\",\"approved\":true}"
+```
+
+Terminal: `/cowork scrape https://example.com --prompt "Extract headings" --approve`
+
+See [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md).
+
+---
+
+## 16. Phase 10 — Anthropic skills pack
+
+Bundled instruction skills adapted from [anthropics/skills](https://github.com/anthropics/skills) (Apache-2.0):
+
+| Skill | Use when |
+|-------|----------|
+| `frontend-design` | Distinctive UI, landing pages, anti-template aesthetics |
+| `webapp-testing` | Playwright / Cowork browser verification |
+| `mcp-builder` | Building MCP servers (Python or TypeScript) |
+| `skill-creator` | Authoring `.codeforge/skills/*/SKILL.md` |
+| `doc-coauthoring` | Proposals, specs, RFCs, decision docs |
+
+Also bundled: `caveman` (MIT token saver), `pr-conventions` (CodeForge-native).
+
+**Enable skills:**
+
+- Web: Settings → **Token Saver** → skill groups (Project / Anthropic / CodeForge)
+- Terminal: `/caveman skills`
+- API:
+
+```bash
+curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/skills
+
+curl.exe -X PUT http://127.0.0.1:8000/api/v1/agent/preferences ^
+  -H "Authorization: Bearer <token>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"enabled_skills\":[\"frontend-design\",\"mcp-builder\"]}"
+```
+
+**Project overrides:** copy or author `<repo>/.codeforge/skills/<name>/SKILL.md` — project skills win over bundled names.
+
+Attribution: [.codeforge/skills/THIRD_PARTY_NOTICES.md](.codeforge/skills/THIRD_PARTY_NOTICES.md). Details: [docs/tickets/phase-10-anthropic-skills.md](docs/tickets/phase-10-anthropic-skills.md).
+
+---
+
+## 17. Local pytest (API on Windows)
+
+Use Python **3.13** in a venv under `services/api` (avoid system 3.14 until deps catch up):
+
+```powershell
+cd services\api
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+$env:CODEFORGE_ENV = "development"
+.\.venv\Scripts\python -m pytest tests/test_scrape.py tests/test_rtk.py tests/test_memory.py tests/test_skills.py tests/test_taste.py -v
+```
+
+Full `pytest tests/` may hang on long-running SSE cases; add `--timeout=60` if `pytest-timeout` is installed.
+
+---
+
+## 18. Related docs
 
 - [README.md](README.md) — repo overview and current status
+- [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md) — taste rules + caveman/skills
+- [docs/tickets/phase-8-memory.md](docs/tickets/phase-8-memory.md) — RTK + memory implementation notes
+- [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md) — ScrapeGraphAI Cowork extraction
+- [docs/tickets/phase-10-anthropic-skills.md](docs/tickets/phase-10-anthropic-skills.md) — curated Anthropic skills pack
 - [docs/deployment-assets-setup.md](docs/deployment-assets-setup.md) — SSM / ECS operator setup
 - [docs/production-domains.md](docs/production-domains.md) — TLS and DNS
 - [docs/qdrant-ecs-setup.md](docs/qdrant-ecs-setup.md) — Qdrant on ECS

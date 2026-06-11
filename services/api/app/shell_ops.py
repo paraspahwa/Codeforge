@@ -7,6 +7,13 @@ import shlex
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+from .rtk_service import (
+    build_rtk_argv,
+    build_rtk_stats,
+    build_shell_summary,
+    rtk_debug_enabled,
+    should_apply_rtk,
+)
 from .tracing import add_span_event, set_span_attributes, traced_span
 
 
@@ -125,32 +132,47 @@ def _resolve_shell_executable() -> str:
     raise ShellError("PowerShell is not available")
 
 
-def prepare_shell_execution(project_path: str, command: str) -> tuple[Path, str, str]:
-    root = _normalize_project_path(project_path)
-    sanitized = _validate_shell_command(command)
-    shell_executable = _resolve_shell_executable()
-    return root, sanitized, shell_executable
-
-
-async def run_shell_command(
+def prepare_shell_execution(
     project_path: str,
     command: str,
-    timeout_seconds: int = 30,
-) -> dict[str, Any]:
-    """Run a sandboxed shell command and collect stdout for verification loops."""
-    root, sanitized, shell_executable = prepare_shell_execution(project_path, command)
+    *,
+    user_rtk_enabled: bool | None = None,
+) -> tuple[Path, str, str, bool]:
+    root = _normalize_project_path(project_path)
+    sanitized = _validate_shell_command(command)
+    rtk_applied = should_apply_rtk(sanitized, user_rtk_enabled=user_rtk_enabled)
+    if rtk_applied:
+        return root, sanitized, "rtk", True
+    shell_executable = _resolve_shell_executable()
+    return root, sanitized, shell_executable, False
 
-    process = await asyncio.create_subprocess_exec(
-        shell_executable,
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        sanitized,
-        cwd=str(root),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+
+async def _run_subprocess_collect(
+    *,
+    argv: list[str],
+    cwd: Path,
+    timeout_seconds: int,
+    shell_mode: bool,
+) -> tuple[str, int, int]:
+    if shell_mode:
+        process = await asyncio.create_subprocess_exec(
+            argv[0],
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            argv[1],
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
 
     if process.stdout is None:
         raise ShellError("Unable to capture shell output")
@@ -158,7 +180,7 @@ async def run_shell_command(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_seconds
     output_chunks: list[str] = []
-    exit_code = -1
+    output_lines = 0
 
     try:
         while True:
@@ -181,6 +203,7 @@ async def run_shell_command(
             text = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
             if text:
                 output_chunks.append(text)
+                output_lines += 1
 
         exit_code = await process.wait()
     finally:
@@ -190,15 +213,80 @@ async def run_shell_command(
             exit_code = -1
 
     output = "\n".join(output_chunks)
-    tail = output[-1200:] if output else ""
+    return output, exit_code, output_lines
+
+
+async def run_shell_command(
+    project_path: str,
+    command: str,
+    timeout_seconds: int = 30,
+    *,
+    user_id: str | None = None,
+    user_rtk_enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Run a sandboxed shell command and collect stdout for verification loops."""
+    from .skills_service import skills_service
+
+    resolved_rtk = user_rtk_enabled
+    if resolved_rtk is None and user_id:
+        resolved_rtk = skills_service.resolve_rtk_enabled(user_id)
+
+    root, sanitized, executable, rtk_applied = prepare_shell_execution(
+        project_path,
+        command,
+        user_rtk_enabled=resolved_rtk,
+    )
+
+    if rtk_applied:
+        argv = build_rtk_argv(sanitized)
+        output, exit_code, output_lines = await _run_subprocess_collect(
+            argv=argv,
+            cwd=root,
+            timeout_seconds=timeout_seconds,
+            shell_mode=False,
+        )
+    else:
+        output, exit_code, output_lines = await _run_subprocess_collect(
+            argv=[executable, sanitized],
+            cwd=root,
+            timeout_seconds=timeout_seconds,
+            shell_mode=True,
+        )
+
+    if rtk_applied and exit_code != 0 and rtk_debug_enabled() and not output:
+        fallback_output, fallback_exit, fallback_lines = await _run_subprocess_collect(
+            argv=[_resolve_shell_executable(), sanitized],
+            cwd=root,
+            timeout_seconds=timeout_seconds,
+            shell_mode=True,
+        )
+        if fallback_output:
+            output = f"{output}\n\n[rtk debug raw tail]\n{fallback_output[-1200:]}"
+            output_lines = max(output_lines, fallback_lines)
+            exit_code = fallback_exit
+
+    filtered_bytes = len(output.encode("utf-8"))
+    rtk_stats = build_rtk_stats(
+        command=sanitized,
+        filtered_bytes=filtered_bytes,
+        output_lines=output_lines,
+        rtk_applied=rtk_applied,
+    )
+
+    if user_id and rtk_applied:
+        skills_service.record_rtk_stats(user_id, rtk_stats)
+
+    summary = build_shell_summary(output, exit_code, rtk_applied=rtk_applied)
     return {
         "command": sanitized,
         "cwd": root.as_posix(),
         "exit_code": exit_code,
         "timed_out": False,
         "output": output,
-        "summary": tail or f"exit_code={exit_code}",
+        "summary": summary,
         "passed": exit_code == 0,
+        "rtk_applied": rtk_applied,
+        **rtk_stats,
     }
 
 
@@ -206,8 +294,21 @@ async def stream_shell_execution(
     project_path: str,
     command: str,
     timeout_seconds: int = 30,
+    *,
+    user_id: str | None = None,
+    user_rtk_enabled: bool | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    root, sanitized, shell_executable = prepare_shell_execution(project_path, command)
+    from .skills_service import skills_service
+
+    resolved_rtk = user_rtk_enabled
+    if resolved_rtk is None and user_id:
+        resolved_rtk = skills_service.resolve_rtk_enabled(user_id)
+
+    root, sanitized, executable, rtk_applied = prepare_shell_execution(
+        project_path,
+        command,
+        user_rtk_enabled=resolved_rtk,
+    )
 
     with traced_span(
         "codeforge.shell.stream_execution",
@@ -215,6 +316,7 @@ async def stream_shell_execution(
             "codeforge.shell.command": sanitized,
             "codeforge.shell.cwd": root.as_posix(),
             "codeforge.shell.timeout_seconds": timeout_seconds,
+            "codeforge.shell.rtk_applied": rtk_applied,
         },
     ):
         yield {
@@ -222,21 +324,30 @@ async def stream_shell_execution(
             "payload": {
                 "command": sanitized,
                 "cwd": root.as_posix(),
+                "rtk_applied": rtk_applied,
             },
         }
-        add_span_event("shell.command_started", {"command": sanitized})
+        add_span_event("shell.command_started", {"command": sanitized, "rtk_applied": rtk_applied})
 
-        process = await asyncio.create_subprocess_exec(
-            shell_executable,
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            sanitized,
-            cwd=str(root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        if rtk_applied:
+            process = await asyncio.create_subprocess_exec(
+                *build_rtk_argv(sanitized),
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                executable,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                sanitized,
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
 
         if process.stdout is None:
             raise ShellError("Unable to capture shell output")
@@ -244,6 +355,7 @@ async def stream_shell_execution(
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_seconds
         output_lines = 0
+        collected: list[str] = []
 
         try:
             while True:
@@ -270,6 +382,7 @@ async def stream_shell_execution(
                     continue
 
                 output_lines += 1
+                collected.append(text)
                 if output_lines <= 5:
                     add_span_event("shell.output", {"content": text[:240]})
                 yield {
@@ -281,16 +394,28 @@ async def stream_shell_execution(
                 }
 
             exit_code = await process.wait()
+            output = "\n".join(collected)
+            filtered_bytes = len(output.encode("utf-8"))
+            rtk_stats = build_rtk_stats(
+                command=sanitized,
+                filtered_bytes=filtered_bytes,
+                output_lines=output_lines,
+                rtk_applied=rtk_applied,
+            )
+            if user_id and rtk_applied:
+                skills_service.record_rtk_stats(user_id, rtk_stats)
+
             set_span_attributes(
                 {
                     "codeforge.shell.exit_code": exit_code,
                     "codeforge.shell.output_lines": output_lines,
                     "codeforge.shell.timed_out": False,
+                    "codeforge.shell.rtk_applied": rtk_applied,
                 }
             )
             add_span_event(
                 "shell.command_finished",
-                {"exit_code": exit_code, "output_lines": output_lines},
+                {"exit_code": exit_code, "output_lines": output_lines, "rtk_applied": rtk_applied},
             )
             yield {
                 "type": "shell_result",
@@ -300,6 +425,8 @@ async def stream_shell_execution(
                     "exit_code": exit_code,
                     "timed_out": False,
                     "output_lines": output_lines,
+                    "rtk_applied": rtk_applied,
+                    **rtk_stats,
                 },
             }
         finally:

@@ -385,6 +385,14 @@ export async function extractCoworkData(baseUrl, token, payload) {
   });
 }
 
+export async function scrapeCoworkData(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/scrape", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
 export async function listCoworkExtractions(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/cowork/extract", { token });
 }
@@ -769,6 +777,93 @@ export async function getBillingSubscription(baseUrl, token) {
 
 export async function getBillingContext(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/billing/context", { token });
+}
+
+export async function getTasteRules(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/taste/rules", { token });
+}
+
+export async function getTasteStats(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/taste/stats", { token });
+}
+
+export async function exportTaste(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/taste/export", { token });
+}
+
+export async function importTaste(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/taste/import", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listSkills(baseUrl, token, projectPath = null) {
+  const params = projectPath ? `?project_path=${encodeURIComponent(projectPath)}` : "";
+  return requestJson(baseUrl, `/api/v1/skills${params}`, { token });
+}
+
+export async function getAgentPreferences(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/agent/preferences", { token });
+}
+
+export async function updateAgentPreferences(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/agent/preferences", {
+    method: "PUT",
+    token,
+    body: payload,
+  });
+}
+
+export async function getRtkStatus(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/rtk/status", { token });
+}
+
+export async function listMemories(baseUrl, token, projectPath = null) {
+  const params = projectPath ? `?project_path=${encodeURIComponent(projectPath)}` : "";
+  return requestJson(baseUrl, `/api/v1/memory${params}`, { token });
+}
+
+export async function searchMemory(baseUrl, token, query, projectPath = null) {
+  const search = new URLSearchParams({ q: query });
+  if (projectPath) {
+    search.set("project_path", projectPath);
+  }
+  return requestJson(baseUrl, `/api/v1/memory/search?${search.toString()}`, { token });
+}
+
+export async function saveMemory(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/memory/save", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function exportMemory(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/memory/export", { token });
+}
+
+export async function getSupermemoryStatus(baseUrl, token, projectPath = null) {
+  const params = projectPath ? `?project_path=${encodeURIComponent(projectPath)}` : "";
+  return requestJson(baseUrl, `/api/v1/supermemory/status${params}`, { token });
+}
+
+export async function searchSupermemory(baseUrl, token, query, projectPath = null, scope = "both") {
+  const search = new URLSearchParams({ q: query, scope });
+  if (projectPath) {
+    search.set("project_path", projectPath);
+  }
+  return requestJson(baseUrl, `/api/v1/supermemory/search?${search.toString()}`, { token });
+}
+
+export async function saveSupermemory(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/supermemory/save", {
+    method: "POST",
+    token,
+    body: payload,
+  });
 }
 
 async function* streamSseJson(baseUrl, path, token) {

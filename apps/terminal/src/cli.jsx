@@ -41,7 +41,23 @@ import {
   updateTeamStyleGuide,
   streamTeamEvents,
   exportSession,
+  exportTaste,
   extractCoworkData,
+  scrapeCoworkData,
+  getAgentPreferences,
+  getRtkStatus,
+  getSupermemoryStatus,
+  getTasteRules,
+  getTasteStats,
+  exportMemory,
+  importTaste,
+  listMemories,
+  listSkills,
+  saveMemory,
+  saveSupermemory,
+  searchMemory,
+  searchSupermemory,
+  updateAgentPreferences,
   listCoworkJobs,
   listCoworkPlans,
   listCoworkRuns,
@@ -1049,7 +1065,7 @@ function App() {
     const argument = rest.join(" ").trim();
 
     if (name === "help") {
-      pushEvent("Commands: /fork, /auto on|off|toggle, /artifacts [preview <id>], /template list|run <id> <task>, /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /team ..., /cowork ..., /approve, /reject, /git ... | /run <command>");
+      pushEvent("Commands: /fork, /auto on|off|toggle, /artifacts [preview <id>], /template list|run <id> <task>, /login <user>, /session [path], /use <n>, /refresh, /clear, /quit, /mode <code|chat|review>, /compact, /ultrareview, /plan <files...>, /plan run <prompt>, /plan show, /rollback, /loop --verify <cmd> [--max <n>] [--prompt <text>], /team ..., /caveman off|lite|full|ultra|status|skills, /rtk on|off|status|gain, /memory search|save|list|export, /supermemory status|search|save, /taste stats|rules|export|import, /cowork ..., /approve, /reject, /git ... | /run <command>");
       return;
     }
 
@@ -1645,6 +1661,286 @@ function App() {
       return;
     }
 
+    if (name === "caveman") {
+      if (!token) {
+        setError(loginFirstMessage());
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const modeArg = (rest[0] || "status").toLowerCase();
+        if (modeArg === "status") {
+          const prefs = await getAgentPreferences(baseUrl, token);
+          setReviewTitle("Token saver (caveman)");
+          setDiffPreview(
+            [
+              `mode: ${prefs.caveman_mode}`,
+              `token_saver_enabled: ${prefs.token_saver_enabled}`,
+              `enabled_skills: ${(prefs.enabled_skills || []).join(", ") || "none"}`,
+              `levels: ${(prefs.available_caveman_modes || []).join(", ")}`,
+            ].join("\n"),
+          );
+          pushEvent("caveman: status");
+        } else if (["off", "lite", "full", "ultra"].includes(modeArg)) {
+          const prefs = await updateAgentPreferences(baseUrl, token, { caveman_mode: modeArg });
+          setReviewTitle("Token saver updated");
+          setDiffPreview(`caveman_mode set to ${prefs.caveman_mode}`);
+          pushEvent(`caveman: ${prefs.caveman_mode}`);
+        } else if (modeArg === "skills") {
+          const result = await listSkills(baseUrl, token, projectPath);
+          const lines = (result.skills || []).map(
+            (skill) => `${skill.name} [${skill.origin}] — ${skill.description?.slice(0, 80) || ""}`,
+          );
+          setReviewTitle("Agent skills");
+          setDiffPreview(lines.length ? lines.join("\n") : "No skills discovered.");
+          pushEvent(`caveman: ${lines.length} skill(s)`);
+        } else {
+          throw new Error("Usage: /caveman off|lite|full|ultra|status|skills");
+        }
+      } catch (cavemanError) {
+        setError(cavemanError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "rtk") {
+      if (!token) {
+        setError(loginFirstMessage());
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "status").toLowerCase();
+        if (sub === "status" || sub === "gain") {
+          const status = await getRtkStatus(baseUrl, token);
+          const stats = status.last_stats || {};
+          setReviewTitle("RTK shell compression");
+          setDiffPreview(
+            [
+              `binary_available: ${status.binary_available}`,
+              `effective_enabled: ${status.effective_enabled}`,
+              `env_enabled: ${status.env_enabled}`,
+              `user_enabled: ${status.user_enabled}`,
+              `last_command: ${stats.command || "none"}`,
+              `savings_pct: ${stats.savings_pct ?? 0}`,
+              `filtered_bytes: ${stats.filtered_bytes ?? 0}`,
+            ].join("\n"),
+          );
+          pushEvent(`rtk: ${sub}`);
+        } else if (sub === "on" || sub === "off") {
+          const prefs = await updateAgentPreferences(baseUrl, token, { rtk_enabled: sub === "on" });
+          setReviewTitle("RTK updated");
+          setDiffPreview(`rtk_enabled set to ${prefs.rtk_enabled}`);
+          pushEvent(`rtk: ${sub}`);
+        } else {
+          throw new Error("Usage: /rtk on|off|status|gain");
+        }
+      } catch (rtkError) {
+        setError(rtkError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "memory") {
+      if (!token) {
+        setError(loginFirstMessage());
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "list").toLowerCase();
+        const subArg = rest.slice(1).join(" ").trim();
+        if (sub === "list") {
+          const result = await listMemories(baseUrl, token, projectPath);
+          const lines = (result.memories || []).map(
+            (item) => `[${item.kind}/${item.scope}] ${item.content.slice(0, 100)}`,
+          );
+          setReviewTitle("Agent memories");
+          setDiffPreview(lines.length ? lines.join("\n") : "No memories saved yet.");
+          pushEvent(`memory: ${lines.length} item(s)`);
+        } else if (sub === "search") {
+          if (!subArg) {
+            throw new Error("Usage: /memory search <query>");
+          }
+          const result = await searchMemory(baseUrl, token, subArg, projectPath);
+          const lines = [
+            ...(result.native || []).map((item) => `[native/${item.kind}] ${item.content}`),
+            ...(result.supermemory || []).map((item) => `[supermemory] ${item.memory}`),
+          ];
+          setReviewTitle(`Memory search: ${subArg}`);
+          setDiffPreview(lines.length ? lines.join("\n") : "No matches.");
+          pushEvent(`memory: search ${lines.length} hit(s)`);
+        } else if (sub === "save") {
+          if (!subArg) {
+            throw new Error("Usage: /memory save <text>");
+          }
+          const saved = await saveMemory(baseUrl, token, {
+            content: subArg,
+            project_path: projectPath,
+            scope: "personal",
+          });
+          setReviewTitle("Memory saved");
+          setDiffPreview(`${saved.memory_id}: ${saved.content}`);
+          pushEvent("memory: saved");
+        } else if (sub === "export") {
+          const pack = await exportMemory(baseUrl, token);
+          const exportPath = subArg
+            ? path.resolve(subArg)
+            : path.join(process.cwd(), ".codeforge", "memory-export.json");
+          fs.mkdirSync(path.dirname(exportPath), { recursive: true });
+          fs.writeFileSync(exportPath, JSON.stringify(pack, null, 2), "utf8");
+          setReviewTitle("Memory export");
+          setDiffPreview(`exported ${pack.memories?.length || 0} memories to ${exportPath}`);
+          pushEvent("memory: exported");
+        } else {
+          throw new Error("Usage: /memory search|save|list|export [path]");
+        }
+      } catch (memoryError) {
+        setError(memoryError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "supermemory") {
+      if (!token) {
+        setError(loginFirstMessage());
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "status").toLowerCase();
+        const subArg = rest.slice(1).join(" ").trim();
+        if (sub === "status") {
+          const status = await getSupermemoryStatus(baseUrl, token, projectPath);
+          setReviewTitle("Supermemory BYOK");
+          setDiffPreview(
+            [
+              `configured: ${status.configured}`,
+              `personal_tag: ${status.personal_container_tag}`,
+              `repo_tag: ${status.repo_container_tag}`,
+              `requires_pro: ${status.requires_pro}`,
+            ].join("\n"),
+          );
+          pushEvent("supermemory: status");
+        } else if (sub === "search") {
+          if (!subArg) {
+            throw new Error("Usage: /supermemory search <query>");
+          }
+          const result = await searchSupermemory(baseUrl, token, subArg, projectPath);
+          const lines = (result.results || []).map((item) => `[${item.container_tag}] ${item.memory}`);
+          setReviewTitle(`Supermemory search: ${subArg}`);
+          setDiffPreview(lines.length ? lines.join("\n") : "No matches.");
+          pushEvent(`supermemory: ${lines.length} hit(s)`);
+        } else if (sub === "save") {
+          if (!subArg) {
+            throw new Error("Usage: /supermemory save <text>");
+          }
+          const saved = await saveSupermemory(baseUrl, token, {
+            content: subArg,
+            project_path: projectPath,
+            scope: "personal",
+          });
+          setReviewTitle("Supermemory saved");
+          setDiffPreview(`id: ${saved.id || "unknown"}`);
+          pushEvent("supermemory: saved");
+        } else {
+          throw new Error("Usage: /supermemory status|search|save <text>");
+        }
+      } catch (supermemoryError) {
+        setError(supermemoryError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (name === "taste") {
+      if (!token) {
+        setError(loginFirstMessage());
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const sub = (rest[0] || "stats").toLowerCase();
+        const subArg = rest.slice(1).join(" ").trim();
+
+        if (sub === "stats") {
+          const stats = await getTasteStats(baseUrl, token);
+          const lines = [
+            `sessions_with_feedback: ${stats.sessions_with_feedback}`,
+            `total_events: ${stats.total_events}`,
+            `rejections: ${stats.rejections}`,
+            `approvals: ${stats.approvals}`,
+            `approvals_after_edit: ${stats.approvals_after_edit}`,
+            `active_rules: ${stats.active_rules}`,
+            `avg_rejections_per_session: ${stats.avg_rejections_per_session}`,
+          ];
+          setReviewTitle("Coding taste stats");
+          setDiffPreview(lines.join("\n"));
+          pushEvent("taste: stats loaded");
+        } else if (sub === "rules") {
+          const result = await getTasteRules(baseUrl, token);
+          const lines = (result.rules || []).map(
+            (rule) => `[w${rule.weight}] ${rule.rule_text}`,
+          );
+          setReviewTitle("Coding taste rules");
+          setDiffPreview(lines.length ? lines.join("\n") : result.taste_md || "No taste rules yet.");
+          pushEvent(`taste: ${lines.length} rule(s)`);
+        } else if (sub === "export") {
+          const pack = await exportTaste(baseUrl, token);
+          const outputPath = subArg
+            ? path.resolve(subArg)
+            : path.join(process.cwd(), ".codeforge", "taste-export.json");
+          fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+          fs.writeFileSync(outputPath, JSON.stringify(pack, null, 2), "utf-8");
+          setReviewTitle("Taste export");
+          setDiffPreview(`Exported ${pack.rules?.length || 0} rule(s) to ${outputPath}`);
+          pushEvent(`taste: exported ${pack.rules?.length || 0} rule(s)`);
+        } else if (sub === "import") {
+          if (!subArg) {
+            throw new Error("Usage: /taste import <path/to/taste-export.json>");
+          }
+          const inputPath = path.resolve(subArg);
+          const raw = fs.readFileSync(inputPath, "utf-8");
+          const pack = JSON.parse(raw);
+          const result = await importTaste(baseUrl, token, {
+            version: pack.version || 1,
+            rules: pack.rules || [],
+          });
+          setReviewTitle("Taste import");
+          setDiffPreview(
+            `Imported ${result.imported_rules} rule(s). Active rules: ${result.active_rules}`,
+          );
+          pushEvent(`taste: imported ${result.imported_rules} rule(s)`);
+        } else {
+          throw new Error(
+            "Usage: /taste stats | rules | export [path] | import <path/to/taste-export.json>",
+          );
+        }
+      } catch (tasteError) {
+        setError(tasteError.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (name === "cowork") {
       if (!token) {
         setError(loginFirstMessage());
@@ -1699,6 +1995,41 @@ function App() {
           setReviewTitle(`Extraction ${extraction.extraction_id}`);
           setDiffPreview(`${extraction.method}: ${extraction.text_excerpt?.slice(0, 400) || ""}`);
           pushEvent(`cowork: extract ${extraction.extraction_id}`);
+        } else if (sub === "scrape") {
+          const tokens = splitShellWords(subArg).map(stripQuotes);
+          const mode = (tokens[0] || "").toLowerCase();
+          let url = null;
+          let sourcePath = null;
+          let prompt = "";
+          if (mode === "file") {
+            sourcePath = tokens[1];
+            const promptIndex = subArg.toLowerCase().indexOf("--prompt");
+            prompt = promptIndex >= 0 ? subArg.slice(promptIndex + "--prompt".length).trim() : tokens.slice(2).join(" ");
+          } else {
+            url = tokens[0];
+            const promptIndex = subArg.toLowerCase().indexOf("--prompt");
+            prompt = promptIndex >= 0 ? subArg.slice(promptIndex + "--prompt".length).trim() : tokens.slice(1).join(" ");
+          }
+          if ((!url && !sourcePath) || !prompt) {
+            throw new Error("Usage: /cowork scrape <url> --prompt <text> | /cowork scrape file <path> --prompt <text>");
+          }
+          const approved = subArg.includes("--approve");
+          const result = await scrapeCoworkData(baseUrl, token, {
+            session_id: sessionId,
+            url,
+            source_path: sourcePath,
+            scrape_prompt: prompt,
+            approved,
+          });
+          setReviewTitle(`Scrape ${result.run_id}`);
+          setDiffPreview(
+            [
+              `${result.status}: ${result.summary}`,
+              `engine: ${result.engine || "unknown"}`,
+              result.text_excerpt?.slice(0, 500) || "",
+            ].join("\n"),
+          );
+          pushEvent(`cowork: scrape ${result.status}`);
         } else if (sub === "run") {
           const tokens = splitShellWords(subArg).map(stripQuotes);
           const planId = tokens[0];
@@ -2469,7 +2800,7 @@ function App() {
         <Text>{draft || "Type a prompt or /help"}</Text>
       </Box>
       <Text dimColor>
-        Commands: Tab pane focus | Ctrl+P palette | Ctrl+K compact | Ctrl+Shift+U ultrareview | /team workspaces | /cowork plans | /login &lt;user&gt; | /session [path] | /use &lt;n&gt; | /refresh | /clear | /quit | /mode code|chat|review | /compact | /ultrareview | /plan &lt;files...&gt; | /plan run &lt;prompt&gt; | /plan show | /rollback | /loop --verify &lt;cmd&gt; [--max n] [--prompt text] | /approve | /reject | /git status | /git diff [path] | /git log [limit] | /git resolve-guide &lt;branch&gt; | /git assist-apply &lt;branch&gt; &lt;ours|theirs&gt; [path ...] | /run &lt;command&gt;
+        Commands: Tab pane focus | Ctrl+P palette | Ctrl+K compact | Ctrl+Shift+U ultrareview | /team workspaces | /taste stats | /cowork plans | /login &lt;user&gt; | /session [path] | /use &lt;n&gt; | /refresh | /clear | /quit | /mode code|chat|review | /compact | /ultrareview | /plan &lt;files...&gt; | /plan run &lt;prompt&gt; | /plan show | /rollback | /loop --verify &lt;cmd&gt; [--max n] [--prompt text] | /approve | /reject | /git status | /git diff [path] | /git log [limit] | /git resolve-guide &lt;branch&gt; | /git assist-apply &lt;branch&gt; &lt;ours|theirs&gt; [path ...] | /run &lt;command&gt;
       </Text>
     </Box>
   );

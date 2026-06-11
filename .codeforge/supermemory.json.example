@@ -1,0 +1,6 @@
+{
+  "apiKey": "sm_...",
+  "repoContainerTag": "my-team-project",
+  "personalContainerTag": "my-user-container",
+  "signalExtraction": true
+}

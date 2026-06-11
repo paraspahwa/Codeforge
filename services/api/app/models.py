@@ -64,6 +64,8 @@ class AgentProposal(BaseModel):
 
 class ProposalDecisionRequest(BaseModel):
     action: str = Field(pattern="^(approve|reject)$")
+    note: str | None = None
+    edited_content: str | None = None
 
 
 class ProposalDecisionResponse(BaseModel):
@@ -73,6 +75,159 @@ class ProposalDecisionResponse(BaseModel):
     target_file: str
     applied: bool
     resolved_at: datetime
+
+
+class TasteRuleItem(BaseModel):
+    rule_id: str
+    rule_text: str
+    weight: int
+    scope: str
+    project_path: str | None = None
+    updated_at: datetime
+
+
+class TasteRulesResponse(BaseModel):
+    rules: list[TasteRuleItem]
+    taste_md: str
+
+
+class TasteStatsResponse(BaseModel):
+    user_id: str
+    sessions_with_feedback: int
+    total_events: int
+    rejections: int
+    approvals: int
+    approvals_after_edit: int
+    active_rules: int
+    avg_rejections_per_session: float
+
+
+class TasteExportResponse(BaseModel):
+    version: int
+    exported_at: datetime
+    user_id: str
+    rules: list[dict[str, Any]]
+
+
+class TasteImportRequest(BaseModel):
+    version: int = 1
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TasteImportResponse(BaseModel):
+    imported_rules: int
+    active_rules: int
+
+
+class SkillListItem(BaseModel):
+    name: str
+    description: str
+    origin: str
+    path: str
+    source: str | None = None
+    license: str | None = None
+
+
+class SkillListResponse(BaseModel):
+    skills: list[SkillListItem]
+    bundled_root: str
+
+
+class SkillDetailResponse(BaseModel):
+    name: str
+    description: str
+    origin: str
+    path: str
+    source: str | None = None
+    license: str | None = None
+    body: str
+
+
+class AgentPreferencesResponse(BaseModel):
+    user_id: str
+    caveman_mode: str
+    enabled_skills: list[str]
+    available_caveman_modes: list[str]
+    token_saver_enabled: bool
+    rtk_enabled: bool = False
+    rtk_last_stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentPreferencesUpdateRequest(BaseModel):
+    caveman_mode: str | None = None
+    enabled_skills: list[str] | None = None
+    rtk_enabled: bool | None = None
+
+
+class RtkStatusResponse(BaseModel):
+    binary_available: bool
+    binary_path: str | None = None
+    env_enabled: bool
+    user_enabled: bool
+    effective_enabled: bool
+    last_stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryItem(BaseModel):
+    memory_id: str
+    scope: str
+    kind: str
+    content: str
+    project_id: str
+    source_session_id: str | None = None
+    created_at: datetime
+
+
+class MemoryListResponse(BaseModel):
+    memories: list[MemoryItem]
+
+
+class MemorySaveRequest(BaseModel):
+    content: str
+    project_path: str | None = None
+    scope: str = "personal"
+    kind: str | None = None
+    source_session_id: str | None = None
+
+
+class MemorySaveResponse(BaseModel):
+    memory_id: str
+    scope: str
+    kind: str
+    content: str
+    created_at: datetime
+
+
+class MemorySearchResponse(BaseModel):
+    query: str
+    native: list[MemoryItem]
+    supermemory: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MemoryExportResponse(BaseModel):
+    version: int
+    user_id: str
+    memories: list[dict[str, Any]]
+
+
+class SupermemoryStatusResponse(BaseModel):
+    configured: bool
+    api_url: str
+    personal_container_tag: str
+    repo_container_tag: str
+    signal_extraction: bool = False
+    requires_pro: bool = True
+
+
+class SupermemorySearchResponse(BaseModel):
+    query: str
+    results: list[dict[str, Any]]
+
+
+class SupermemorySaveRequest(BaseModel):
+    content: str
+    project_path: str | None = None
+    scope: str = "personal"
 
 
 class FilePreviewResponse(BaseModel):
@@ -487,7 +642,7 @@ class SessionState(BaseModel):
 class CoworkPlanRequest(BaseModel):
     session_id: str
     title: str = ""
-    task_type: Literal["shell", "extract", "browser", "connector"]
+    task_type: Literal["shell", "extract", "browser", "connector", "scrape"]
     command: str | None = None
     source_path: str | None = None
     url: str | None = None
@@ -501,6 +656,7 @@ class CoworkPlanRequest(BaseModel):
     connector_id: str | None = None
     tool_name: str | None = None
     connector_arguments: dict[str, Any] = Field(default_factory=dict)
+    scrape_prompt: str | None = None
 
 
 class CoworkPlanResponse(BaseModel):
@@ -594,6 +750,31 @@ class CoworkJobListResponse(BaseModel):
 class CoworkExtractRequest(BaseModel):
     session_id: str
     source_path: str
+
+
+class CoworkScrapeRequest(BaseModel):
+    session_id: str
+    scrape_prompt: str = Field(min_length=3)
+    url: str | None = None
+    source_path: str | None = None
+    approved: bool = False
+    ingest_knowledge: bool = True
+    ingest_memory: bool = True
+    title: str = ""
+
+
+class CoworkScrapeResponse(BaseModel):
+    plan_id: str
+    run_id: str
+    status: str
+    summary: str
+    engine: str | None = None
+    source: str | None = None
+    text_excerpt: str = ""
+    extraction_id: str | None = None
+    ingested: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CoworkExtractionResponse(BaseModel):

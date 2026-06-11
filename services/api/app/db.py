@@ -38,6 +38,11 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_workspace_session_grants_lookup ON workspace_session_grants(workspace_id, session_id, granted_to_user_id)",
     "CREATE INDEX IF NOT EXISTS idx_remote_channels_owner ON remote_channels(owner_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_team_style_guides_workspace ON team_style_guides(workspace_id, updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_taste_events_user_created ON taste_events(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_taste_rules_user_weight ON taste_rules(user_id, weight)",
+    "CREATE INDEX IF NOT EXISTS idx_user_agent_preferences_user ON user_agent_preferences(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_memories_user_created ON agent_memories(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_memories_project ON agent_memories(project_id, created_at)",
 )
 
 
@@ -513,6 +518,60 @@ def init_db() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS taste_events (
+                        event_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        proposal_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        target_file TEXT NOT NULL,
+                        project_path TEXT,
+                        signal_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS taste_rules (
+                        rule_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        project_path TEXT,
+                        rule_text TEXT NOT NULL,
+                        weight INTEGER NOT NULL,
+                        source_event_id TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_agent_preferences (
+                        user_id TEXT PRIMARY KEY,
+                        caveman_mode TEXT NOT NULL DEFAULT 'off',
+                        enabled_skills_json TEXT NOT NULL DEFAULT '[]',
+                        rtk_enabled INTEGER NOT NULL DEFAULT 0,
+                        rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
+                        updated_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS agent_memories (
+                        memory_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        project_id TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        source_session_id TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
                 for statement in INDEX_STATEMENTS:
                     cur.execute(statement)
                 _migrate_optional_columns(cur)
@@ -845,6 +904,51 @@ def init_db() -> None:
                 access_level TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS taste_events (
+                event_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                proposal_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                target_file TEXT NOT NULL,
+                project_path TEXT,
+                signal_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS taste_rules (
+                rule_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                project_path TEXT,
+                rule_text TEXT NOT NULL,
+                weight INTEGER NOT NULL,
+                source_event_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_agent_preferences (
+                user_id TEXT PRIMARY KEY,
+                caveman_mode TEXT NOT NULL DEFAULT 'off',
+                enabled_skills_json TEXT NOT NULL DEFAULT '[]',
+                rtk_enabled INTEGER NOT NULL DEFAULT 0,
+                rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_memories (
+                memory_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                source_session_id TEXT,
+                created_at TEXT NOT NULL
+            );
             """
         )
         for statement in INDEX_STATEMENTS:
@@ -865,6 +969,21 @@ def _migrate_optional_columns(conn_or_cur) -> None:
         "ALTER TABLE team_workspaces ADD COLUMN org_id TEXT",
         "ALTER TABLE billing_orders ADD COLUMN org_id TEXT",
         "ALTER TABLE user_subscriptions ADD COLUMN razorpay_subscription_id TEXT",
+        "ALTER TABLE user_agent_preferences ADD COLUMN rtk_enabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_agent_preferences ADD COLUMN rtk_last_stats_json TEXT NOT NULL DEFAULT '{}'",
+        """
+        CREATE TABLE IF NOT EXISTS agent_memories (
+            memory_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            content TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            source_session_id TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
     ]
     for statement in migrations:
         try:

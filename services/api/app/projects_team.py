@@ -197,6 +197,60 @@ class ProjectsTeamService:
         state["uploaded_paths"] = saved_paths
         return state
 
+    def append_knowledge_snippet(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        project_path: str,
+        path_label: str,
+        excerpt: str,
+    ) -> dict[str, Any]:
+        cleaned = _safe_excerpt(excerpt, limit=1200)
+        if not cleaned:
+            raise ProjectsTeamError("Knowledge snippet cannot be empty")
+
+        root = Path(project_path).expanduser().resolve()
+        if not root.exists() or not root.is_dir():
+            raise ProjectsTeamError("Project path does not exist")
+
+        state = store.get_knowledge_by_session(session_id)
+        if state is None or state["user_id"] != user_id:
+            knowledge_id = f"kb_{uuid4().hex[:10]}"
+            state = {
+                "knowledge_id": knowledge_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "title": "Project knowledge",
+                "project_path": root.as_posix(),
+                "summary": "No files indexed yet",
+                "items": [],
+                "updated_at": utc_now().isoformat(),
+            }
+
+        safe_label = _sanitize_upload_filename(path_label).replace(".", "_")
+        relative = f"{_KNOWLEDGE_UPLOAD_DIR}/scrape_{safe_label}.json"
+        items_by_path = {item["path"]: item for item in state.get("items", [])}
+        items_by_path[relative] = {
+            "path": relative,
+            "excerpt": cleaned,
+            "indexed_at": utc_now().isoformat(),
+        }
+        state["items"] = list(items_by_path.values())[:_MAX_INDEXED_FILES]
+        state["summary"] = f"Indexed {len(state['items'])} knowledge items (latest scrape: {relative})"
+        state["updated_at"] = utc_now().isoformat()
+        store.save_knowledge(state)
+
+        audit_store.record_audit_event(
+            actor_id=user_id,
+            event_type="projects.knowledge_scrape_ingested",
+            resource_type="knowledge",
+            resource_id=state["knowledge_id"],
+            session_id=session_id,
+            metadata={"path": relative, "source_label": path_label},
+        )
+        return state
+
     def list_audit_log(
         self,
         *,

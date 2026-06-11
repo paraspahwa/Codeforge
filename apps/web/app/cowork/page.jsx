@@ -9,6 +9,7 @@ import {
   createCoworkPlan,
   createSession,
   extractCoworkData,
+  scrapeCoworkData,
   getCoworkReliability,
   listCoworkExtractions,
   listCoworkJobs,
@@ -53,6 +54,10 @@ export default function CoworkPage() {
   const [jobSourcePath, setJobSourcePath] = useState("README.md");
 
   const [extractPath, setExtractPath] = useState("");
+  const [scrapeUrl, setScrapeUrl] = useState("https://example.com/docs");
+  const [scrapeFilePath, setScrapeFilePath] = useState("");
+  const [scrapePrompt, setScrapePrompt] = useState("Extract key API endpoints and authentication notes");
+  const [scrapeApproved, setScrapeApproved] = useState(false);
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) || null,
@@ -140,9 +145,24 @@ export default function CoworkPage() {
         title: planTitle,
         task_type: planType,
         command: planType === "shell" ? planCommand : null,
-        source_path: planType === "extract" ? planSourcePath : null,
-        url: planType === "browser" ? planUrl : null,
+        source_path:
+          planType === "extract"
+            ? planSourcePath
+            : planType === "scrape" && planSourcePath.trim()
+              ? planSourcePath
+              : null,
+        url:
+          planType === "browser"
+            ? planUrl
+            : planType === "scrape" && planUrl.trim()
+              ? planUrl
+              : null,
         browser_action: browserAction,
+        scrape_prompt: planType === "scrape" ? scrapePrompt : null,
+        connector_arguments:
+          planType === "scrape"
+            ? { scrape_prompt: scrapePrompt, ingest_knowledge: true, ingest_memory: true }
+            : {},
       });
       setSelectedPlan(plan);
       setBrowserApproved(false);
@@ -160,7 +180,7 @@ export default function CoworkPage() {
       return;
     }
     if (plan.requires_approval && !browserApproved) {
-      toast.push("Browser and connector tasks require explicit approval");
+      toast.push("Browser, scrape, and connector tasks require explicit approval");
       return;
     }
     setLoading(true);
@@ -208,6 +228,34 @@ export default function CoworkPage() {
     setLoading(true);
     try {
       await toggleCoworkJob(token, job.job_id, enabled);
+      await refreshCoworkData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleScrapeNow(event) {
+    event?.preventDefault?.();
+    if (!token || !sessionId || !scrapePrompt.trim()) {
+      toast.push("Create or select a session and enter a scrape prompt");
+      return;
+    }
+    if (!scrapeApproved) {
+      toast.push("Approve the scrape task before running");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await scrapeCoworkData(token, {
+        session_id: sessionId,
+        scrape_prompt: scrapePrompt.trim(),
+        url: scrapeFilePath.trim() ? null : scrapeUrl.trim(),
+        source_path: scrapeFilePath.trim() || null,
+        approved: true,
+      });
+      toast.push(`Scrape ${result.run_id}: ${result.summary}`, result.status === "completed" ? "success" : undefined);
       await refreshCoworkData(token);
     } catch (error) {
       toast.push(error.message);
@@ -297,6 +345,7 @@ export default function CoworkPage() {
             <option value="shell">Shell</option>
             <option value="extract">Extract</option>
             <option value="browser">Browser</option>
+            <option value="scrape">Scrape (ScrapeGraphAI)</option>
           </select>
 
           <label className="small" htmlFor="planTitle">
@@ -350,6 +399,40 @@ export default function CoworkPage() {
                   onChange={(event) => setBrowserApproved(event.target.checked)}
                 />{" "}
                 I approve running this browser task
+              </label>
+            </>
+          ) : null}
+
+          {planType === "scrape" ? (
+            <>
+              <label className="small" htmlFor="scrapePlanUrl">
+                URL (leave empty if using local file)
+              </label>
+              <input id="scrapePlanUrl" value={planUrl} onChange={(event) => setPlanUrl(event.target.value)} />
+              <label className="small" htmlFor="scrapePlanSourcePath">
+                Local file path (optional)
+              </label>
+              <input
+                id="scrapePlanSourcePath"
+                value={planSourcePath}
+                onChange={(event) => setPlanSourcePath(event.target.value)}
+              />
+              <label className="small" htmlFor="scrapePlanPrompt">
+                Extraction prompt
+              </label>
+              <textarea
+                id="scrapePlanPrompt"
+                rows={3}
+                value={scrapePrompt}
+                onChange={(event) => setScrapePrompt(event.target.value)}
+              />
+              <label className="small">
+                <input
+                  type="checkbox"
+                  checked={browserApproved}
+                  onChange={(event) => setBrowserApproved(event.target.checked)}
+                />{" "}
+                I approve running this ScrapeGraphAI task
               </label>
             </>
           ) : null}
@@ -500,6 +583,45 @@ export default function CoworkPage() {
           <input id="extractPath" value={extractPath} onChange={(event) => setExtractPath(event.target.value)} />
           <button type="button" onClick={handleExtractNow} disabled={loading || !sessionId || !sessionWritable}>
             Extract now
+          </button>
+
+          <hr className="divider" />
+          <h3>Quick scrape (ScrapeGraphAI)</h3>
+          <p className="small">
+            Natural-language extraction from a URL or local HTML/JSON/Markdown file. Results ingest into project
+            knowledge and agent memory.
+          </p>
+          <label className="small" htmlFor="scrapeUrl">
+            URL
+          </label>
+          <input id="scrapeUrl" value={scrapeUrl} onChange={(event) => setScrapeUrl(event.target.value)} />
+          <label className="small" htmlFor="scrapeFilePath">
+            Or local file path
+          </label>
+          <input
+            id="scrapeFilePath"
+            value={scrapeFilePath}
+            onChange={(event) => setScrapeFilePath(event.target.value)}
+          />
+          <label className="small" htmlFor="scrapePrompt">
+            Prompt
+          </label>
+          <textarea
+            id="scrapePrompt"
+            rows={3}
+            value={scrapePrompt}
+            onChange={(event) => setScrapePrompt(event.target.value)}
+          />
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={scrapeApproved}
+              onChange={(event) => setScrapeApproved(event.target.checked)}
+            />{" "}
+            I approve running this scrape task
+          </label>
+          <button type="button" onClick={handleScrapeNow} disabled={loading || !sessionId || !sessionWritable}>
+            Scrape now
           </button>
 
           <hr className="divider" />

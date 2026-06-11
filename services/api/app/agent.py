@@ -590,6 +590,7 @@ async def build_agent_run(
     session_id: str,
     project_path: str | None = None,
     current_file: str | None = None,
+    style_instructions: str = "",
 ) -> AgentRunResult:
     with traced_span(
         "codeforge.agent.build_run",
@@ -666,17 +667,21 @@ async def build_agent_run(
             },
         )
 
+        synthesis_system_prompt = "You are CodeForge synthesis orchestrator."
+        if style_instructions.strip():
+            synthesis_system_prompt = f"{synthesis_system_prompt}\n\n{style_instructions.strip()}"
+        word_budget = "45 words" if "caveman" in style_instructions.lower() else "90 words"
         model_response = await generation_client.generate(
             prompt=(
                 "You are CodeForge orchestration synthesis. Produce a concise developer-facing assistant response "
-                "that explains routed intent, planned file scope, and verification posture. Keep it under 90 words.\n\n"
+                f"that explains routed intent, planned file scope, and verification posture. Keep it under {word_budget}.\n\n"
                 f"Intent: {decision.intent}\n"
                 f"Model route: {decision.model_used}\n"
                 f"Target file: {diff_target}\n"
                 f"Confidence: {decision.confidence_label} ({decision.confidence_score:.2f})\n"
                 f"User request: {prompt}"
             ),
-            system_prompt="You are CodeForge synthesis orchestrator.",
+            system_prompt=synthesis_system_prompt,
         )
         synthesized_summary = str(model_response.get("text", "")).strip()
         summary = synthesized_summary or fallback_summary

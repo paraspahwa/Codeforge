@@ -20,6 +20,10 @@ Completed or in place:
 - ECS worker deploy for background cowork/jobs (Celery beat scheduler)
 - SWE-bench-style internal quality eval harness (`quality-benchmark` + CI gate)
 - Shared client helpers for file, git, shell, context packs, MCP, team, cowork, remote channels, and SSE streams
+- Phase 7 taste + skills (proposal feedback → taste rules; `.codeforge/skills/` playbooks; bundled caveman token-saver; `/caveman` + Settings → Token Saver)
+- Phase 8 RTK + memory (shell output compression; Postgres/Qdrant agent memory; Supermemory BYOK)
+- Phase 9 ScrapeGraphAI Cowork extraction (URL scrape → project knowledge + memory)
+- Phase 10 Anthropic skills pack (frontend-design, webapp-testing, mcp-builder, skill-creator, doc-coauthoring)
 
 Partially complete:
 
@@ -42,6 +46,10 @@ Still ahead (lower priority):
 6. [Phase 4 - Cowork Mode](phase-4-cowork.md)
 7. [Phase 5 - Projects and Team Platform](phase-5-projects-team.md)
 8. [Phase 6 - Quality and Routing](phase-6-quality-routing.md)
+9. [Phase 7 - Taste (Coding Preferences)](phase-7-taste.md)
+10. [Phase 8 - RTK and Memory](phase-8-memory.md)
+11. [Phase 9 - ScrapeGraphAI](phase-9-scrape.md)
+12. [Phase 10 - Anthropic Skills](phase-10-anthropic-skills.md)
 
 ## How To Use
 

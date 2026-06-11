@@ -40,6 +40,10 @@ Already implemented in this repo:
 - Explicit runtime/config documentation for backend, web, terminal, and tracing assumptions
 - Shared workspace scripts for web, desktop, terminal, and API flows
 
+Partially started:
+
+- Phase 7 taste + skills: proposal feedback capture, taste context, `.codeforge/skills/` discovery, bundled caveman token-saver (MIT), agent preferences API (see [phase-7-taste.md](tickets/phase-7-taste.md))
+
 Still missing for the full roadmap:
 
 - Production IdP rollout (ECS SSM OIDC parameters and redirect URI registration at the IdP)

@@ -48,7 +48,7 @@ async def run_verify_fix_loop(
 
     for attempt in range(1, max_attempts + 1):
         try:
-            verify = await run_shell_command(project_path, verify_command)
+            verify = await run_shell_command(project_path, verify_command, user_id=user_id)
         except ShellError as exc:
             verify = {
                 "exit_code": 1,

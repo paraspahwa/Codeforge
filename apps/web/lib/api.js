@@ -84,6 +84,10 @@ export async function extractCoworkData(token, payload) {
   return shared.extractCoworkData(API_BASE, token, payload);
 }
 
+export async function scrapeCoworkData(token, payload) {
+  return shared.scrapeCoworkData(API_BASE, token, payload);
+}
+
 export async function listCoworkExtractions(token) {
   return shared.listCoworkExtractions(API_BASE, token);
 }
@@ -255,6 +259,66 @@ export async function getDeployReadiness(probeDiscovery = false) {
     throw new Error(`Deploy readiness failed with status ${response.status}`);
   }
   return response.json();
+}
+
+export async function getTasteRules(token) {
+  return shared.getTasteRules(API_BASE, token);
+}
+
+export async function getTasteStats(token) {
+  return shared.getTasteStats(API_BASE, token);
+}
+
+export async function exportTaste(token) {
+  return shared.exportTaste(API_BASE, token);
+}
+
+export async function importTaste(token, payload) {
+  return shared.importTaste(API_BASE, token, payload);
+}
+
+export async function listSkills(token, projectPath = null) {
+  return shared.listSkills(API_BASE, token, projectPath);
+}
+
+export async function getAgentPreferences(token) {
+  return shared.getAgentPreferences(API_BASE, token);
+}
+
+export async function updateAgentPreferences(token, payload) {
+  return shared.updateAgentPreferences(API_BASE, token, payload);
+}
+
+export async function getRtkStatus(token) {
+  return shared.getRtkStatus(API_BASE, token);
+}
+
+export async function listMemories(token, projectPath = null) {
+  return shared.listMemories(API_BASE, token, projectPath);
+}
+
+export async function searchMemory(token, query, projectPath = null) {
+  return shared.searchMemory(API_BASE, token, query, projectPath);
+}
+
+export async function saveMemory(token, payload) {
+  return shared.saveMemory(API_BASE, token, payload);
+}
+
+export async function exportMemory(token) {
+  return shared.exportMemory(API_BASE, token);
+}
+
+export async function getSupermemoryStatus(token, projectPath = null) {
+  return shared.getSupermemoryStatus(API_BASE, token, projectPath);
+}
+
+export async function searchSupermemory(token, query, projectPath = null, scope = "both") {
+  return shared.searchSupermemory(API_BASE, token, query, projectPath, scope);
+}
+
+export async function saveSupermemory(token, payload) {
+  return shared.saveSupermemory(API_BASE, token, payload);
 }
 
 export async function sendMessage(sessionId, content, token, context = null, templateId = null) {

@@ -22,7 +22,15 @@ from .remote_channels import RemoteChannelError
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
 from .cowork_scheduler import cowork_scheduler_enabled
+from .routers import memory as memory_router
 from .routers import platform as platform_router
+from .routers import rtk as rtk_router
+from .routers import skills as skills_router
+from .routers import taste as taste_router
+from .memory_service import memory_service
+from .skills_service import skills_service
+from . import supermemory_connector
+from .taste_service import taste_service
 from .state import (
     RATE_LIMIT_PER_MINUTE,
     generation_client,
@@ -112,6 +120,8 @@ from .models import (
     BillingPlan,
     BillingWebhookResponse,
     CoworkExtractRequest,
+    CoworkScrapeRequest,
+    CoworkScrapeResponse,
     CoworkExtractionListResponse,
     CoworkExtractionResponse,
     CoworkReliabilityHistoryResponse,
@@ -388,6 +398,10 @@ app.add_middleware(
 )
 
 app.include_router(platform_router.router)
+app.include_router(taste_router.router)
+app.include_router(skills_router.router)
+app.include_router(rtk_router.router)
+app.include_router(memory_router.router)
 
 
 @app.middleware("http")
@@ -1197,6 +1211,7 @@ def create_cowork_plan(payload: CoworkPlanRequest, user: AuthUser = Depends(get_
             connector_id=payload.connector_id,
             tool_name=payload.tool_name,
             connector_arguments=payload.connector_arguments,
+            scrape_prompt=payload.scrape_prompt,
         )
         add_span_event("cowork.plan_created", {"plan_id": plan["plan_id"], "task_type": plan["task_type"]})
     except CoworkError as exc:
@@ -1309,6 +1324,77 @@ async def extract_cowork_data(
 def list_cowork_extractions(user: AuthUser = Depends(get_current_user)) -> CoworkExtractionListResponse:
     rows = cowork_service.list_extractions(user.user_id)
     return CoworkExtractionListResponse(extractions=[CoworkExtractionResponse(**row) for row in rows])
+
+
+@app.post("/api/v1/cowork/scrape", response_model=CoworkScrapeResponse)
+async def scrape_cowork_data(
+    payload: CoworkScrapeRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> CoworkScrapeResponse:
+    session = _require_session(payload.session_id, user, write=True)
+
+    try:
+        plan = cowork_service.create_plan(
+            user_id=user.user_id,
+            session_id=payload.session_id,
+            project_path=resolved_project_path(session),
+            title=payload.title or "ScrapeGraphAI extraction",
+            task_type="scrape",
+            command=None,
+            source_path=payload.source_path,
+            url=payload.url,
+            browser_action=None,
+            scrape_prompt=payload.scrape_prompt,
+            connector_arguments={
+                "scrape_prompt": payload.scrape_prompt,
+                "ingest_knowledge": payload.ingest_knowledge,
+                "ingest_memory": payload.ingest_memory,
+            },
+        )
+        run = await cowork_service.run_plan(
+            user_id=user.user_id,
+            plan_id=plan["plan_id"],
+            approved=payload.approved,
+        )
+    except CoworkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    details = dict(run.get("details", {}))
+    ingested = dict(details.get("ingested") or {})
+    knowledge_id = ingested.get("knowledge_id")
+    if knowledge_id:
+        try:
+            knowledge_state = projects_team_service.get_knowledge(
+                user_id=user.user_id,
+                session_id=payload.session_id,
+            )
+            _sync_knowledge_vectors(knowledge_state, payload.session_id)
+        except ProjectsTeamError:
+            pass
+
+    add_span_event(
+        "cowork.scrape_completed",
+        {
+            "plan_id": plan["plan_id"],
+            "run_id": run["run_id"],
+            "status": run["status"],
+            "engine": details.get("engine"),
+        },
+    )
+
+    return CoworkScrapeResponse(
+        plan_id=plan["plan_id"],
+        run_id=run["run_id"],
+        status=str(run["status"]),
+        summary=str(run.get("summary") or ""),
+        engine=details.get("engine"),
+        source=details.get("source"),
+        text_excerpt=str(details.get("text_excerpt") or ""),
+        extraction_id=details.get("extraction_id"),
+        ingested=ingested,
+        result=dict(details.get("result") or {}),
+        warnings=list(details.get("warnings") or []),
+    )
 
 
 @app.get("/api/v1/cowork/reliability", response_model=CoworkReliabilityResponse)
@@ -2358,6 +2444,7 @@ async def session_shell_stream(
             resolved_project_path(session),
             payload.command,
             timeout_seconds=payload.timeout_seconds,
+            user_id=user.user_id,
         ):
             yield serialize_sse_event(
                 event_type=event["type"],
@@ -2373,10 +2460,17 @@ async def session_shell_stream(
 def session_workflow_compact(session_id: str, user: AuthUser = Depends(get_current_user)) -> CompactWorkflowResponse:
     session = _require_session(session_id, user, write=True)
 
+    project_path = resolved_project_path(session)
     result = build_compact_summary(
         session_id=session_id,
-        project_path=resolved_project_path(session),
+        project_path=project_path,
         user_id=user.user_id,
+    )
+    memory_service.capture_from_compact_summary(
+        user_id=user.user_id,
+        session_id=session_id,
+        project_path=project_path,
+        summary=result["summary"],
     )
     return CompactWorkflowResponse(**result)
 
@@ -2642,14 +2736,37 @@ async def stream_session(
             )
             if knowledge_context:
                 composed_prompt = f"{composed_prompt}\n\n{knowledge_context}"
-            style_context = projects_team_service.compose_style_context(user_id=user.user_id)
-            if style_context:
-                composed_prompt = f"{composed_prompt}\n\n{style_context}"
+            taste_context = taste_service.compose_taste_context(
+                user_id=user.user_id,
+                project_path=resolved_project_path(session) if session else None,
+            )
+            if taste_context:
+                composed_prompt = f"{composed_prompt}\n\n{taste_context}"
+            memory_context = memory_service.compose_memory_context(
+                user_id=user.user_id,
+                project_path=resolved_project_path(session) if session else None,
+                query=user_prompt,
+            )
+            if memory_context:
+                composed_prompt = f"{composed_prompt}\n\n{memory_context}"
+            supermemory_context = supermemory_connector.compose_supermemory_context(
+                user_id=user.user_id,
+                project_path=resolved_project_path(session) if session else None,
+                query=user_prompt,
+            )
+            if supermemory_context:
+                composed_prompt = f"{composed_prompt}\n\n{supermemory_context}"
+            style_instructions, skills_meta = skills_service.compose_agent_instructions(
+                user_id=user.user_id,
+                project_path=resolved_project_path(session) if session else None,
+                user_prompt=user_prompt,
+            )
             run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,
                 project_path=resolved_project_path(session) if session else None,
                 current_file=None,
+                style_instructions=style_instructions,
             )
             trace_id = current_trace_id()
             set_span_attributes(
@@ -2689,6 +2806,9 @@ async def stream_session(
                     "routing_tier": run.routing_tier,
                     "fallback_used": run.fallback_used,
                     "trace_id": trace_id,
+                    "caveman_mode": skills_meta.get("caveman_mode"),
+                    "token_saver_enabled": skills_meta.get("token_saver_enabled"),
+                    "active_skills": skills_meta.get("active_skills"),
                 },
                 sequence=0,
             )
@@ -2740,6 +2860,9 @@ async def stream_session(
                 "routing_tier": run.routing_tier,
                 "fallback_used": run.fallback_used,
                 "trace_id": trace_id,
+                "caveman_mode": skills_meta.get("caveman_mode"),
+                "token_saver_enabled": skills_meta.get("token_saver_enabled"),
+                "active_skills": skills_meta.get("active_skills"),
             }
             if extracted_artifacts:
                 complete_payload["artifact_ids"] = [item["artifact_id"] for item in extracted_artifacts]
@@ -2792,26 +2915,47 @@ def decide_proposal(
     next_status = "rejected"
     note = None
 
+    resolution_note = payload.note
+
     if payload.action == "approve":
-        if proposal["original_content"] == proposal["proposed_content"]:
+        content_to_apply = payload.edited_content if payload.edited_content is not None else proposal["proposed_content"]
+        if proposal["original_content"] == content_to_apply:
             raise HTTPException(status_code=400, detail="Proposal does not contain an applicable change")
         applied = apply_proposed_content(
             resolved_project_path(session),
             proposal["target_file"],
-            proposal["proposed_content"],
+            content_to_apply,
         )
         if not applied:
             raise HTTPException(status_code=400, detail="Unable to apply proposal safely")
         next_status = "approved"
-        note = "Applied to workspace"
+        resolution_note = resolution_note or "Applied to workspace"
     else:
-        note = "Rejected by user"
+        resolution_note = resolution_note or "Rejected by user"
 
     update_agent_proposal_status(
         proposal_id=proposal_id,
         status=next_status,
         resolved_at=resolved_at,
-        resolution_note=note,
+        resolution_note=resolution_note,
+    )
+
+    taste_service.record_proposal_decision(
+        user_id=user.user_id,
+        session_id=session_id,
+        proposal=proposal,
+        action=payload.action,
+        project_path=resolved_project_path(session),
+        note=payload.note,
+        edited_content=payload.edited_content,
+    )
+    memory_service.capture_from_proposal_decision(
+        user_id=user.user_id,
+        session_id=session_id,
+        project_path=resolved_project_path(session),
+        action=payload.action,
+        target_file=proposal["target_file"],
+        note=payload.note,
     )
 
     return ProposalDecisionResponse(

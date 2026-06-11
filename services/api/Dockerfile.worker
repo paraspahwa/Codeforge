@@ -33,6 +33,10 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && python -m playwright install chromium
 
+ARG RTK_VERSION=0.42.3
+RUN curl -fsSL "https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" | sh \
+    || echo "rtk install skipped"
+
 COPY app /app/app
 
 CMD ["celery", "-A", "app.celery_worker:celery_app", "worker", "--beat", "--loglevel=info"]

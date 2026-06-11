@@ -91,8 +91,68 @@ def _validate_http_url(url: str) -> str:
     return url.strip()
 
 
-_APPROVAL_REQUIRED_TASKS = {"browser", "connector"}
+_APPROVAL_REQUIRED_TASKS = {"browser", "connector", "scrape"}
 _JOB_ALLOWED_TASKS = {"shell", "extract"}
+
+
+def _scrape_options(plan: dict[str, Any]) -> dict[str, Any]:
+    args = dict(plan.get("connector_arguments") or {})
+    return {
+        "scrape_prompt": str(args.get("scrape_prompt") or plan.get("scrape_prompt") or "").strip(),
+        "ingest_knowledge": bool(args.get("ingest_knowledge", True)),
+        "ingest_memory": bool(args.get("ingest_memory", True)),
+    }
+
+
+async def _ingest_scrape_results(
+    *,
+    plan: dict[str, Any],
+    user_id: str,
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    options = _scrape_options(plan)
+    excerpt = str(details.get("text_excerpt") or "")
+    if not excerpt:
+        return details
+
+    source_label = str(details.get("source") or "scrape")
+    ingested: dict[str, Any] = {}
+
+    if options["ingest_knowledge"]:
+        from .projects_team import ProjectsTeamError, projects_team_service
+
+        try:
+            knowledge_state = projects_team_service.append_knowledge_snippet(
+                user_id=user_id,
+                session_id=str(plan["session_id"]),
+                project_path=str(plan["project_path"]),
+                path_label=source_label,
+                excerpt=excerpt,
+            )
+            ingested["knowledge_id"] = knowledge_state["knowledge_id"]
+            ingested["knowledge_path"] = f".codeforge/knowledge/uploads/scrape_{source_label}"
+        except ProjectsTeamError as exc:
+            details.setdefault("warnings", []).append(f"Knowledge ingest skipped: {exc}")
+
+    if options["ingest_memory"]:
+        from .memory_service import memory_service
+
+        try:
+            memory_row = memory_service.save_memory(
+                user_id=user_id,
+                content=f"Scrape ({source_label}): {excerpt[:900]}",
+                project_path=str(plan.get("project_path") or ""),
+                scope="team",
+                kind="note",
+                source_session_id=str(plan.get("session_id") or ""),
+            )
+            ingested["memory_id"] = memory_row["memory_id"]
+        except ValueError as exc:
+            details.setdefault("warnings", []).append(f"Memory ingest skipped: {exc}")
+
+    if ingested:
+        details["ingested"] = ingested
+    return details
 
 
 def extract_structured_data(project_path: str, source_path: str) -> dict[str, Any]:
@@ -367,9 +427,13 @@ class CoworkService:
         connector_id: str | None = None,
         tool_name: str | None = None,
         connector_arguments: dict[str, Any] | None = None,
+        scrape_prompt: str | None = None,
     ) -> dict[str, Any]:
         plan_id = f"cw_plan_{uuid4().hex[:10]}"
         requires_approval = task_type in _APPROVAL_REQUIRED_TASKS
+        resolved_connector_arguments = dict(connector_arguments or {})
+        if scrape_prompt:
+            resolved_connector_arguments["scrape_prompt"] = scrape_prompt.strip()
 
         if task_type == "shell":
             if not command:
@@ -408,6 +472,35 @@ class CoworkService:
                 "Invoke only registered MCP connector tools",
                 "Store connector invocation transcript in run history",
             ]
+        elif task_type == "scrape":
+            options = _scrape_options(
+                {
+                    "connector_arguments": resolved_connector_arguments,
+                    "scrape_prompt": scrape_prompt,
+                }
+            )
+            if not options["scrape_prompt"]:
+                raise CoworkError("Scrape tasks require scrape_prompt")
+            if not url and not source_path:
+                raise CoworkError("Scrape tasks require url or source_path")
+            if url:
+                validated_url = _validate_http_url(url)
+                preview_steps = [
+                    f"Scrape URL: {validated_url}",
+                    f"Prompt: {options['scrape_prompt'][:120]}",
+                    "Run ScrapeGraphAI SmartScraperGraph",
+                    "Require explicit user approval before execution",
+                    "Ingest structured output into project knowledge and agent memory",
+                ]
+                url = validated_url
+            else:
+                preview_steps = [
+                    f"Scrape local file: {source_path}",
+                    f"Prompt: {options['scrape_prompt'][:120]}",
+                    "Run ScrapeGraphAI SmartScraperGraph on workspace file",
+                    "Require explicit user approval before execution",
+                    "Ingest structured output into project knowledge and agent memory",
+                ]
         else:
             raise CoworkError("Unsupported cowork task type")
 
@@ -424,7 +517,8 @@ class CoworkService:
             "browser_action": browser_action or "capture_title",
             "connector_id": connector_id,
             "tool_name": tool_name,
-            "connector_arguments": connector_arguments or {},
+            "connector_arguments": resolved_connector_arguments,
+            "scrape_prompt": resolved_connector_arguments.get("scrape_prompt"),
             "requires_approval": requires_approval,
             "preview_steps": preview_steps,
             "status": "planned",
@@ -505,6 +599,33 @@ class CoworkService:
                     "summary": str(exc),
                     "invocation": {},
                 }
+        elif plan["task_type"] == "scrape":
+            from .scrape_service import ScrapeError, run_scrape_extraction
+
+            options = _scrape_options(plan)
+            try:
+                details = await run_scrape_extraction(
+                    project_path=str(plan["project_path"]),
+                    scrape_prompt=options["scrape_prompt"],
+                    url=plan.get("url"),
+                    source_path=plan.get("source_path"),
+                )
+                if str(details.get("status")) == "completed":
+                    details = await _ingest_scrape_results(plan=plan, user_id=user_id, details=details)
+                    extraction = {
+                        "extraction_id": f"ext_{uuid4().hex[:12]}",
+                        "source_path": str(details.get("source") or ""),
+                        "method": str(details.get("engine") or "scrapegraphai"),
+                        "byte_size": len(str(details.get("text_excerpt") or "").encode("utf-8")),
+                        "text_excerpt": _safe_excerpt(str(details.get("text_excerpt") or "")),
+                        "entities": _extract_entities(str(details.get("text_excerpt") or "")),
+                        "warnings": list(details.get("warnings") or []),
+                        "created_at": utc_now().isoformat(),
+                    }
+                    store.save_extraction({**extraction, "user_id": user_id})
+                    details["extraction_id"] = extraction["extraction_id"]
+            except ScrapeError as exc:
+                details = {"status": "failed", "summary": str(exc)}
         else:
             details = await _run_browser_task(
                 str(plan["url"]),
