@@ -622,7 +622,7 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 | Worker EFS | Replace `fs-PLACEHOLDER` in worker taskdefs |
 | Terminal/VS Code OIDC | Paste-code flow; register `http://127.0.0.1:4583` and `:4584` callbacks |
 | Long-horizon PRD | Voice, design-to-code, native mobile, localization |
-| Synthesis production | Set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` (or `OPENAI_API_KEY` + `CODEFORGE_SYNTHESIS_MODEL`) before production deploy; CI synthesis gate reads `GET /api/v1/platform/synthesis-rollout/validation?environment=production` |
+| Synthesis production | Set `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` (or `OPENAI_API_KEY` + `CODEFORGE_SYNTHESIS_MODEL`) before production deploy; CI synthesis gate reads `GET /api/v1/deploy/synthesis-rollout-validate?environment=production` |
 
 ---
 
@@ -639,7 +639,40 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 
 ---
 
-## 14. Phase 8 — RTK and memory (optional)
+## 14. Phase 7 — Taste (coding preferences)
+
+Taste learns from proposal feedback and injects personal + team constraints into the agent stream. No extra env vars are required.
+
+**How rules are created:**
+
+1. Agent proposes a diff or change.
+2. User approves, rejects, or edits via `POST /api/v1/sessions/{session_id}/proposals/{proposal_id}/decision`.
+3. Optional `note` (preference text) and `edited_content` (on approve) distill into `taste_rules`.
+4. Team workspace style guides merge with personal rules in `compose_taste_context`.
+
+**Verify:**
+
+```bash
+# After a few approve/reject cycles with notes
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/taste/stats | python3 -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/v1/taste/rules | python3 -m json.tool
+```
+
+**Client surfaces:**
+
+| Surface | Commands / UI |
+|---------|---------------|
+| Web | Settings → Taste; slash `/taste`, `/help` |
+| Desktop | Settings workspace; slash commands |
+| Terminal | `/taste stats`, `/taste rules`, `/taste export`, `/taste import` |
+
+Web does not expose `/taste import` as a slash command — use Settings UI or `POST /api/v1/taste/import`.
+
+See [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md).
+
+---
+
+## 15. Phase 8 — RTK and memory (optional)
 
 ### RTK shell compression
 
@@ -688,7 +721,7 @@ curl.exe -H "Authorization: Bearer <token>" "http://127.0.0.1:8000/api/v1/superm
 
 ---
 
-## 15. Phase 9 — ScrapeGraphAI (optional)
+## 16. Phase 9 — ScrapeGraphAI (optional)
 
 Cowork can run natural-language extraction from URLs or local docs via [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai). Results ingest into project knowledge and agent memory.
 
@@ -714,7 +747,7 @@ See [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md).
 
 ---
 
-## 16. Phase 10 — Anthropic skills pack
+## 17. Phase 10 — Anthropic skills pack
 
 Bundled instruction skills adapted from [anthropics/skills](https://github.com/anthropics/skills) (Apache-2.0):
 
@@ -749,7 +782,7 @@ Attribution: [.codeforge/skills/THIRD_PARTY_NOTICES.md](.codeforge/skills/THIRD_
 
 ---
 
-## 17. Local pytest (API on Windows)
+## 18. Local pytest (API on Windows)
 
 Use Python **3.13** in a venv under `services/api` (avoid system 3.14 until deps catch up):
 
@@ -765,8 +798,9 @@ Full `pytest tests/` may hang on long-running SSE cases; add `--timeout=60` if `
 
 ---
 
-## 18. Related docs
+## 19. Related docs
 
+- [docs/API.md](docs/API.md) — endpoint index and auth pattern
 - [README.md](README.md) — repo overview and current status
 - [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md) — taste rules + caveman/skills
 - [docs/tickets/phase-8-memory.md](docs/tickets/phase-8-memory.md) — RTK + memory implementation notes

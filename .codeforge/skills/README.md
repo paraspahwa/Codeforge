@@ -38,3 +38,20 @@ Enable in Settings → Token Saver, terminal `/caveman full`, or say "caveman mo
 Levels: `off`, `lite`, `full`, `ultra`
 
 Based on [caveman](https://github.com/JuliusBrussee/caveman) (MIT).
+
+## Anthropic skills pack (Phase 10)
+
+Enable in Settings → Token Saver → skill groups, or via `PUT /api/v1/agent/preferences`:
+
+| Skill | Enable when |
+|-------|-------------|
+| `frontend-design` | Building distinctive UI, landing pages, or anti-template aesthetics |
+| `webapp-testing` | Playwright verification, Cowork browser smoke tests |
+| `mcp-builder` | Designing or implementing MCP servers |
+| `skill-creator` | Authoring new `.codeforge/skills/*/SKILL.md` playbooks |
+| `doc-coauthoring` | Proposals, specs, RFCs, decision documents |
+| `pr-conventions` | CodeForge PR and commit style (always available) |
+
+List available skills: `GET /api/v1/skills`. Detail: `GET /api/v1/skills/{name}`.
+
+See [docs/tickets/phase-10-anthropic-skills.md](../../docs/tickets/phase-10-anthropic-skills.md).

@@ -6,12 +6,14 @@ Expand the product from coding assistance into safe desktop automation.
 
 ## Status
 
-- T4.1 cowork task runner: **done (API + web + desktop)** — preview-first plans for shell/extract/browser/connector tasks; DB-backed plans/runs
+- T4.1 cowork task runner: **done (API + web + desktop)** — preview-first plans for shell/extract/browser/connector/**scrape** tasks; DB-backed plans/runs
 - T4.2 watchers and scheduled jobs: **done** — interval and file-change jobs with circuit-breaking; Celery beat tick in ECS worker (`CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API in production)
 - T4.3 OCR and extraction pipeline: **done (API)** — workspace path OCR (Tesseract), Playwright screenshot capture, vision-model OCR via `screenshot_ocr` / `vision_extract` browser actions
 - T4.4 browser automation boundary: **done (API)** — explicit approval required; Playwright with httpx fallback; shareable run history
 
 **Surface gaps:** terminal `/cowork browser` and VS Code browser task shipped; screenshot preview UI optional on desktop.
+
+**Scrape task type (Phase 9):** `POST /api/v1/cowork/plans` accepts `task_type: "scrape"` with `scrape_prompt` and `url` or `source_path`. Scheduled jobs (`POST /api/v1/cowork/jobs`) support `shell` and `extract` only — scrape is on-demand. See [phase-9-scrape.md](phase-9-scrape.md).
 
 ## Tickets
 

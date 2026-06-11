@@ -2,7 +2,7 @@
 
 Step-by-step guide to go live in the **cheapest practical way**, with optional split hosting (Vercel + Supabase + Cloudflare) or a single VPS.
 
-See also: [DEPLOYMENT_RUNBOOK.md](../DEPLOYMENT_RUNBOOK.md), [deployment-assets-setup.md](deployment-assets-setup.md), [.env.production.template](../.env.production.template).
+See also: [API.md](API.md), [DEPLOYMENT_RUNBOOK.md](../DEPLOYMENT_RUNBOOK.md), [deployment-assets-setup.md](deployment-assets-setup.md), [.env.production.template](../.env.production.template).
 
 ---
 
@@ -30,7 +30,7 @@ One VPS (2GB+ RAM: Hetzner, DigitalOcean, etc.) + **Cloudflare** (free DNS/SSL).
 
 ```bash
 git clone <repo>
-cd Indi-claude
+cd <repo-directory>
 cp .env.production.template .env
 # Edit .env — fill all CHANGE_ME values
 docker compose -f docker-compose.prod.yml up -d --build
@@ -94,6 +94,8 @@ curl "https://api.yourdomain.com/api/v1/platform/deploy-readiness?probe_discover
 curl "https://api.yourdomain.com/api/v1/platform/deploy-readiness?probe_billing=true"
 curl "https://api.yourdomain.com/api/v1/platform/deploy-readiness?probe_vector=true"
 ```
+
+RTK, scrape, Supermemory, and agent skills are **not** checked by deploy-readiness. Verify them separately via `GET /api/v1/rtk/status`, `POST /api/v1/cowork/scrape`, `GET /api/v1/supermemory/status`, and `GET /api/v1/skills`.
 
 ---
 
@@ -251,13 +253,13 @@ Without provider keys, the API returns **deterministic fallback** text (good for
 - [ ] Enable OIDC OR wire Supabase Auth + `SUPABASE_JWT_SECRET`
 - [ ] Register redirect URIs at IdP (web, desktop, terminal, VS Code — see DEPLOYMENT_RUNBOOK)
 
-### Phase 7 — Verify production
+### Final verification — production smoke
 
 - [ ] `GET /health` → `{"status":"ok"}`
 - [ ] `GET /api/v1/platform/deploy-readiness` → `"ready": true`
 - [ ] `GET /api/v1/platform/stack-status` → redis/qdrant/task_queue healthy
 - [ ] Enqueue cowork job or `POST /api/v1/platform/queue-ping` → worker responds
-- [ ] Synthesis: `GET /api/v1/evals/synthesis-rollout/validation?environment=production`
+- [ ] Synthesis: `GET /api/v1/deploy/synthesis-rollout-validate?environment=production`
 
 ---
 
@@ -302,6 +304,13 @@ OpenAI is usually the largest variable cost (chat, embeddings, scrape, vision).
 | Memory search weak | Set `QDRANT_URL` + `OPENAI_API_KEY` for real embeddings |
 | Cowork jobs stuck | Start worker; check `REDIS_URL` and worker logs |
 | Billing webhook fails | Match `RAZORPAY_KEY_SECRET`; use public API URL |
+| RTK not compressing shell output | `GET /api/v1/rtk/status` — check `binary_available` and `effective_enabled`; set `CODEFORGE_RTK_ENABLED=true` or user pref via `PUT /api/v1/agent/preferences` |
+| Scrape returns preview only | Set `approved: true` in request body; requires `CODEFORGE_SCRAPE_ENABLED=true` and `OPENAI_API_KEY` |
+| Scrape 400 on local file | `source_path` must be inside the session workspace |
+| Taste rules not growing | Rules distill from proposal decisions — include `note` on approve/reject via `POST .../proposals/{id}/decision` |
+| Skills not in agent output | Enable via Settings or `PUT /api/v1/agent/preferences` with valid `enabled_skills` names from `GET /api/v1/skills` |
+| Supermemory 501 | Set `SUPERMEMORY_CC_API_KEY` or per-repo `.codeforge/supermemory.json` |
+| Synthesis gate fails in CI | `GET /api/v1/deploy/synthesis-rollout-validate?environment=production` — set Azure OpenAI or OpenAI synthesis vars |
 
 ---
 

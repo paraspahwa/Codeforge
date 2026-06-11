@@ -16,12 +16,21 @@ Bundle a small set of high-value instruction skills from [anthropics/skills](htt
 
 Existing bundled skills unchanged: `caveman`, `pr-conventions`.
 
+## API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/skills` | List bundled + project skills |
+| `GET /api/v1/skills/{skill_name}` | Full skill body, license, and source metadata |
+| `GET /api/v1/agent/preferences` | Current `caveman_mode`, `enabled_skills`, `rtk_enabled` |
+| `PUT /api/v1/agent/preferences` | Update prefs — unknown skill names return 400 |
+
 ## How it works
 
 - Skills live under `.codeforge/skills/<name>/SKILL.md`.
 - Users enable skills in Settings or via `enabled_skills` in agent preferences.
 - `skills_service.compose_agent_instructions` injects enabled skill bodies (truncated to ~2500 chars each).
-- Project `.codeforge/skills/` overrides bundled names.
+- Project `.codeforge/skills/` overrides bundled names with the same skill name.
 
 ## Attribution
 
