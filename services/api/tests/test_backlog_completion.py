@@ -32,10 +32,9 @@ def test_team_events_stream_connected(client) -> None:
     token = login.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    with client.stream("GET", "/api/v1/team/events", headers=headers) as stream:
-        first = next(stream.iter_lines())
-        assert first is not None
-        assert "connected" in first
+    response = client.get("/api/v1/team/events?probe=true", headers=headers)
+    assert response.status_code == 200
+    assert "connected" in response.text
 
 
 def test_remote_channel_pair_and_push(client) -> None:

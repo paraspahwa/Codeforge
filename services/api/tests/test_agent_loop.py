@@ -24,8 +24,8 @@ async def test_agent_loop_passes_when_verify_succeeds(tmp_path: Path, monkeypatc
         created_at="2026-06-01T00:00:00+00:00",
     )
 
-    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30):
-        _ = timeout_seconds
+    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30, **kwargs):
+        _ = timeout_seconds, kwargs
         return {
             "command": _command,
             "cwd": str(project),
@@ -69,8 +69,8 @@ async def test_agent_loop_applies_patch_when_verify_fails(tmp_path: Path, monkey
 
     calls = {"count": 0}
 
-    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30):
-        _ = timeout_seconds
+    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30, **kwargs):
+        _ = timeout_seconds, kwargs
         calls["count"] += 1
         passed = calls["count"] > 1
         return {

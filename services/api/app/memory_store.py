@@ -86,15 +86,20 @@ def search_memories_keyword(
     project_id: str | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    needle = f"%{query.strip().lower()}%"
-    clauses = ["user_id = ?", "LOWER(content) LIKE ?"]
-    params: list[Any] = [user_id, needle]
+    tokens = [token for token in query.strip().lower().split() if len(token) >= 2]
+    if not tokens:
+        return []
+    clauses = ["user_id = ?"]
+    params: list[Any] = [user_id]
+    for token in tokens:
+        clauses.append("LOWER(content) LIKE ?")
+        params.append(f"%{token}%")
     if project_id:
         clauses.append("project_id = ?")
         params.append(project_id)
     params.append(max(1, min(limit, 20)))
     where = " AND ".join(clauses)
-    return _fetchall(
+    rows = _fetchall(
         f"""
         SELECT memory_id, user_id, project_id, scope, kind, content, content_hash,
                source_session_id, created_at
@@ -105,3 +110,4 @@ def search_memories_keyword(
         """,
         tuple(params),
     )
+    return rows

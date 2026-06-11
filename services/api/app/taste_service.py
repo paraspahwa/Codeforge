@@ -232,12 +232,13 @@ class TasteService:
                     weight=int(item.get("weight") or existing["weight"]),
                     updated_at=now,
                 )
+                inserted += 1
                 continue
             taste_store.insert_taste_rule(
                 {
                     "rule_id": f"taste_rule_{uuid4().hex[:12]}",
                     "user_id": user_id,
-                    "scope": str(item.get("scope") or "imported"),
+                    "scope": str(item.get("scope") or "user"),
                     "project_path": item.get("project_path"),
                     "rule_text": rule_text,
                     "weight": int(item.get("weight") or 2),

@@ -106,7 +106,7 @@ def search_memories(
     if not cleaned_query:
         return []
 
-    project_id = project_id_from_path(project_path)
+    project_id = project_id_from_path(project_path) if project_path else None
     hits: dict[str, dict[str, Any]] = {}
 
     for hit in vector_store.search_text(cleaned_query, limit=max(limit, 10)):

@@ -1974,12 +1974,17 @@ def update_team_style_guide(
 
 
 @app.get("/api/v1/team/events")
-async def stream_team_events(user: AuthUser = Depends(get_current_user)) -> StreamingResponse:
+async def stream_team_events(
+    user: AuthUser = Depends(get_current_user),
+    probe: bool = Query(default=False, description="When true, emit connected and close (for probes/tests)."),
+) -> StreamingResponse:
     queue = team_event_bus.subscribe(user.user_id)
 
     async def event_generator():
         try:
             yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+            if probe:
+                return
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=25.0)

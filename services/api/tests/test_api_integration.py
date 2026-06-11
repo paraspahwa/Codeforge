@@ -57,8 +57,8 @@ def test_agent_loop_endpoint(client, tmp_path: Path, monkeypatch) -> None:
     )
     session_id = created.json()["session_id"]
 
-    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30):
-        _ = timeout_seconds
+    async def fake_verify(_project_path: str, _command: str, timeout_seconds: int = 30, **kwargs):
+        _ = timeout_seconds, kwargs
         return {
             "command": _command,
             "exit_code": 0,
