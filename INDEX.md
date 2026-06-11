@@ -12,6 +12,7 @@
 - [PRD.md](PRD.md): product scope, phases, and success metrics
 - [docs/implementation-plan.md](docs/implementation-plan.md): execution plan and delivery order
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
+- [docs/phases-7-10-developer-guide.md](docs/phases-7-10-developer-guide.md): taste, skills, RTK, memory, scrape APIs and client surfaces
 - [README.md](README.md): repo setup and current implementation status
 
 ## Suggested Copilot Prompts
@@ -47,6 +48,16 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Bootstrap SSM: Razorpay, OIDC, Qdrant — then OIDC cutover with `patch_ecs_oidc_enabled.py`
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
+
+## Recently shipped (phases 7–10 + desktop parity batch)
+
+- Taste rules: proposal feedback → heuristic rules → stream prompt injection (`taste_service`, `/api/v1/taste/*`)
+- Agent skills: bundled `.codeforge/skills/` pack + caveman token-saver; `GET/PUT /api/v1/agent/preferences`
+- RTK shell compression in `shell_ops.py`; `GET /api/v1/rtk/status`; per-user toggle in Settings
+- Native memory: Postgres `agent_memories` + Qdrant vectors; Supermemory BYOK via `SUPERMEMORY_CC_API_KEY`
+- ScrapeGraphAI: `POST /api/v1/cowork/scrape` with approval gate; ingests knowledge + memory
+- Desktop parity: Settings (taste/memory/RTK/skills), Analytics, Billing, Cowork scrape UI, Code slash commands
+- Developer guide: [docs/phases-7-10-developer-guide.md](docs/phases-7-10-developer-guide.md)
 
 ## Recently shipped (client SSO + Qdrant CI batch)
 

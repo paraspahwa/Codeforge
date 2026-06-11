@@ -174,4 +174,5 @@ pytest tests/ -q         # full suite; conftest forces SQLite + in-memory vector
 - [Implementation plan](docs/implementation-plan.md)
 - [Product requirements](PRD.md)
 - [Spec index](INDEX.md)
+- [Phases 7–10 developer guide](docs/phases-7-10-developer-guide.md)
 - [Roadmap tickets](docs/tickets/README.md)

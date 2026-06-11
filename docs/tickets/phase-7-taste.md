@@ -10,7 +10,7 @@ Close the "slop over taste" loop by learning from proposal accept/reject/edit fe
 - T7.2 Heuristic rule distillation from feedback: **done (API)**
 - T7.3 Taste context injection in session stream: **done (API)**
 - T7.4 Taste stats + export/import API: **done (API)**
-- T7.5 Client surfaces (`/taste` terminal, web settings): **done (terminal + web)**
+- T7.5 Client surfaces (`/taste` terminal, web/desktop settings): **done (terminal + web + desktop)**
 - T7.6 Agent Skills playbooks (`.codeforge/skills/`): **done (API + bundled caveman + settings/terminal)**
 
 ## Architecture
@@ -49,7 +49,8 @@ Proposal decisions accept optional fields:
 ### T7.5 - Client surfaces
 
 - Terminal: `/taste stats`, `/taste rules`, `/taste export`
-- Web: settings panel showing active rules and correction trend
+- Web: Settings → Taste panel with active rules and correction trend
+- Desktop: Settings → Taste (import/export parity with web)
 - Acceptance: user can inspect taste without curl
 
 ### T7.6 - Agent Skills

@@ -637,7 +637,35 @@ These items are documented as incomplete — expect **Fail** or **Skip** until c
 
 ---
 
-## 14. Phase 8 — RTK and memory (optional)
+## 14. Phase 7 — Taste rules and agent skills (optional)
+
+Taste learns from proposal approve/reject/edit feedback and injects personal + team style constraints into agent prompts.
+
+**How it works:**
+
+- Proposal decisions with `note` or `edited_content` record `taste_events` and distill `taste_rules` (max 50 per user)
+- `compose_taste_context` merges personal rules with team style guides on each stream run
+- Skills under `.codeforge/skills/` shape agent instructions; project skills override bundled names
+
+**Verify:**
+
+```bash
+curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/taste/rules
+curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/taste/stats
+curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/skills
+```
+
+**Client surfaces:**
+
+- Web: Settings → Taste, Token Saver & Skills; chat slash `/taste`, `/caveman`
+- Desktop: Settings → Taste, Token Saver & Skills; Code chat slash commands
+- Terminal: `/taste stats|rules|export`, `/caveman off|lite|full|ultra|status|skills`
+
+Details: [docs/phases-7-10-developer-guide.md](docs/phases-7-10-developer-guide.md) and [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md).
+
+---
+
+## 15. Phase 8 — RTK and memory (optional)
 
 ### RTK shell compression
 
@@ -651,7 +679,7 @@ CODEFORGE_RTK_DEBUG=false   # attach raw tail on non-zero exit
 CODEFORGE_RTK_BINARY=       # optional explicit path
 ```
 
-**Per-user toggle:** Web Settings → Token Saver, or terminal `/rtk on|off|status|gain`.
+**Per-user toggle:** Web or desktop Settings → Token Saver, or terminal `/rtk on|off|status|gain`.
 
 **Windows host (API outside Docker):** install RTK from [rtk-ai/rtk releases](https://github.com/rtk-ai/rtk/releases) and add to `PATH`. Shell-hook auto-rewrite requires WSL; CodeForge uses explicit `rtk` wrapping in `shell_ops.py`.
 
@@ -666,7 +694,7 @@ curl.exe -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/rtk/sta
 Cross-session memory is stored in Postgres (`agent_memories`) and Qdrant. No extra SaaS required.
 
 - Terminal: `/memory search|save|list|export`
-- Web: Settings → **Memory**
+- Web and desktop: Settings → **Memory**; chat slash `/memory`
 - Auto-capture on `/compact` and approved architectural proposals
 
 ### Supermemory BYOK (optional)
@@ -686,7 +714,7 @@ curl.exe -H "Authorization: Bearer <token>" "http://127.0.0.1:8000/api/v1/superm
 
 ---
 
-## 15. Phase 9 — ScrapeGraphAI (optional)
+## 16. Phase 9 — ScrapeGraphAI (optional)
 
 Cowork can run natural-language extraction from URLs or local docs via [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai). Results ingest into project knowledge and agent memory.
 
@@ -708,11 +736,13 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/cowork/scrape ^
 
 Terminal: `/cowork scrape https://example.com --prompt "Extract headings" --approve`
 
+**Client surfaces:** Web Cowork → Quick scrape; desktop Cowork workspace; terminal `/cowork scrape <url> --prompt "..." --approve`.
+
 See [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md).
 
 ---
 
-## 16. Phase 10 — Anthropic skills pack
+## 17. Phase 10 — Anthropic skills pack
 
 Bundled instruction skills adapted from [anthropics/skills](https://github.com/anthropics/skills) (Apache-2.0):
 
@@ -728,7 +758,7 @@ Also bundled: `caveman` (MIT token saver), `pr-conventions` (CodeForge-native).
 
 **Enable skills:**
 
-- Web: Settings → **Token Saver** → skill groups (Project / Anthropic / CodeForge)
+- Web or desktop: Settings → **Token Saver** → skill groups (Project / Anthropic / CodeForge)
 - Terminal: `/caveman skills`
 - API:
 
@@ -766,6 +796,7 @@ Full `pytest tests/` may hang on long-running SSE cases; add `--timeout=60` if `
 ## 18. Related docs
 
 - [README.md](README.md) — repo overview and current status
+- [docs/phases-7-10-developer-guide.md](docs/phases-7-10-developer-guide.md) — consolidated API, clients, troubleshooting
 - [docs/tickets/phase-7-taste.md](docs/tickets/phase-7-taste.md) — taste rules + caveman/skills
 - [docs/tickets/phase-8-memory.md](docs/tickets/phase-8-memory.md) — RTK + memory implementation notes
 - [docs/tickets/phase-9-scrape.md](docs/tickets/phase-9-scrape.md) — ScrapeGraphAI Cowork extraction
