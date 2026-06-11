@@ -10,7 +10,7 @@ Close the "slop over taste" loop by learning from proposal accept/reject/edit fe
 - T7.2 Heuristic rule distillation from feedback: **done (API)**
 - T7.3 Taste context injection in session stream: **done (API)**
 - T7.4 Taste stats + export/import API: **done (API)**
-- T7.5 Client surfaces (`/taste` terminal, web settings): **done (terminal + web)**
+- T7.5 Client surfaces (`/taste` terminal, web + desktop settings): **done (terminal + web + desktop)**
 - T7.6 Agent Skills playbooks (`.codeforge/skills/`): **done (API + bundled caveman + settings/terminal)**
 
 ## Architecture
@@ -38,6 +38,7 @@ Close the "slop over taste" loop by learning from proposal accept/reject/edit fe
 | `GET /api/v1/taste/stats` | Rejections/approvals per session metrics |
 | `GET /api/v1/taste/export` | Export taste pack for team sync |
 | `POST /api/v1/taste/import` | Import taste pack |
+| `POST /api/v1/sessions/{session_id}/proposals/{proposal_id}/decision` | Approve/reject/edit — primary taste input path |
 
 Proposal decisions accept optional fields:
 
@@ -48,9 +49,12 @@ Proposal decisions accept optional fields:
 
 ### T7.5 - Client surfaces
 
-- Terminal: `/taste stats`, `/taste rules`, `/taste export`
-- Web: settings panel showing active rules and correction trend
+- Terminal: `/taste stats`, `/taste rules`, `/taste export`, `/taste import`
+- Web: Settings panel showing active rules and correction trend (import via UI, not slash)
+- Desktop: Settings workspace with taste stats/rules
 - Acceptance: user can inspect taste without curl
+
+Team workspace style guides (`/api/v1/team/workspaces/{id}/style-guides`) merge with personal rules in `compose_taste_context` before stream injection.
 
 ### T7.6 - Agent Skills
 
