@@ -22,10 +22,12 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 
 ## Repository Layout
 
-- `apps/web`: Next.js dashboard and chat surface
-- `apps/desktop`: React frontend plus Tauri shell
+- `apps/web`: Next.js dashboard and chat surface — see [apps/web/README.md](apps/web/README.md)
+- `apps/desktop`: React frontend plus Tauri shell — see [apps/desktop/README.md](apps/desktop/README.md)
 - `apps/terminal`: Ink terminal client
-- `packages/shared`: Shared API and stream helpers
+- `packages/ui`: Shared React components (`ChatMessageList`, buttons, panels) — see [packages/ui/README.md](packages/ui/README.md)
+- `packages/design-tokens`: Shared `--cf-*` CSS tokens and `theme.json` — see [packages/design-tokens/README.md](packages/design-tokens/README.md)
+- `packages/shared`: Cross-client API, SSE, and session-grant helpers — see [packages/shared/README.md](packages/shared/README.md)
 - `services/api`: FastAPI backend
 - `docs/`: PRD, implementation plan, index, and tickets
 
@@ -134,11 +136,18 @@ npm run dev:terminal
 |-------|---------|
 | `/` | Chat with proposals, workflows, slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/help`) |
 | `/code` | Code workspace — git sidebar, shell, file preview, verify loop |
+| `/sessions` | Session list and replay |
+| `/login` | Dev login or SSO (redirects authenticated users to `?next=` path) |
 | `/settings` | Taste, memory, token saver/skills, MCP, SSO checklist, deploy readiness |
 | `/cowork` | Cowork plans, browser tasks, ScrapeGraphAI quick scrape |
 | `/team` | Workspaces, knowledge, delegations |
+| `/analytics` | Usage and routing benchmarks |
+| `/billing` | Plans and Razorpay checkout |
+| `/share/[shareId]` | Shared session resume (minimal shell, no sidebar) |
 
 Install as PWA: browsers can add CodeForge to the home screen via `manifest.webmanifest` (mobile-friendly chat layout).
+
+Frontend architecture (hooks, shell routing, shared packages): [apps/web/README.md](apps/web/README.md).
 
 ## Testing
 
