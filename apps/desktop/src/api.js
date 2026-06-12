@@ -347,6 +347,10 @@ export async function getRtkStatus(token) {
   return shared.getRtkStatus(API_BASE, token);
 }
 
+export async function getHermesStatus(token) {
+  return shared.getHermesStatus(API_BASE, token);
+}
+
 export async function listSkills(token, projectPath = null) {
   return shared.listSkills(API_BASE, token, projectPath);
 }

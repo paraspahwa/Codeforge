@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import skills_store
+from .hermes_adapter import VALID_AGENT_ENGINES
 
 VALID_CAVEMAN_MODES = {"off", "lite", "full", "ultra"}
 CAVEMAN_ON_TRIGGERS = (
@@ -138,11 +139,15 @@ class SkillsService:
         caveman_mode: str | None = None,
         enabled_skills: list[str] | None = None,
         rtk_enabled: bool | None = None,
+        agent_engine: str | None = None,
     ) -> dict[str, Any]:
         current = self.get_preferences(user_id)
         mode = (caveman_mode or current["caveman_mode"]).strip().lower()
         if mode not in VALID_CAVEMAN_MODES:
             raise ValueError(f"Invalid caveman_mode: {mode}")
+        engine = (agent_engine or current.get("agent_engine") or "codeforge").strip().lower()
+        if engine not in VALID_AGENT_ENGINES:
+            raise ValueError(f"Invalid agent_engine: {engine}")
         skills = enabled_skills if enabled_skills is not None else list(current["enabled_skills"])
         cleaned_skills = sorted({item.strip() for item in skills if item and item.strip()})
         skills_store.upsert_user_agent_preferences(
@@ -151,8 +156,14 @@ class SkillsService:
             enabled_skills=cleaned_skills,
             updated_at=_utc_now_iso(),
             rtk_enabled=rtk_enabled if rtk_enabled is not None else current["rtk_enabled"],
+            agent_engine=engine,
         )
         return self.get_preferences(user_id)
+
+    def resolve_agent_engine(self, user_id: str) -> str:
+        from .hermes_adapter import resolve_agent_engine
+
+        return resolve_agent_engine(self.get_preferences(user_id))
 
     def record_rtk_stats(self, user_id: str, stats: dict[str, Any]) -> None:
         current = self.get_preferences(user_id)

@@ -22,11 +22,13 @@ from .remote_channels import RemoteChannelError
 from .context_mcp import ContextMcpError, context_mcp_service
 from .cowork import CoworkError, cowork_service
 from .cowork_scheduler import cowork_scheduler_enabled
+from .routers import hermes as hermes_router
 from .routers import memory as memory_router
 from .routers import platform as platform_router
 from .routers import rtk as rtk_router
 from .routers import skills as skills_router
 from .routers import taste as taste_router
+from . import hermes_adapter
 from .memory_service import memory_service
 from .skills_service import skills_service
 from . import supermemory_connector
@@ -401,6 +403,7 @@ app.include_router(platform_router.router)
 app.include_router(taste_router.router)
 app.include_router(skills_router.router)
 app.include_router(rtk_router.router)
+app.include_router(hermes_router.router)
 app.include_router(memory_router.router)
 
 
@@ -2766,14 +2769,82 @@ async def stream_session(
                 project_path=resolved_project_path(session) if session else None,
                 user_prompt=user_prompt,
             )
+            if style_instructions:
+                composed_prompt = f"{style_instructions}\n\n{composed_prompt}"
+            trace_id = current_trace_id()
+            project_path = resolved_project_path(session) if session else None
+
+            if hermes_adapter.should_run_hermes(user.user_id):
+                sequence = 0
+                assistant_parts: list[str] = []
+                fallback_to_codeforge = False
+                set_span_attributes({"codeforge.agent_engine": "hermes"})
+                add_span_event("agent.engine_selected", {"engine": "hermes"})
+
+                async for event_type, payload, delta in hermes_adapter.stream_hermes_run(
+                    prompt=composed_prompt,
+                    session_id=session_id,
+                    project_path=project_path,
+                    trace_id=trace_id,
+                ):
+                    if event_type == "raw" and payload.get("fallback") == "codeforge":
+                        fallback_to_codeforge = True
+                        yield serialize_sse_event(
+                            event_type="raw",
+                            payload={
+                                **payload,
+                                "message": "Hermes unavailable; falling back to CodeForge engine",
+                            },
+                            sequence=sequence,
+                        )
+                        sequence += 1
+                        break
+                    if event_type == "hermes_assistant_message":
+                        if delta:
+                            assistant_parts = [delta]
+                        continue
+                    if event_type == "token" and delta:
+                        assistant_parts.append(delta)
+                    payload = dict(payload)
+                    payload.setdefault("trace_id", trace_id)
+                    payload.setdefault("agent_engine", "hermes")
+                    payload.setdefault("caveman_mode", skills_meta.get("caveman_mode"))
+                    payload.setdefault("token_saver_enabled", skills_meta.get("token_saver_enabled"))
+                    payload.setdefault("active_skills", skills_meta.get("active_skills"))
+                    yield serialize_sse_event(event_type, payload, sequence)
+                    sequence += 1
+
+                if not fallback_to_codeforge:
+                    assistant_text = "".join(assistant_parts).strip()
+                    if assistant_text:
+                        assistant_message_id = f"msg_{uuid4().hex[:12]}"
+                        insert_message(
+                            message_id=assistant_message_id,
+                            session_id=session_id,
+                            role="assistant",
+                            content=assistant_text,
+                            context_json=None,
+                            created_at=utc_now().isoformat(),
+                        )
+                        extract_artifacts_from_text(
+                            text=assistant_text,
+                            session_id=session_id,
+                            user_id=user.user_id,
+                            source_message_id=assistant_message_id,
+                        )
+                        add_span_event("assistant.message_persisted", {"agent_engine": "hermes"})
+                    return
+
+                add_span_event("agent.engine_fallback", {"from": "hermes", "to": "codeforge"})
+
+            set_span_attributes({"codeforge.agent_engine": "codeforge"})
             run = await build_agent_run(
                 prompt=composed_prompt,
                 session_id=session_id,
-                project_path=resolved_project_path(session) if session else None,
+                project_path=project_path,
                 current_file=None,
-                style_instructions=style_instructions,
+                style_instructions="",
             )
-            trace_id = current_trace_id()
             set_span_attributes(
                 {
                     "codeforge.intent": run.intent,
@@ -2811,6 +2882,7 @@ async def stream_session(
                     "routing_tier": run.routing_tier,
                     "fallback_used": run.fallback_used,
                     "trace_id": trace_id,
+                    "agent_engine": "codeforge",
                     "caveman_mode": skills_meta.get("caveman_mode"),
                     "token_saver_enabled": skills_meta.get("token_saver_enabled"),
                     "active_skills": skills_meta.get("active_skills"),
@@ -2865,6 +2937,7 @@ async def stream_session(
                 "routing_tier": run.routing_tier,
                 "fallback_used": run.fallback_used,
                 "trace_id": trace_id,
+                "agent_engine": "codeforge",
                 "caveman_mode": skills_meta.get("caveman_mode"),
                 "token_saver_enabled": skills_meta.get("token_saver_enabled"),
                 "active_skills": skills_meta.get("active_skills"),

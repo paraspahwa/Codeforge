@@ -10,6 +10,7 @@ import {
   exportMemory,
   getAgentPreferences,
   getDeployReadiness,
+  getHermesStatus,
   getOidcConfig,
   getRtkStatus,
   getSupermemoryStatus,
@@ -90,6 +91,8 @@ export default function SettingsPage() {
   const [enabledSkills, setEnabledSkills] = useState([]);
   const [rtkEnabled, setRtkEnabled] = useState(false);
   const [rtkStatus, setRtkStatus] = useState(null);
+  const [agentEngine, setAgentEngine] = useState("codeforge");
+  const [hermesStatus, setHermesStatus] = useState(null);
   const [memories, setMemories] = useState([]);
   const [memoryQuery, setMemoryQuery] = useState("");
   const [memorySearchHits, setMemorySearchHits] = useState([]);
@@ -135,11 +138,15 @@ export default function SettingsPage() {
         setCavemanMode(prefs.caveman_mode || "off");
         setEnabledSkills(prefs.enabled_skills || []);
         setRtkEnabled(Boolean(prefs.rtk_enabled));
+        setAgentEngine(prefs.agent_engine || "codeforge");
       })
       .catch(() => setAgentPrefs(null));
     getRtkStatus(token)
       .then(setRtkStatus)
       .catch(() => setRtkStatus(null));
+    getHermesStatus(token)
+      .then(setHermesStatus)
+      .catch(() => setHermesStatus(null));
     listMemories(token, projectPath || null)
       .then((result) => setMemories(result.memories ?? []))
       .catch(() => setMemories([]));
@@ -230,10 +237,12 @@ export default function SettingsPage() {
         caveman_mode: cavemanMode,
         enabled_skills: enabledSkills,
         rtk_enabled: rtkEnabled,
+        agent_engine: agentEngine,
       });
       setAgentPrefs(prefs);
-      const status = await getRtkStatus(token);
+      const [status, hermes] = await Promise.all([getRtkStatus(token), getHermesStatus(token)]);
       setRtkStatus(status);
+      setHermesStatus(hermes);
       toast.push("Token saver preferences saved", "success");
     } catch (error) {
       toast.push(error.message);
@@ -545,15 +554,45 @@ export default function SettingsPage() {
         </a>{" "}
         compresses shell command output (pytest, git, npm test) before it reaches the agent.
       </p>
-      <h3 className="mt-8">Caveman prose compression</h3>
-      <p className="small">
-        Based on{" "}
-        <a href="https://github.com/JuliusBrussee/caveman" target="_blank" rel="noreferrer">
-          caveman
-        </a>{" "}
-        (MIT). Code patches and commits stay normal.
-      </p>
       <form onSubmit={handleSaveAgentPreferences}>
+        <h3 className="mt-0">Agent engine</h3>
+        <p className="small">
+          CodeForge is the built-in router and proposal flow.{" "}
+          <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noreferrer">
+            Hermes Agent
+          </a>{" "}
+          runs as an optional sidecar when installed on the API host.
+        </p>
+        <label className="small" htmlFor="agent-engine">
+          Engine
+        </label>
+        <select
+          id="agent-engine"
+          value={agentEngine}
+          onChange={(event) => setAgentEngine(event.target.value)}
+          disabled={loading || !hermesStatus?.env_enabled}
+        >
+          {(agentPrefs?.available_agent_engines || ["codeforge", "hermes"]).map((engine) => (
+            <option key={engine} value={engine}>
+              {engine}
+            </option>
+          ))}
+        </select>
+        {hermesStatus ? (
+          <p className="small mt-4">
+            Hermes: {hermesStatus.env_enabled ? "enabled" : "disabled (set CODEFORGE_HERMES_ENABLED)"} | Binary:{" "}
+            {hermesStatus.binary_available ? "installed" : "not installed"}
+            {hermesStatus.simulate_mode ? " | simulate mode on" : ""} | Effective: {hermesStatus.effective_engine}
+          </p>
+        ) : null}
+        <h3 className="mt-8">Caveman prose compression</h3>
+        <p className="small">
+          Based on{" "}
+          <a href="https://github.com/JuliusBrussee/caveman" target="_blank" rel="noreferrer">
+            caveman
+          </a>{" "}
+          (MIT). Code patches and commits stay normal.
+        </p>
         <label className="small" htmlFor="caveman-mode">
           Caveman intensity
         </label>

@@ -10,6 +10,7 @@ from ..models import (
     SkillListItem,
     SkillListResponse,
 )
+from ..hermes_adapter import VALID_AGENT_ENGINES
 from ..skills_service import VALID_CAVEMAN_MODES, skills_service
 
 router = APIRouter(tags=["skills"])
@@ -59,6 +60,8 @@ def get_agent_preferences(user: AuthUser = Depends(get_current_user)) -> AgentPr
         token_saver_enabled=prefs["caveman_mode"] != "off",
         rtk_enabled=bool(prefs.get("rtk_enabled")),
         rtk_last_stats=prefs.get("rtk_last_stats") or {},
+        agent_engine=prefs.get("agent_engine") or "codeforge",
+        available_agent_engines=sorted(VALID_AGENT_ENGINES),
     )
 
 
@@ -73,6 +76,7 @@ def update_agent_preferences(
             caveman_mode=payload.caveman_mode,
             enabled_skills=payload.enabled_skills,
             rtk_enabled=payload.rtk_enabled,
+            agent_engine=payload.agent_engine,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -85,4 +89,6 @@ def update_agent_preferences(
         token_saver_enabled=prefs["caveman_mode"] != "off",
         rtk_enabled=bool(prefs.get("rtk_enabled")),
         rtk_last_stats=prefs.get("rtk_last_stats") or {},
+        agent_engine=prefs.get("agent_engine") or "codeforge",
+        available_agent_engines=sorted(VALID_AGENT_ENGINES),
     )

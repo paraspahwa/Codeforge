@@ -151,12 +151,27 @@ class AgentPreferencesResponse(BaseModel):
     token_saver_enabled: bool
     rtk_enabled: bool = False
     rtk_last_stats: dict[str, Any] = Field(default_factory=dict)
+    agent_engine: Literal["codeforge", "hermes"] = "codeforge"
+    available_agent_engines: list[str] = Field(default_factory=lambda: ["codeforge", "hermes"])
 
 
 class AgentPreferencesUpdateRequest(BaseModel):
     caveman_mode: str | None = None
     enabled_skills: list[str] | None = None
     rtk_enabled: bool | None = None
+    agent_engine: Literal["codeforge", "hermes"] | None = None
+
+
+class HermesStatusResponse(BaseModel):
+    env_enabled: bool
+    binary_available: bool
+    binary_path: str | None = None
+    simulate_mode: bool
+    hermes_home: str | None = None
+    user_engine: Literal["codeforge", "hermes"]
+    effective_engine: Literal["codeforge", "hermes"]
+    runtime_available: bool
+    available_engines: list[str] = Field(default_factory=list)
 
 
 class RtkStatusResponse(BaseModel):

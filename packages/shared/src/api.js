@@ -820,6 +820,10 @@ export async function getRtkStatus(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/rtk/status", { token });
 }
 
+export async function getHermesStatus(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/hermes/status", { token });
+}
+
 export async function listMemories(baseUrl, token, projectPath = null) {
   const params = projectPath ? `?project_path=${encodeURIComponent(projectPath)}` : "";
   return requestJson(baseUrl, `/api/v1/memory${params}`, { token });

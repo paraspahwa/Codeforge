@@ -556,6 +556,7 @@ def init_db() -> None:
                         enabled_skills_json TEXT NOT NULL DEFAULT '[]',
                         rtk_enabled INTEGER NOT NULL DEFAULT 0,
                         rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
+                        agent_engine TEXT NOT NULL DEFAULT 'codeforge',
                         updated_at TEXT NOT NULL
                     );
 
@@ -935,6 +936,7 @@ def init_db() -> None:
                 enabled_skills_json TEXT NOT NULL DEFAULT '[]',
                 rtk_enabled INTEGER NOT NULL DEFAULT 0,
                 rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
+                agent_engine TEXT NOT NULL DEFAULT 'codeforge',
                 updated_at TEXT NOT NULL
             );
 
@@ -971,6 +973,7 @@ def _migrate_optional_columns(conn_or_cur) -> None:
         "ALTER TABLE user_subscriptions ADD COLUMN razorpay_subscription_id TEXT",
         "ALTER TABLE user_agent_preferences ADD COLUMN rtk_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE user_agent_preferences ADD COLUMN rtk_last_stats_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE user_agent_preferences ADD COLUMN agent_engine TEXT NOT NULL DEFAULT 'codeforge'",
         """
         CREATE TABLE IF NOT EXISTS agent_memories (
             memory_id TEXT PRIMARY KEY,

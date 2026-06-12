@@ -29,6 +29,7 @@ Completed or in place:
 - PWA manifest + mobile-friendly chat layout
 - Web OIDC login/callback + Settings → SSO readiness checklist
 - Desktop settings (taste, memory, RTK, skills), analytics, billing, cowork scrape UI
+- Phase 11 Hermes Agent adapter (optional sidecar engine, settings toggle, SSE bridge)
 - Delegation step-approval gates (`require_step_approval`, approve-step on all clients)
 - Session grants + share/delegation write enforcement (`session_access.py`)
 
@@ -57,6 +58,7 @@ Still ahead (lower priority):
 10. [Phase 8 - RTK and Memory](phase-8-memory.md)
 11. [Phase 9 - ScrapeGraphAI](phase-9-scrape.md)
 12. [Phase 10 - Anthropic Skills](phase-10-anthropic-skills.md)
+13. [Phase 11 - Hermes Agent](phase-11-hermes.md)
 
 ## How To Use
 

@@ -22,7 +22,7 @@ def _dumps(value: Any) -> str:
 def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
     row = _fetchone(
         """
-        SELECT user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, updated_at
+        SELECT user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, updated_at
         FROM user_agent_preferences
         WHERE user_id = ?
         """,
@@ -35,6 +35,7 @@ def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
             "enabled_skills": [],
             "rtk_enabled": False,
             "rtk_last_stats": {},
+            "agent_engine": "codeforge",
             "updated_at": None,
         }
     return {
@@ -43,6 +44,7 @@ def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
         "enabled_skills": _loads(row.get("enabled_skills_json"), []),
         "rtk_enabled": bool(row.get("rtk_enabled")),
         "rtk_last_stats": _loads(row.get("rtk_last_stats_json"), {}),
+        "agent_engine": (row.get("agent_engine") or "codeforge"),
         "updated_at": row["updated_at"],
     }
 
@@ -55,21 +57,24 @@ def upsert_user_agent_preferences(
     updated_at: str,
     rtk_enabled: bool | None = None,
     rtk_last_stats: dict[str, Any] | None = None,
+    agent_engine: str | None = None,
 ) -> None:
     current = get_user_agent_preferences(user_id)
     resolved_rtk_enabled = current["rtk_enabled"] if rtk_enabled is None else rtk_enabled
     resolved_rtk_stats = current["rtk_last_stats"] if rtk_last_stats is None else rtk_last_stats
+    resolved_agent_engine = current["agent_engine"] if agent_engine is None else agent_engine
     _execute(
         """
         INSERT INTO user_agent_preferences(
-            user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, updated_at
+            user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             caveman_mode = excluded.caveman_mode,
             enabled_skills_json = excluded.enabled_skills_json,
             rtk_enabled = excluded.rtk_enabled,
             rtk_last_stats_json = excluded.rtk_last_stats_json,
+            agent_engine = excluded.agent_engine,
             updated_at = excluded.updated_at
         """,
         (
@@ -78,6 +83,7 @@ def upsert_user_agent_preferences(
             _dumps(enabled_skills),
             1 if resolved_rtk_enabled else 0,
             _dumps(resolved_rtk_stats),
+            resolved_agent_engine,
             updated_at,
         ),
     )

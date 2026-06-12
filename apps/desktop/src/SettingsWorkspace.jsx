@@ -7,6 +7,7 @@ import {
   exportMemory,
   exportTaste,
   getAgentPreferences,
+  getHermesStatus,
   getOidcConfig,
   getRtkStatus,
   getSupermemoryStatus,
@@ -64,6 +65,8 @@ export default function SettingsWorkspace() {
   const [enabledSkills, setEnabledSkills] = useState([]);
   const [rtkEnabled, setRtkEnabled] = useState(false);
   const [rtkStatus, setRtkStatus] = useState(null);
+  const [agentEngine, setAgentEngine] = useState("codeforge");
+  const [hermesStatus, setHermesStatus] = useState(null);
   const [availableSkills, setAvailableSkills] = useState([]);
   const [memories, setMemories] = useState([]);
   const [memoryQuery, setMemoryQuery] = useState("");
@@ -87,9 +90,11 @@ export default function SettingsWorkspace() {
         setCavemanMode(prefs.caveman_mode || "off");
         setEnabledSkills(prefs.enabled_skills || []);
         setRtkEnabled(Boolean(prefs.rtk_enabled));
+        setAgentEngine(prefs.agent_engine || "codeforge");
       })
       .catch(() => setAgentPrefs(null));
     getRtkStatus(token).then(setRtkStatus).catch(() => setRtkStatus(null));
+    getHermesStatus(token).then(setHermesStatus).catch(() => setHermesStatus(null));
     listMemories(token, projectPath || null)
       .then((result) => setMemories(result.memories ?? []))
       .catch(() => setMemories([]));
@@ -126,9 +131,12 @@ export default function SettingsWorkspace() {
         caveman_mode: cavemanMode,
         enabled_skills: enabledSkills,
         rtk_enabled: rtkEnabled,
+        agent_engine: agentEngine,
       });
       setAgentPrefs(prefs);
-      setRtkStatus(await getRtkStatus(token));
+      const [rtk, hermes] = await Promise.all([getRtkStatus(token), getHermesStatus(token)]);
+      setRtkStatus(rtk);
+      setHermesStatus(hermes);
       reportSuccess("Token saver preferences saved");
     } catch (error) {
       reportError(error.message);
@@ -237,6 +245,30 @@ export default function SettingsWorkspace() {
       <h2>Token Saver &amp; Skills</h2>
       <p className="muted small">Caveman compresses prose; RTK compresses shell output. Toggle Anthropic and bundled skills.</p>
       <form onSubmit={handleSaveAgentPreferences}>
+        <h3>Agent engine</h3>
+        <p className="muted small">
+          CodeForge is the default engine. Hermes Agent runs as an optional sidecar when installed on the API host.
+        </p>
+        <label htmlFor="agent-engine">Engine</label>
+        <select
+          id="agent-engine"
+          value={agentEngine}
+          onChange={(event) => setAgentEngine(event.target.value)}
+          disabled={loading || !hermesStatus?.env_enabled}
+        >
+          {(agentPrefs?.available_agent_engines || ["codeforge", "hermes"]).map((engine) => (
+            <option key={engine} value={engine}>
+              {engine}
+            </option>
+          ))}
+        </select>
+        {hermesStatus ? (
+          <p className="muted small">
+            Hermes: {hermesStatus.env_enabled ? "enabled" : "disabled"} | Binary:{" "}
+            {hermesStatus.binary_available ? "installed" : "not installed"}
+            {hermesStatus.simulate_mode ? " | simulate mode" : ""} | Effective: {hermesStatus.effective_engine}
+          </p>
+        ) : null}
         <label htmlFor="caveman-mode">Caveman intensity</label>
         <select
           id="caveman-mode"
