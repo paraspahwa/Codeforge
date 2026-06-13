@@ -9,6 +9,8 @@ import {
   createCoworkPlan,
   createSession,
   extractCoworkData,
+  previewCoworkGoal,
+  runCoworkGoal,
   scrapeCoworkData,
   getCoworkReliability,
   listCoworkExtractions,
@@ -58,6 +60,13 @@ export default function CoworkPage() {
   const [scrapeFilePath, setScrapeFilePath] = useState("");
   const [scrapePrompt, setScrapePrompt] = useState("Extract key API endpoints and authentication notes");
   const [scrapeApproved, setScrapeApproved] = useState(false);
+
+  const [coworkGoal, setCoworkGoal] = useState(
+    "Organize files in Downloads by date, extract text from documents, and synthesize a summary report",
+  );
+  const [goalPreview, setGoalPreview] = useState(null);
+  const [goalApproved, setGoalApproved] = useState(false);
+  const [goalResult, setGoalResult] = useState(null);
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) || null,
@@ -146,7 +155,7 @@ export default function CoworkPage() {
         task_type: planType,
         command: planType === "shell" ? planCommand : null,
         source_path:
-          planType === "extract"
+          planType === "extract" || planType === "file_ops" || planType === "synthesize"
             ? planSourcePath
             : planType === "scrape" && planSourcePath.trim()
               ? planSourcePath
@@ -162,7 +171,11 @@ export default function CoworkPage() {
         connector_arguments:
           planType === "scrape"
             ? { scrape_prompt: scrapePrompt, ingest_knowledge: true, ingest_memory: true }
-            : {},
+            : planType === "file_ops"
+              ? { action: "organize_by_date" }
+              : planType === "synthesize"
+                ? { format: "markdown", output_name: "cowork-report.md", prompt: planTitle }
+                : {},
       });
       setSelectedPlan(plan);
       setBrowserApproved(false);
@@ -264,6 +277,53 @@ export default function CoworkPage() {
     }
   }
 
+  async function handlePreviewGoal() {
+    if (!token || !sessionId || !coworkGoal.trim()) {
+      toast.push("Select a session and describe your Cowork goal");
+      return;
+    }
+    setLoading(true);
+    try {
+      const preview = await previewCoworkGoal(token, {
+        session_id: sessionId,
+        goal: coworkGoal.trim(),
+      });
+      setGoalPreview(preview);
+      setGoalApproved(false);
+      setGoalResult(null);
+      toast.push(`Planned ${preview.step_count} autonomous step(s)`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRunGoal() {
+    if (!token || !sessionId || !coworkGoal.trim()) {
+      return;
+    }
+    if (goalPreview?.requires_approval && !goalApproved) {
+      toast.push("Approve the workflow before running");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await runCoworkGoal(token, {
+        session_id: sessionId,
+        goal: coworkGoal.trim(),
+        approved: goalApproved || !goalPreview?.requires_approval,
+      });
+      setGoalResult(result);
+      toast.push(result.summary, result.status === "completed" ? "success" : undefined);
+      await refreshCoworkData(token);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleExtractNow() {
     if (!token || !sessionId) {
       toast.push("Create or select a session first");
@@ -346,6 +406,8 @@ export default function CoworkPage() {
             <option value="extract">Extract</option>
             <option value="browser">Browser</option>
             <option value="scrape">Scrape (ScrapeGraphAI)</option>
+            <option value="file_ops">File organize / rename</option>
+            <option value="synthesize">Synthesize report</option>
           </select>
 
           <label className="small" htmlFor="planTitle">
@@ -362,7 +424,7 @@ export default function CoworkPage() {
             </>
           ) : null}
 
-          {planType === "extract" ? (
+          {planType === "extract" || planType === "file_ops" || planType === "synthesize" ? (
             <>
               <label className="small" htmlFor="planSourcePath">
                 Source path
@@ -665,12 +727,72 @@ export default function CoworkPage() {
 
   return (
     <div className="stack">
-      <section className="panel">
-        <h2>Cowork automation</h2>
+      <section className="panel cowork-hero">
+        <h2>CodeForge Cowork</h2>
         <p className="small">
-          Preview and run tasks against your workspace. Browser tasks need manual approval; scheduled jobs support
-          shell and extract only.
+          Autonomous agent mode for knowledge work — organize files, extract documents, synthesize reports, scrape the
+          web, and run multi-step workflows. More powerful than chat: give one goal and Cowork executes it end-to-end.
         </p>
+        <label className="small" htmlFor="coworkGoal">
+          What should Cowork accomplish?
+        </label>
+        <textarea
+          id="coworkGoal"
+          rows={4}
+          value={coworkGoal}
+          onChange={(event) => setCoworkGoal(event.target.value)}
+          placeholder="Organize files in ./notes by date, extract PDFs, and synthesize a market analysis report"
+          disabled={loading || !sessionId}
+        />
+        <div className="agent-tools-row" style={{ marginTop: "0.5rem" }}>
+          <button type="button" onClick={handlePreviewGoal} disabled={loading || !sessionId || !coworkGoal.trim()}>
+            Preview workflow
+          </button>
+          <button
+            type="button"
+            onClick={handleRunGoal}
+            disabled={loading || !sessionId || !sessionWritable || !coworkGoal.trim()}
+          >
+            Run autonomous workflow
+          </button>
+        </div>
+        {goalPreview ? (
+          <div className="stack" style={{ marginTop: "0.75rem" }}>
+            <p className="small">
+              <strong>{goalPreview.step_count} steps</strong>
+              {goalPreview.requires_approval ? " — approval required for file/browser/scrape actions" : ""}
+            </p>
+            <ul className="small">
+              {(goalPreview.preview_lines || []).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            {goalPreview.requires_approval ? (
+              <label className="small">
+                <input
+                  type="checkbox"
+                  checked={goalApproved}
+                  onChange={(event) => setGoalApproved(event.target.checked)}
+                />{" "}
+                I approve this autonomous Cowork workflow
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+        {goalResult ? (
+          <div className="stack" style={{ marginTop: "0.75rem" }}>
+            <p className="small">
+              <strong>{goalResult.status}</strong> — {goalResult.summary}
+            </p>
+            <ul className="small">
+              {(goalResult.step_results || []).map((step) => (
+                <li key={`${step.step_id}-${step.task_type}`}>
+                  {step.task_type}: {step.summary}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
       {sessionPicker}
       <Tabs

@@ -141,6 +141,9 @@ def list_workspace_files(project_path: str | None, *, max_files: int = 300) -> l
         if len(files) >= max_files:
             break
     return files
+
+
+def infer_target_file(
     project_path: str | None,
     prompt: str,
     current_file: str | None = None,

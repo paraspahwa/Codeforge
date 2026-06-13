@@ -997,6 +997,58 @@ def _migrate_optional_columns(conn_or_cur=None) -> None:
             created_at TEXT NOT NULL
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS session_checkpoints (
+            checkpoint_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            project_path TEXT NOT NULL,
+            label TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            message_index INTEGER,
+            git_sha TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS permission_audit (
+            audit_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            tool TEXT NOT NULL,
+            action TEXT NOT NULL,
+            granted INTEGER NOT NULL DEFAULT 0,
+            note TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS context_packs_store (
+            pack_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            snippets_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS mcp_connectors_store (
+            connector_id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            transport TEXT NOT NULL DEFAULT 'http',
+            endpoint TEXT NOT NULL,
+            tools_json TEXT NOT NULL DEFAULT '[]',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        )
+        """,
+        "ALTER TABLE user_agent_preferences ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'auto_safe'",
+        "ALTER TABLE user_agent_preferences ADD COLUMN plan_mode_default INTEGER NOT NULL DEFAULT 0",
     ]
     for statement in migrations:
         try:
@@ -1072,6 +1124,33 @@ def latest_user_message(session_id: str) -> str:
         (session_id,),
     )
     return row["content"] if row else ""
+
+
+def first_user_message_summaries(session_ids: list[str]) -> dict[str, str]:
+    ids = [session_id.strip() for session_id in session_ids if session_id and session_id.strip()]
+    if not ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in ids)
+    rows = _fetchall(
+        f"""
+        SELECT session_id, content
+        FROM messages
+        WHERE role = 'user' AND session_id IN ({placeholders})
+        ORDER BY created_at ASC
+        """,
+        tuple(ids),
+    )
+
+    summaries: dict[str, str] = {}
+    for row in rows:
+        session_id = row["session_id"]
+        if session_id in summaries:
+            continue
+        content = str(row.get("content") or "").strip()
+        if content:
+            summaries[session_id] = content
+    return summaries
 
 
 def latest_user_message_context(session_id: str) -> dict[str, Any]:
@@ -1691,4 +1770,177 @@ def list_cowork_reliability_snapshots(limit: int = 50) -> list[dict[str, Any]]:
     )
     for row in rows:
         row["reliability_alert"] = bool(row.get("reliability_alert", 0))
+    return rows
+
+
+def insert_session_checkpoint(
+    *,
+    checkpoint_id: str,
+    session_id: str,
+    user_id: str,
+    project_path: str,
+    label: str,
+    snapshot_json: str,
+    message_index: int | None = None,
+    git_sha: str | None = None,
+) -> None:
+    from datetime import datetime, timezone
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    _execute(
+        """
+        INSERT INTO session_checkpoints(
+            checkpoint_id, session_id, user_id, project_path, label,
+            snapshot_json, message_index, git_sha, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            checkpoint_id,
+            session_id,
+            user_id,
+            project_path,
+            label,
+            snapshot_json,
+            message_index,
+            git_sha,
+            created_at,
+        ),
+    )
+
+
+def list_session_checkpoints(session_id: str, user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    return _fetchall(
+        """
+        SELECT checkpoint_id, session_id, user_id, project_path, label,
+               message_index, git_sha, created_at
+        FROM session_checkpoints
+        WHERE session_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (session_id, user_id, max(1, min(limit, 100))),
+    )
+
+
+def get_session_checkpoint(*, checkpoint_id: str, session_id: str, user_id: str) -> dict[str, Any] | None:
+    return _fetchone(
+        """
+        SELECT checkpoint_id, session_id, user_id, project_path, label,
+               snapshot_json, message_index, git_sha, created_at
+        FROM session_checkpoints
+        WHERE checkpoint_id = ? AND session_id = ? AND user_id = ?
+        """,
+        (checkpoint_id, session_id, user_id),
+    )
+
+
+def insert_permission_audit(
+    *,
+    audit_id: str,
+    user_id: str,
+    session_id: str,
+    tool: str,
+    action: str,
+    granted: bool,
+    note: str | None = None,
+) -> None:
+    from datetime import datetime, timezone
+
+    _execute(
+        """
+        INSERT INTO permission_audit(audit_id, user_id, session_id, tool, action, granted, note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            audit_id,
+            user_id,
+            session_id,
+            tool,
+            action,
+            1 if granted else 0,
+            note,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def upsert_context_pack_store(
+    *,
+    pack_id: str,
+    owner_id: str,
+    title: str,
+    summary: str,
+    tags_json: str,
+    snippets_json: str,
+    created_at: str,
+    updated_at: str,
+) -> None:
+    _execute(
+        """
+        INSERT INTO context_packs_store(pack_id, owner_id, title, summary, tags_json, snippets_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(pack_id) DO UPDATE SET
+            title=excluded.title,
+            summary=excluded.summary,
+            tags_json=excluded.tags_json,
+            snippets_json=excluded.snippets_json,
+            updated_at=excluded.updated_at
+        """,
+        (pack_id, owner_id, title, summary, tags_json, snippets_json, created_at, updated_at),
+    )
+
+
+def list_context_packs_store(owner_id: str) -> list[dict[str, Any]]:
+    return _fetchall(
+        "SELECT * FROM context_packs_store WHERE owner_id = ? ORDER BY updated_at DESC",
+        (owner_id,),
+    )
+
+
+def upsert_mcp_connector_store(
+    *,
+    connector_id: str,
+    owner_id: str,
+    name: str,
+    transport: str,
+    endpoint: str,
+    tools_json: str,
+    enabled: bool,
+    config_json: str,
+    created_at: str,
+) -> None:
+    _execute(
+        """
+        INSERT INTO mcp_connectors_store(
+            connector_id, owner_id, name, transport, endpoint, tools_json, enabled, config_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connector_id) DO UPDATE SET
+            name=excluded.name,
+            transport=excluded.transport,
+            endpoint=excluded.endpoint,
+            tools_json=excluded.tools_json,
+            enabled=excluded.enabled,
+            config_json=excluded.config_json
+        """,
+        (
+            connector_id,
+            owner_id,
+            name,
+            transport,
+            endpoint,
+            tools_json,
+            1 if enabled else 0,
+            config_json,
+            created_at,
+        ),
+    )
+
+
+def list_mcp_connectors_store(owner_id: str) -> list[dict[str, Any]]:
+    rows = _fetchall(
+        "SELECT * FROM mcp_connectors_store WHERE owner_id = ? ORDER BY created_at DESC",
+        (owner_id,),
+    )
+    for row in rows:
+        row["enabled"] = bool(row.get("enabled", 1))
     return rows

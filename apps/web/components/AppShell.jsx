@@ -9,18 +9,34 @@ import { Badge } from "@codeforge/ui";
 import { useAuth } from "../lib/auth-context";
 import { useShellBar } from "../lib/shell-context";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Chat", icon: "💬", hint: "Coding agent" },
-  { href: "/code", label: "Code editor", icon: "⌨️", hint: "Edit files" },
-  { href: "/sessions", label: "Sessions", icon: "🗂️", hint: "History" },
-  { href: "/cowork", label: "Cowork", icon: "🤝", hint: "Shared work" },
-  { href: "/team", label: "Team", icon: "👥", hint: "Members" },
-  { href: "/analytics", label: "Analytics", icon: "📊", hint: "Usage" },
-  { href: "/billing", label: "Billing", icon: "💳", hint: "Plans" },
-  { href: "/settings", label: "Settings", icon: "⚙️", hint: "Preferences" },
+const NAV_SECTIONS = [
+  {
+    title: "Build",
+    items: [
+      { href: "/", label: "AI partner", icon: "💬", hint: "Describe your app idea" },
+      { href: "/features", label: "Features", icon: "✨", hint: "All agents & tools" },
+    ],
+  },
+  {
+    title: "Work",
+    items: [
+      { href: "/cowork", label: "Automations", icon: "🤝", hint: "Files & workflows" },
+      { href: "/sessions", label: "My chats", icon: "🗂️", hint: "Past conversations" },
+      { href: "/code", label: "Code view", icon: "⌨️", hint: "Advanced editing" },
+    ],
+  },
+  {
+    title: "Team & account",
+    items: [
+      { href: "/team", label: "Team", icon: "👥", hint: "Collaborate" },
+      { href: "/analytics", label: "Usage", icon: "📊", hint: "Activity" },
+      { href: "/billing", label: "Billing", icon: "💳", hint: "Plans" },
+      { href: "/settings", label: "Settings", icon: "⚙️", hint: "Preferences" },
+    ],
+  },
 ];
 
-const PROTECTED_PREFIXES = ["/", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
+const PROTECTED_PREFIXES = ["/", "/features", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
 
 function isProtectedRoute(pathname) {
   if (pathname === "/billing") {
@@ -56,30 +72,37 @@ export default function AppShell({ children }) {
 
   const sidebar = (
     <aside className={`sidebar ${navOpen ? "sidebar-open" : ""}`}>
-      <div className="brand">
-        <span className="brand-mark">CF</span>
+      <div className="brand cf-animate-in">
+        <span className="brand-mark cf-bounce-gentle">CF</span>
         <span>CodeForge</span>
       </div>
       <nav className="sidebar-nav-full">
-        {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`nav-link nav-link-feature ${pathname === item.href ? "nav-link-active" : ""}`}
-            aria-current={pathname === item.href ? "page" : undefined}
-            title={item.hint}
-          >
-            <span className="nav-link-icon" aria-hidden>
-              {item.icon}
-            </span>
-            <span className="nav-link-text">
-              <span className="nav-link-label">{item.label}</span>
-              <span className="nav-link-hint small">{item.hint}</span>
-            </span>
-          </Link>
+        {NAV_SECTIONS.map((section, sectionIndex) => (
+          <div key={section.title} className="nav-section cf-animate-in" style={{ animationDelay: `${sectionIndex * 60}ms` }}>
+            <p className="nav-section-label small">{section.title}</p>
+            {section.items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-link nav-link-feature ${pathname === item.href ? "nav-link-active" : ""}`}
+                aria-current={pathname === item.href ? "page" : undefined}
+                title={item.hint}
+              >
+                <span className="nav-link-icon cf-wiggle-hover" aria-hidden>
+                  {item.icon}
+                </span>
+                <span className="nav-link-text">
+                  <span className="nav-link-label">{item.label}</span>
+                  <span className="nav-link-hint small">{item.hint}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
         ))}
       </nav>
-      <div className="sidebar-footer small">Frontier coding agent</div>
+      <div className="sidebar-footer small cf-animate-in" style={{ animationDelay: "200ms" }}>
+        <span className="cf-sparkle-inline" aria-hidden>✦</span> Your AI product partner
+      </div>
     </aside>
   );
 
@@ -102,7 +125,7 @@ export default function AppShell({ children }) {
           {token ? (
             <div className="topbar-session">
               {usage ? (
-                <span className="usage-pill small">
+                <span className="usage-pill small cf-pulse-soft">
                   {usage.requests_remaining ?? 0} requests left
                 </span>
               ) : null}

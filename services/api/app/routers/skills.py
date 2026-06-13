@@ -62,6 +62,8 @@ def get_agent_preferences(user: AuthUser = Depends(get_current_user)) -> AgentPr
         rtk_last_stats=prefs.get("rtk_last_stats") or {},
         agent_engine=prefs.get("agent_engine") or "codeforge",
         available_agent_engines=sorted(VALID_AGENT_ENGINES),
+        permission_mode=prefs.get("permission_mode") or "auto_safe",
+        plan_mode_default=bool(prefs.get("plan_mode_default")),
     )
 
 
@@ -77,6 +79,8 @@ def update_agent_preferences(
             enabled_skills=payload.enabled_skills,
             rtk_enabled=payload.rtk_enabled,
             agent_engine=payload.agent_engine,
+            permission_mode=payload.permission_mode,
+            plan_mode_default=payload.plan_mode_default,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -91,4 +95,6 @@ def update_agent_preferences(
         rtk_last_stats=prefs.get("rtk_last_stats") or {},
         agent_engine=prefs.get("agent_engine") or "codeforge",
         available_agent_engines=sorted(VALID_AGENT_ENGINES),
+        permission_mode=prefs.get("permission_mode") or "auto_safe",
+        plan_mode_default=bool(prefs.get("plan_mode_default")),
     )

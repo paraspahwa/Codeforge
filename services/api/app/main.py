@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
+from .agent_loop_v2 import AgentLoopV2Config, build_agent_run_v2
 from .agent_loop import run_verify_fix_loop
 from .auth import AuthUser, dev_auth_enabled, get_current_user, oidc_auth_enabled
 from . import team_event_bus
@@ -99,15 +100,23 @@ from .billing_service import (
 from .usage_policy import get_usage_policy
 from .workflow_ops import (
     build_compact_summary,
+    build_compact_summary_llm,
     build_ultrareview_audit,
     create_multi_file_plan,
     execute_multi_file_plan,
     rollback_multi_file_plan,
 )
 from .file_ops import read_file_content, read_file_excerpt, read_file_line_count, repo_relative_path, resolve_repo_path
-from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_log, git_merge_assist, git_stage, git_status, git_worktree_create, git_worktree_list
+from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_fetch, git_log, git_merge_assist, git_pull, git_push, git_stage, git_status, git_worktree_create, git_worktree_list
 from .shell_ops import ShellError, prepare_shell_execution, stream_shell_execution
 from .symbol_search import SymbolSearchError, search_symbols
+from .checkpoint_service import list_checkpoints, rewind_checkpoint
+from .db import get_session_checkpoint
+from .hooks_runner import run_hooks
+from .permission_service import default_permission_mode
+from .pr_service import PrError, create_pull_request
+from .product_coach import compose_product_coach_context
+from .project_memory import compose_project_memory_context
 from .web_search_service import (
     WebSearchError,
     format_search_context,
@@ -130,6 +139,14 @@ from .models import (
     BillingContextResponse,
     BillingPlan,
     BillingWebhookResponse,
+    CoworkGoalPreviewRequest,
+    CoworkGoalPreviewResponse,
+    CoworkGoalRunRequest,
+    CoworkGoalRunResponse,
+    CoworkGoalStepPreview,
+    CoworkGoalStepResult,
+    CoworkSynthesizeRequest,
+    CoworkSynthesizeResponse,
     CoworkExtractRequest,
     CoworkScrapeRequest,
     CoworkScrapeResponse,
@@ -170,6 +187,17 @@ from .models import (
     WebSearchRequest,
     WebSearchResponse,
     SymbolSearchResponse,
+    CheckpointListResponse,
+    CheckpointItem,
+    RewindRequest,
+    RewindResponse,
+    GitPushRequest,
+    GitPullRequest,
+    GitRemoteResponse,
+    CreatePullRequestPayload,
+    CreatePullRequestResponse,
+    LspLocationResponse,
+    ContextStackResponse,
     FileContentResponse,
     FilePreviewResponse,
     GitBranchRequest,
@@ -221,6 +249,7 @@ from .models import (
     SessionArtifactItem,
     SessionArtifactListResponse,
     SessionExportResponse,
+    SessionForkRequest,
     SessionForkResponse,
     SessionShareCreateRequest,
     SessionShareResolveResponse,
@@ -530,7 +559,11 @@ def create_session(payload: SessionCreateRequest, response: Response, user: Auth
 
 
 @app.post("/api/v1/sessions/{session_id}/fork", response_model=SessionForkResponse)
-def fork_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> SessionForkResponse:
+def fork_session(
+    session_id: str,
+    payload: SessionForkRequest | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionForkResponse:
     _enforce_rate_limit("fork-session", user.user_id, 20)
     parent = get_session_for_user(session_id=session_id, user_id=user.user_id)
     if parent is None:
@@ -545,6 +578,30 @@ def fork_session(session_id: str, user: AuthUser = Depends(get_current_user)) ->
         model_preference=parent["model_preference"],
         created_at=created_at.isoformat(),
     )
+
+    message_limit: int | None = None
+    if payload and payload.checkpoint_id:
+        checkpoint = get_session_checkpoint(
+            checkpoint_id=payload.checkpoint_id,
+            session_id=session_id,
+            user_id=user.user_id,
+        )
+        if checkpoint and checkpoint.get("message_index") is not None:
+            message_limit = int(checkpoint["message_index"]) + 1
+
+    parent_messages = list_messages_for_session(session_id, limit=1000)
+    if message_limit is not None:
+        parent_messages = parent_messages[:message_limit]
+    for row in parent_messages:
+        insert_message(
+            message_id=f"msg_{uuid4().hex[:12]}",
+            session_id=new_session_id,
+            role=row["role"],
+            content=row["content"],
+            context_json=row.get("context_json"),
+            created_at=row["created_at"],
+        )
+
     api_base = os.getenv("CODEFORGE_PUBLIC_API_BASE", "http://localhost:8000").rstrip("/")
     return SessionForkResponse(
         session_id=new_session_id,
@@ -1209,6 +1266,187 @@ def apply_session_file(
     )
 
 
+@app.get("/api/v1/sessions/{session_id}/files/list", response_model=WorkspaceFilesResponse)
+def list_session_files(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+    limit: int = Query(default=300, ge=1, le=500),
+) -> WorkspaceFilesResponse:
+    project_path = _session_project_path(session_id, user)
+    files = list_workspace_files(project_path, max_files=limit)
+    return WorkspaceFilesResponse(files=files, truncated=len(files) >= limit)
+
+
+@app.post("/api/v1/sessions/{session_id}/search/web", response_model=WebSearchResponse)
+async def session_web_search(
+    session_id: str,
+    payload: WebSearchRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> WebSearchResponse:
+    _require_session(session_id, user)
+    try:
+        result = await search_web(payload.query, limit=payload.limit)
+    except WebSearchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WebSearchResponse(**result)
+
+
+@app.get("/api/v1/sessions/{session_id}/search/symbols", response_model=SymbolSearchResponse)
+def session_symbol_search(
+    session_id: str,
+    q: str = Query(min_length=1, max_length=120),
+    limit: int = Query(default=40, ge=1, le=80),
+    user: AuthUser = Depends(get_current_user),
+) -> SymbolSearchResponse:
+    session = _require_session(session_id, user)
+    try:
+        result = search_symbols(resolved_project_path(session), q, limit=limit)
+    except SymbolSearchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SymbolSearchResponse(**result)
+
+
+@app.get("/api/v1/sessions/{session_id}/checkpoints", response_model=CheckpointListResponse)
+def session_checkpoints(session_id: str, user: AuthUser = Depends(get_current_user)) -> CheckpointListResponse:
+    _require_session(session_id, user)
+    rows = list_checkpoints(session_id, user.user_id)
+    return CheckpointListResponse(checkpoints=[CheckpointItem(**row) for row in rows])
+
+
+@app.post("/api/v1/sessions/{session_id}/checkpoints/{checkpoint_id}/rewind", response_model=RewindResponse)
+def session_rewind_checkpoint(
+    session_id: str,
+    checkpoint_id: str,
+    payload: RewindRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> RewindResponse:
+    session = _require_session(session_id, user, write=True)
+    try:
+        result = rewind_checkpoint(
+            checkpoint_id=checkpoint_id,
+            session_id=session_id,
+            user_id=user.user_id,
+            project_path=resolved_project_path(session),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RewindResponse(**result)
+
+
+@app.get("/api/v1/sessions/{session_id}/context/stack", response_model=ContextStackResponse)
+def session_context_stack(session_id: str, user: AuthUser = Depends(get_current_user)) -> ContextStackResponse:
+    session = _require_session(session_id, user)
+    project_path = resolved_project_path(session)
+    ctx = latest_user_message_context(session_id)
+    memory_text = compose_project_memory_context(project_path)
+    packs = context_mcp_service.list_packs(user_id=user.user_id, session_id=session_id)
+    taste = taste_service.compose_taste_context(user_id=user.user_id, project_path=project_path)
+    mem = memory_service.compose_memory_context(user_id=user.user_id, project_path=project_path, query="")
+    _, skills_meta = skills_service.compose_agent_instructions(
+        user_id=user.user_id, project_path=project_path, user_prompt=""
+    )
+    return ContextStackResponse(
+        project_memory=memory_text[:500],
+        skills=skills_meta.get("active_skills") or [],
+        taste=taste[:300] if taste else "",
+        memory=mem[:300] if mem else "",
+        packs=[pack.get("title", pack.get("pack_id", "")) for pack in packs],
+        attached_files=ctx.get("attached_files") or [],
+    )
+
+
+@app.get("/api/v1/sessions/{session_id}/lsp/definition", response_model=LspLocationResponse)
+async def session_lsp_definition(
+    session_id: str,
+    path: str,
+    line: int = Query(default=1, ge=1),
+    character: int = Query(default=0, ge=0),
+    user: AuthUser = Depends(get_current_user),
+) -> LspLocationResponse:
+    session = _require_session(session_id, user)
+    from .lsp_service import lsp_tool_dispatch
+
+    payload = await lsp_tool_dispatch("go_to_definition", {"path": path, "line": line, "character": character}, resolved_project_path(session))
+    return LspLocationResponse(message=payload.get("message", ""), locations=payload.get("locations", []))
+
+
+@app.get("/api/v1/sessions/{session_id}/lsp/references", response_model=LspLocationResponse)
+async def session_lsp_references(
+    session_id: str,
+    path: str,
+    line: int = Query(default=1, ge=1),
+    character: int = Query(default=0, ge=0),
+    user: AuthUser = Depends(get_current_user),
+) -> LspLocationResponse:
+    session = _require_session(session_id, user)
+    from .lsp_service import lsp_tool_dispatch
+
+    payload = await lsp_tool_dispatch("find_references", {"path": path, "line": line, "character": character}, resolved_project_path(session))
+    return LspLocationResponse(message=payload.get("message", ""), locations=payload.get("references", []))
+
+
+@app.post("/api/v1/sessions/{session_id}/git/push", response_model=GitRemoteResponse)
+def session_git_push(
+    session_id: str,
+    payload: GitPushRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> GitRemoteResponse:
+    session = _require_session(session_id, user, write=True)
+    try:
+        result = git_push(resolved_project_path(session), payload.remote, payload.branch)
+    except GitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GitRemoteResponse(**result)
+
+
+@app.post("/api/v1/sessions/{session_id}/git/pull", response_model=GitRemoteResponse)
+def session_git_pull(
+    session_id: str,
+    payload: GitPullRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> GitRemoteResponse:
+    session = _require_session(session_id, user, write=True)
+    try:
+        result = git_pull(resolved_project_path(session), payload.remote, payload.branch)
+    except GitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GitRemoteResponse(**result)
+
+
+@app.post("/api/v1/sessions/{session_id}/git/fetch", response_model=GitRemoteResponse)
+def session_git_fetch(
+    session_id: str,
+    remote: str = Query(default="origin"),
+    user: AuthUser = Depends(get_current_user),
+) -> GitRemoteResponse:
+    session = _require_session(session_id, user, write=True)
+    try:
+        result = git_fetch(resolved_project_path(session), remote)
+    except GitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GitRemoteResponse(branch="", remote=result["remote"], output=result["output"])
+
+
+@app.post("/api/v1/sessions/{session_id}/git/pr", response_model=CreatePullRequestResponse)
+async def session_create_pull_request(
+    session_id: str,
+    payload: CreatePullRequestPayload,
+    user: AuthUser = Depends(get_current_user),
+) -> CreatePullRequestResponse:
+    session = _require_session(session_id, user, write=True)
+    try:
+        result = await create_pull_request(
+            project_path=resolved_project_path(session),
+            title=payload.title,
+            body=payload.body,
+            provider=payload.provider,
+            base_branch=payload.base_branch,
+        )
+    except PrError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CreatePullRequestResponse(**result)
+
+
 @app.post("/api/v1/cowork/plans", response_model=CoworkPlanResponse)
 def create_cowork_plan(payload: CoworkPlanRequest, user: AuthUser = Depends(get_current_user)) -> CoworkPlanResponse:
     session = _require_session(payload.session_id, user, write=True)
@@ -1411,6 +1649,101 @@ async def scrape_cowork_data(
         result=dict(details.get("result") or {}),
         warnings=list(details.get("warnings") or []),
     )
+
+
+@app.post("/api/v1/cowork/goals/preview", response_model=CoworkGoalPreviewResponse)
+def preview_cowork_goal(payload: CoworkGoalPreviewRequest, user: AuthUser = Depends(get_current_user)) -> CoworkGoalPreviewResponse:
+    session = _require_session(payload.session_id, user)
+    from .cowork_planner import plan_from_goal
+
+    try:
+        workflow = plan_from_goal(
+            payload.goal,
+            project_path=resolved_project_path(session),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    steps = [
+        CoworkGoalStepPreview(
+            step_id=str(step.get("step_id", "")),
+            task_type=str(step.get("task_type", "")),
+            title=str(step.get("title", "")),
+            requires_approval=bool(step.get("requires_approval") or step.get("task_type") in {"browser", "scrape", "file_ops"}),
+        )
+        for step in workflow.get("steps", [])
+    ]
+    return CoworkGoalPreviewResponse(
+        workflow_id=workflow["workflow_id"],
+        session_id=payload.session_id,
+        goal=workflow["goal"],
+        step_count=workflow["step_count"],
+        preview_lines=workflow.get("preview_lines") or [],
+        steps=steps,
+        requires_approval=bool(workflow.get("requires_approval")),
+        autonomous=True,
+    )
+
+
+@app.post("/api/v1/cowork/goals/run", response_model=CoworkGoalRunResponse)
+async def run_cowork_goal(payload: CoworkGoalRunRequest, user: AuthUser = Depends(get_current_user)) -> CoworkGoalRunResponse:
+    session = _require_session(payload.session_id, user, write=True)
+    from .cowork_orchestrator import run_goal_workflow
+
+    try:
+        result = await run_goal_workflow(
+            goal=payload.goal,
+            user_id=user.user_id,
+            session_id=payload.session_id,
+            project_path=resolved_project_path(session),
+            approved=payload.approved,
+        )
+    except CoworkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    add_span_event(
+        "cowork.goal_run",
+        {"workflow_id": result["workflow_id"], "status": result["status"], "steps": len(result.get("step_results") or [])},
+    )
+    return CoworkGoalRunResponse(
+        workflow_id=result["workflow_id"],
+        goal=result["goal"],
+        status=result["status"],
+        summary=result["summary"],
+        step_results=[CoworkGoalStepResult(**row) for row in result.get("step_results") or []],
+        preview_lines=result.get("preview_lines") or [],
+    )
+
+
+@app.post("/api/v1/cowork/synthesize", response_model=CoworkSynthesizeResponse)
+async def synthesize_cowork_document(
+    payload: CoworkSynthesizeRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> CoworkSynthesizeResponse:
+    session = _require_session(payload.session_id, user, write=True)
+    from .cowork_synthesis import synthesize_csv_entities, synthesize_markdown_report
+
+    project_path = resolved_project_path(session)
+    try:
+        if payload.format == "csv":
+            result = synthesize_csv_entities(
+                project_path=project_path,
+                source_path=payload.source_path,
+                output_name=payload.output_name,
+            )
+        else:
+            result = synthesize_markdown_report(
+                project_path=project_path,
+                source_path=payload.source_path,
+                output_name=payload.output_name,
+                title=payload.title,
+                prompt=payload.prompt,
+            )
+    except CoworkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return CoworkSynthesizeResponse(**result)
 
 
 @app.get("/api/v1/cowork/reliability", response_model=CoworkReliabilityResponse)
@@ -2478,11 +2811,11 @@ async def session_shell_stream(
 
 
 @app.post("/api/v1/sessions/{session_id}/workflows/compact", response_model=CompactWorkflowResponse)
-def session_workflow_compact(session_id: str, user: AuthUser = Depends(get_current_user)) -> CompactWorkflowResponse:
+async def session_workflow_compact(session_id: str, user: AuthUser = Depends(get_current_user)) -> CompactWorkflowResponse:
     session = _require_session(session_id, user, write=True)
 
     project_path = resolved_project_path(session)
-    result = build_compact_summary(
+    result = await build_compact_summary_llm(
         session_id=session_id,
         project_path=project_path,
         user_id=user.user_id,
@@ -2777,6 +3110,9 @@ async def stream_session(
             )
             if supermemory_context:
                 composed_prompt = f"{composed_prompt}\n\n{supermemory_context}"
+            coach_context = compose_product_coach_context()
+            if coach_context:
+                composed_prompt = f"{coach_context}\n\n{composed_prompt}"
             style_instructions, skills_meta = skills_service.compose_agent_instructions(
                 user_id=user.user_id,
                 project_path=resolved_project_path(session) if session else None,
@@ -2784,6 +3120,9 @@ async def stream_session(
             )
             if style_instructions:
                 composed_prompt = f"{style_instructions}\n\n{composed_prompt}"
+            project_memory = compose_project_memory_context(project_path) if project_path else ""
+            if project_memory:
+                composed_prompt = f"{project_memory}\n\n{composed_prompt}"
             if should_auto_search(user_prompt):
                 try:
                     search_payload = await search_web(search_query_from_prompt(user_prompt), limit=4)
@@ -2861,13 +3200,22 @@ async def stream_session(
                 add_span_event("agent.engine_fallback", {"from": "hermes", "to": "codeforge"})
 
             set_span_attributes({"codeforge.agent_engine": "codeforge"})
-            run = await build_agent_run(
+            plan_mode = bool(message_context.get("plan_mode"))
+            permission_mode = message_context.get("permission_mode") or default_permission_mode()
+            loop_v2 = await build_agent_run_v2(
                 prompt=composed_prompt,
                 session_id=session_id,
                 project_path=project_path,
                 current_file=current_file,
                 style_instructions="",
+                user_id=user.user_id,
+                config=AgentLoopV2Config(
+                    plan_mode=plan_mode,
+                    permission_mode=permission_mode,
+                    checkpoints_enabled=True,
+                ),
             )
+            run = loop_v2.run
             set_span_attributes(
                 {
                     "codeforge.intent": run.intent,
@@ -2890,8 +3238,11 @@ async def stream_session(
             )
             add_span_event("proposal.created", {"proposal_id": proposal_id})
 
-            applied = False
-            if run.proposed_content != run.original_content:
+            applied = any(
+                result.tool == "write_file" and result.status == "completed"
+                for result in loop_v2.tool_results
+            )
+            if not applied and run.proposed_content != run.original_content:
                 applied = apply_proposed_content(
                     resolved_project_path(session),
                     run.target_file,
@@ -2908,6 +3259,9 @@ async def stream_session(
                         "proposal.auto_applied",
                         {"proposal_id": proposal_id, "target_file": run.target_file},
                     )
+                    hook_results = run_hooks("after_file_apply", resolved_project_path(session), target_file=run.target_file)
+                    if hook_results:
+                        add_span_event("hooks.after_file_apply", {"count": len(hook_results)})
 
             yield serialize_sse_event(
                 event_type="run_started",
@@ -2963,6 +3317,8 @@ async def stream_session(
                     payload["proposal_id"] = proposal_id
                     payload["applied"] = applied
                     payload["status"] = "approved" if applied else "pending"
+                if loop_v2.checkpoint_id and event.type == "checkpoint_created":
+                    payload["checkpoint_id"] = loop_v2.checkpoint_id
                 yield serialize_sse_event(event.type, payload, offset, event.timestamp)
 
             complete_payload = {
@@ -2988,6 +3344,8 @@ async def stream_session(
                 "applied": applied,
                 "auto_applied": applied,
                 "target_file": run.target_file,
+                "checkpoint_id": loop_v2.checkpoint_id,
+                "agent_loop": "v2",
             }
             if extracted_artifacts:
                 complete_payload["artifact_ids"] = [item["artifact_id"] for item in extracted_artifacts]

@@ -1,10 +1,10 @@
 "use client";
 
 const CAPTIONS = {
-  idle: "Ready to code!",
+  idle: "Ready to build!",
   thinking: "Thinking…",
-  coding: "Writing code…",
-  celebrating: "Done!",
+  coding: "Building for you…",
+  celebrating: "Nice work!",
 };
 
 export default function AgentMascot({ state = "idle" }) {

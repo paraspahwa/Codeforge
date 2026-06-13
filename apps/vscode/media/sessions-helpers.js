@@ -22,11 +22,25 @@
     return `View-only access${owner}. Write actions are disabled.`;
   }
 
+  function truncateChatSummary(text, maxLength = 72) {
+    const normalized = String(text || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) {
+      return "";
+    }
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+  }
+
   function formatSessionListLabel(session) {
     if (!session || typeof session !== "object") {
       return "";
     }
-    const base = session.session_id || "";
+    const summary = truncateChatSummary(session.summary || session.title || "");
+    const base = summary || session.session_id || "New chat";
     if (session.access_source !== "granted") {
       return base;
     }
@@ -39,6 +53,7 @@
     canWriteSession,
     isViewOnlySession,
     viewOnlySessionMessage,
+    truncateChatSummary,
     formatSessionListLabel,
   };
 })();

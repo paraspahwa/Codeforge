@@ -1315,6 +1315,66 @@ function activate(context) {
   proposalStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   updateStatusBarState();
 
+  const lspSelector = { scheme: "file" };
+
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(lspSelector, {
+      async provideDefinition(document, position) {
+        const sessionId = panelState?.currentSessionId;
+        const token = panelState?.token;
+        if (!sessionId || !token) {
+          return null;
+        }
+        try {
+          const api = await loadSharedModule(context, "api.js");
+          const relativePath = vscode.workspace.asRelativePath(document.uri);
+          const result = await api.lspDefinition(
+            panelState.baseUrl,
+            token,
+            sessionId,
+            relativePath,
+            position.line + 1,
+            position.character,
+          );
+          const locations = (result.locations || []).map((item) => {
+            const targetUri = vscode.Uri.file(path.join(panelState.workspacePath || "", item.file));
+            return new vscode.Location(targetUri, new vscode.Position(Math.max(0, item.line - 1), item.character || 0));
+          });
+          return locations;
+        } catch {
+          return null;
+        }
+      },
+    }),
+    vscode.languages.registerReferenceProvider(lspSelector, {
+      async provideReferences(document, position) {
+        const sessionId = panelState?.currentSessionId;
+        const token = panelState?.token;
+        if (!sessionId || !token) {
+          return null;
+        }
+        try {
+          const api = await loadSharedModule(context, "api.js");
+          const relativePath = vscode.workspace.asRelativePath(document.uri);
+          const result = await api.lspReferences(
+            panelState.baseUrl,
+            token,
+            sessionId,
+            relativePath,
+            position.line + 1,
+            position.character,
+          );
+          return (result.locations || []).map((item) => {
+            const targetUri = vscode.Uri.file(path.join(panelState.workspacePath || "", item.file));
+            return new vscode.Location(targetUri, new vscode.Position(Math.max(0, item.line - 1), item.character || 0));
+          });
+        } catch {
+          return null;
+        }
+      },
+    }),
+  );
+
   context.subscriptions.push(
     sessionStatusBarItem,
     proposalStatusBarItem,

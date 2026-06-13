@@ -383,4 +383,40 @@ export async function saveSupermemory(token, payload) {
   return shared.saveSupermemory(API_BASE, token, payload);
 }
 
+export async function listWorkspaceFiles(token, sessionId, limit = 300) {
+  return shared.listWorkspaceFiles(API_BASE, token, sessionId, limit);
+}
+
+export async function searchWeb(token, sessionId, query, limit = 5) {
+  return shared.searchWeb(API_BASE, token, sessionId, query, limit);
+}
+
+export async function searchSymbols(token, sessionId, query, limit = 40) {
+  return shared.searchSymbols(API_BASE, token, sessionId, query, limit);
+}
+
+export async function gitPush(token, sessionId, payload = {}) {
+  return shared.gitPush(API_BASE, token, sessionId, payload);
+}
+
+export async function gitPull(token, sessionId, payload = {}) {
+  return shared.gitPull(API_BASE, token, sessionId, payload);
+}
+
+export async function createPullRequest(token, sessionId, payload) {
+  return shared.createPullRequest(API_BASE, token, sessionId, payload);
+}
+
+export async function listCheckpoints(token, sessionId) {
+  return shared.listCheckpoints(API_BASE, token, sessionId);
+}
+
+export async function rewindCheckpoint(token, sessionId, checkpointId, payload = {}) {
+  return shared.rewindCheckpoint(API_BASE, token, sessionId, checkpointId, payload);
+}
+
+export async function getContextStack(token, sessionId) {
+  return shared.getContextStack(API_BASE, token, sessionId);
+}
+
 export const API_BASE_URL = API_BASE;

@@ -92,6 +92,8 @@ export default function SettingsPage() {
   const [rtkEnabled, setRtkEnabled] = useState(false);
   const [rtkStatus, setRtkStatus] = useState(null);
   const [agentEngine, setAgentEngine] = useState("codeforge");
+  const [permissionMode, setPermissionMode] = useState("auto_safe");
+  const [planModeDefault, setPlanModeDefault] = useState(false);
   const [hermesStatus, setHermesStatus] = useState(null);
   const [memories, setMemories] = useState([]);
   const [memoryQuery, setMemoryQuery] = useState("");
@@ -139,6 +141,8 @@ export default function SettingsPage() {
         setEnabledSkills(prefs.enabled_skills || []);
         setRtkEnabled(Boolean(prefs.rtk_enabled));
         setAgentEngine(prefs.agent_engine || "codeforge");
+        setPermissionMode(prefs.permission_mode || "auto_safe");
+        setPlanModeDefault(Boolean(prefs.plan_mode_default));
       })
       .catch(() => setAgentPrefs(null));
     getRtkStatus(token)
@@ -238,6 +242,8 @@ export default function SettingsPage() {
         enabled_skills: enabledSkills,
         rtk_enabled: rtkEnabled,
         agent_engine: agentEngine,
+        permission_mode: permissionMode,
+        plan_mode_default: planModeDefault,
       });
       setAgentPrefs(prefs);
       const [status, hermes] = await Promise.all([getRtkStatus(token), getHermesStatus(token)]);
@@ -585,6 +591,31 @@ export default function SettingsPage() {
             {hermesStatus.simulate_mode ? " | simulate mode on" : ""} | Effective: {hermesStatus.effective_engine}
           </p>
         ) : null}
+        <h3 className="mt-8">Safety &amp; plan mode</h3>
+        <label className="small" htmlFor="permission-mode">
+          Permission mode
+        </label>
+        <select
+          id="permission-mode"
+          value={permissionMode}
+          onChange={(event) => setPermissionMode(event.target.value)}
+          disabled={loading}
+        >
+          {(agentPrefs?.available_permission_modes || ["ask", "auto_safe", "auto_all"]).map((mode) => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
+        <label className="small mt-4">
+          <input
+            type="checkbox"
+            checked={planModeDefault}
+            onChange={(event) => setPlanModeDefault(event.target.checked)}
+            disabled={loading}
+          />{" "}
+          Enable plan mode by default (review strategy before writes)
+        </label>
         <h3 className="mt-8">Caveman prose compression</h3>
         <p className="small">
           Based on{" "}

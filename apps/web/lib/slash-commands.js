@@ -1,37 +1,68 @@
 import {
+  commitGitChanges,
+  compactWorkflow,
+  createPullRequest,
+  createWorkflowPlan,
+  executeWorkflowPlan,
   exportMemory,
   exportTaste,
   getAgentPreferences,
+  getContextStack,
+  getGitDiff,
+  getGitLog,
+  getGitStatus,
   getRtkStatus,
   getSupermemoryStatus,
   getTasteRules,
   getTasteStats,
+  gitFetch,
+  gitPull,
+  gitPush,
+  listCheckpoints,
   listMemories,
   listSkills,
+  listWorkspaceFiles,
+  rewindCheckpoint,
+  rollbackWorkflowPlan,
   saveMemory,
+  scrapeCoworkData,
   searchMemory,
   searchSupermemory,
+  searchSymbols,
+  searchWeb,
   saveSupermemory,
+  stageGitFiles,
+  streamShellCommand,
   updateAgentPreferences,
 } from "./api";
 
-const HELP_TEXT = `Web slash commands (terminal parity subset):
+const HELP_TEXT = `CodeForge workspace commands:
 
-/memory list — list saved memories
-/memory search <query> — search native + Supermemory
-/memory save <text> — save a memory
+/code & navigation
+/files list — list workspace files
+/symbol <name> — find functions/classes across the repo
+/file <path> — set active file for the next edit
 
-/taste stats — taste feedback statistics
-/taste rules — active coding taste rules
+/git status|diff|log|stage|commit — git operations
+/git resolve-guide <branch> — merge conflict guide
 
-/caveman off|lite|full|ultra|status|skills — token saver mode
-/rtk on|off|status — RTK shell compression
+/run <command> — sandboxed shell (pytest, npm test, rg, git status…)
+/plan <file1> <file2> — multi-file edit plan
+/plan run — execute active plan
+/plan rollback — rollback active plan
 
-/supermemory status|search <q>|save <text> — BYOK cloud memory
+/search <query> — web search for docs & errors
+/scrape <url> <prompt> — fetch & extract page content
 
-/help — this message
+/mode plan|execute|off — plan mode (review before writes)
+/context — show active context stack
+/context add <path> — pin file to session context
+/compact — summarize conversation context
+/pr create <title> — create GitHub/GitLab pull request
+/rewind <checkpoint_id> — restore files to checkpoint
 
-Open Settings for full import/export and skill toggles.`;
+/memory, /taste, /caveman, /rtk, /supermemory — preferences
+/help — this message`;
 
 function parseCommand(text) {
   const trimmed = text.trim();
@@ -46,9 +77,9 @@ function parseCommand(text) {
 }
 
 /**
- * @returns {Promise<{ handled: boolean, reply?: string }>}
+ * @returns {Promise<{ handled: boolean, reply?: string, activeFile?: string, activePlanId?: string, planMode?: boolean, attachedFiles?: string[] }>}
  */
-export async function runSlashCommand({ text, token, projectPath }) {
+export async function runSlashCommand({ text, token, projectPath, sessionId, planMode = false, attachedFiles = [] }) {
   const parsed = parseCommand(text);
   if (!parsed) {
     return { handled: false };
@@ -68,6 +99,287 @@ export async function runSlashCommand({ text, token, projectPath }) {
   }
 
   try {
+    if (name === "file") {
+      const path = argLine.trim();
+      if (!path) {
+        return { handled: true, reply: "Usage: /file <path>" };
+      }
+      return { handled: true, reply: `Active file set to ${path}`, activeFile: path };
+    }
+
+    if (name === "files") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const action = sub || "list";
+      if (action === "list") {
+        const result = await listWorkspaceFiles(token, sessionId);
+        const lines = (result.files || []).slice(0, 40);
+        return {
+          handled: true,
+          reply: lines.length ? lines.join("\n") : "No files found in workspace.",
+        };
+      }
+      return { handled: true, reply: "Usage: /files list" };
+    }
+
+    if (name === "symbol") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const query = argLine.trim();
+      if (!query) {
+        return { handled: true, reply: "Usage: /symbol <name>" };
+      }
+      const result = await searchSymbols(token, sessionId, query);
+      const lines = (result.matches || []).slice(0, 15).map(
+        (item) => `${item.kind} ${item.symbol} — ${item.file}:${item.line}`,
+      );
+      if (result.file_hits?.length) {
+        lines.push("", "File hits:", ...result.file_hits.slice(0, 8));
+      }
+      return { handled: true, reply: lines.length ? lines.join("\n") : "No symbols matched." };
+    }
+
+    if (name === "search") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const query = argLine.trim();
+      if (!query) {
+        return { handled: true, reply: "Usage: /search <query>" };
+      }
+      const result = await searchWeb(token, sessionId, query);
+      const lines = (result.results || []).map(
+        (item, index) => `${index + 1}. ${item.title}\n   ${item.url}${item.snippet ? `\n   ${item.snippet}` : ""}`,
+      );
+      return { handled: true, reply: lines.length ? lines.join("\n\n") : "No web results." };
+    }
+
+    if (name === "scrape") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const [url, ...promptParts] = rest;
+      const scrapePrompt = promptParts.join(" ").trim() || "Summarize the technical content.";
+      if (!url) {
+        return { handled: true, reply: "Usage: /scrape <url> <prompt>" };
+      }
+      const result = await scrapeCoworkData(token, {
+        session_id: sessionId,
+        url,
+        scrape_prompt: scrapePrompt,
+        approved: true,
+      });
+      return {
+        handled: true,
+        reply: result.summary || result.excerpt || "Scrape completed.",
+      };
+    }
+
+    if (name === "run") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const command = argLine.trim();
+      if (!command) {
+        return { handled: true, reply: "Usage: /run <command>" };
+      }
+      const chunks = [];
+      for await (const evt of streamShellCommand(token, sessionId, { command })) {
+        if (evt.type === "shell_output") {
+          chunks.push(evt.payload?.chunk || evt.payload?.output || "");
+        }
+        if (evt.type === "shell_result") {
+          chunks.push(`\n[exit ${evt.payload?.exit_code ?? "?"}]`);
+        }
+      }
+      return { handled: true, reply: chunks.join("").trim() || "Command finished with no output." };
+    }
+
+    if (name === "git") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const subcommand = sub || "status";
+      if (subcommand === "status") {
+        const status = await getGitStatus(token, sessionId);
+        const lines = [`${status.branch} | ${status.summary}`];
+        (status.changed_files || []).slice(0, 8).forEach((item) => lines.push(`${item.status} ${item.path}`));
+        (status.untracked_files || []).slice(0, 5).forEach((path) => lines.push(`?? ${path}`));
+        return { handled: true, reply: lines.join("\n") };
+      }
+      if (subcommand === "diff") {
+        const diff = await getGitDiff(token, sessionId, subArg || null);
+        return { handled: true, reply: diff.diff || diff.stat || "No diff." };
+      }
+      if (subcommand === "log") {
+        const log = await getGitLog(token, sessionId, Number.parseInt(rest[1] || "10", 10) || 10);
+        const lines = (log.commits || []).slice(0, 8).map((entry) => `${entry.commit_id} ${entry.message}`);
+        return { handled: true, reply: lines.length ? lines.join("\n") : "No commits." };
+      }
+      if (subcommand === "stage") {
+        const target = subArg;
+        const payload =
+          target === "--all" || target === "all"
+            ? { all_files: true, paths: [] }
+            : { all_files: false, paths: target ? target.split(/\s+/).filter(Boolean) : [] };
+        const result = await stageGitFiles(token, sessionId, payload);
+        return { handled: true, reply: `Staged: ${(result.paths || []).join(", ") || "nothing"}` };
+      }
+      if (subcommand === "commit") {
+        const message = subArg;
+        if (!message) {
+          return { handled: true, reply: "Usage: /git commit <message>" };
+        }
+        const result = await commitGitChanges(token, sessionId, message);
+        return { handled: true, reply: `Committed: ${result.message}` };
+      }
+      return {
+        handled: true,
+        reply: "Usage: /git status|diff|log|stage [paths|--all]|commit <message>",
+      };
+    }
+
+    if (name === "plan") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const action = sub || "";
+      if (action === "run") {
+        return { handled: true, reply: "Use the Workflows tab → Run Plan, or pass a plan id from Create Plan." };
+      }
+      if (action === "rollback") {
+        return { handled: true, reply: "Use the Workflows tab → Rollback for the active plan." };
+      }
+      const targets = rest.filter((item) => item !== "run" && item !== "rollback");
+      if (!targets.length) {
+        return { handled: true, reply: "Usage: /plan <file1> <file2> ..." };
+      }
+      const plan = await createWorkflowPlan(sessionId, token, targets);
+      return {
+        handled: true,
+        reply: `Plan ${plan.plan_id} ready for: ${plan.targets.join(", ")}`,
+        activePlanId: plan.plan_id,
+      };
+    }
+
+    if (name === "mode") {
+      const modeArg = sub || "status";
+      if (modeArg === "plan") {
+        return { handled: true, reply: "Plan mode enabled — agent will propose changes without writing.", planMode: true };
+      }
+      if (modeArg === "execute" || modeArg === "off") {
+        return {
+          handled: true,
+          reply: modeArg === "execute" ? "Plan mode off — ready to execute." : "Plan mode disabled.",
+          planMode: false,
+        };
+      }
+      return {
+        handled: true,
+        reply: `Plan mode is ${planMode ? "on" : "off"}. Usage: /mode plan|execute|off`,
+        planMode,
+      };
+    }
+
+    if (name === "context") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      if (sub === "add") {
+        const path = subArg.trim();
+        if (!path) {
+          return { handled: true, reply: "Usage: /context add <path>" };
+        }
+        const next = [...new Set([...attachedFiles, path])];
+        return {
+          handled: true,
+          reply: `Pinned ${path} to session context.`,
+          activeFile: path,
+          attachedFiles: next,
+        };
+      }
+      const stack = await getContextStack(token, sessionId);
+      const lines = [
+        `Project memory: ${(stack.project_memory || "").slice(0, 120) || "none"}`,
+        `Skills: ${(stack.skills || []).join(", ") || "none"}`,
+        `Packs: ${(stack.packs || []).join(", ") || "none"}`,
+        `Attached files: ${attachedFiles.join(", ") || "none"}`,
+      ];
+      return { handled: true, reply: lines.join("\n") };
+    }
+
+    if (name === "compact") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const result = await compactWorkflow(sessionId, token);
+      return { handled: true, reply: result.summary || result.message || "Context compacted." };
+    }
+
+    if (name === "pr") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      if (sub === "create") {
+        const title = subArg || "CodeForge changes";
+        const result = await createPullRequest(token, sessionId, {
+          title,
+          body: "Automated PR from CodeForge session.",
+          provider: "github",
+        });
+        return { handled: true, reply: result.url || result.message || "PR created." };
+      }
+      return { handled: true, reply: "Usage: /pr create <title>" };
+    }
+
+    if (name === "rewind") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const checkpointId = argLine.trim();
+      if (!checkpointId) {
+        const rows = await listCheckpoints(token, sessionId);
+        const lines = (rows.checkpoints || []).map(
+          (item) => `${item.checkpoint_id} — ${item.label} (${item.created_at})`,
+        );
+        return {
+          handled: true,
+          reply: lines.length ? lines.join("\n") : "No checkpoints yet.",
+        };
+      }
+      const result = await rewindCheckpoint(token, sessionId, checkpointId);
+      return {
+        handled: true,
+        reply: `Rewound to ${result.label || checkpointId}. Restored: ${(result.restored_paths || []).join(", ") || "files"}`,
+      };
+    }
+
+    if (name === "git" && sub === "push") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const result = await gitPush(token, sessionId, { remote: "origin", branch: subArg || "" });
+      return { handled: true, reply: result.output || result.message || "Push completed." };
+    }
+
+    if (name === "git" && sub === "pull") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const result = await gitPull(token, sessionId, { remote: "origin", branch: subArg || "" });
+      return { handled: true, reply: result.output || result.message || "Pull completed." };
+    }
+
+    if (name === "git" && sub === "fetch") {
+      if (!sessionId) {
+        return { handled: true, reply: "Open a session first." };
+      }
+      const result = await gitFetch(token, sessionId, subArg || "origin");
+      return { handled: true, reply: result.output || "Fetch completed." };
+    }
+
     if (name === "memory") {
       const action = sub || "list";
       if (action === "list") {

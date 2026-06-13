@@ -124,12 +124,23 @@ def _validate_shell_command(command: str) -> str:
     raise ShellError("Command is not allowed in the shell sandbox")
 
 
-def _resolve_shell_executable() -> str:
+def _resolve_shell_executable() -> tuple[str, bool]:
+    import os
+    import platform
+
+    preferred = os.getenv("CODEFORGE_SHELL", "").strip().lower()
+    if preferred == "bash" or platform.system().lower() == "linux":
+        bash = shutil.which("bash")
+        if bash:
+            return bash, True
     for candidate in ("pwsh", "powershell"):
         resolved = shutil.which(candidate)
         if resolved:
-            return resolved
-    raise ShellError("PowerShell is not available")
+            return resolved, False
+    bash = shutil.which("bash")
+    if bash:
+        return bash, True
+    raise ShellError("No supported shell is available (bash or PowerShell)")
 
 
 def prepare_shell_execution(
@@ -137,14 +148,14 @@ def prepare_shell_execution(
     command: str,
     *,
     user_rtk_enabled: bool | None = None,
-) -> tuple[Path, str, str, bool]:
+) -> tuple[Path, str, str, bool, bool]:
     root = _normalize_project_path(project_path)
     sanitized = _validate_shell_command(command)
     rtk_applied = should_apply_rtk(sanitized, user_rtk_enabled=user_rtk_enabled)
     if rtk_applied:
-        return root, sanitized, "rtk", True
-    shell_executable = _resolve_shell_executable()
-    return root, sanitized, shell_executable, False
+        return root, sanitized, "rtk", True, False
+    shell_executable, use_bash = _resolve_shell_executable()
+    return root, sanitized, shell_executable, False, use_bash
 
 
 async def _run_subprocess_collect(
@@ -153,8 +164,18 @@ async def _run_subprocess_collect(
     cwd: Path,
     timeout_seconds: int,
     shell_mode: bool,
+    bash_mode: bool = False,
 ) -> tuple[str, int, int]:
-    if shell_mode:
+    if bash_mode:
+        process = await asyncio.create_subprocess_exec(
+            argv[0],
+            "-lc",
+            argv[1],
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    elif shell_mode:
         process = await asyncio.create_subprocess_exec(
             argv[0],
             "-NoLogo",
@@ -231,7 +252,7 @@ async def run_shell_command(
     if resolved_rtk is None and user_id:
         resolved_rtk = skills_service.resolve_rtk_enabled(user_id)
 
-    root, sanitized, executable, rtk_applied = prepare_shell_execution(
+    root, sanitized, executable, rtk_applied, bash_mode = prepare_shell_execution(
         project_path,
         command,
         user_rtk_enabled=resolved_rtk,
@@ -250,15 +271,18 @@ async def run_shell_command(
             argv=[executable, sanitized],
             cwd=root,
             timeout_seconds=timeout_seconds,
-            shell_mode=True,
+            shell_mode=not bash_mode,
+            bash_mode=bash_mode,
         )
 
     if rtk_applied and exit_code != 0 and rtk_debug_enabled() and not output:
+        fallback_exec, fallback_bash = _resolve_shell_executable()
         fallback_output, fallback_exit, fallback_lines = await _run_subprocess_collect(
-            argv=[_resolve_shell_executable(), sanitized],
+            argv=[fallback_exec, sanitized],
             cwd=root,
             timeout_seconds=timeout_seconds,
-            shell_mode=True,
+            shell_mode=not fallback_bash,
+            bash_mode=fallback_bash,
         )
         if fallback_output:
             output = f"{output}\n\n[rtk debug raw tail]\n{fallback_output[-1200:]}"
@@ -304,7 +328,7 @@ async def stream_shell_execution(
     if resolved_rtk is None and user_id:
         resolved_rtk = skills_service.resolve_rtk_enabled(user_id)
 
-    root, sanitized, executable, rtk_applied = prepare_shell_execution(
+    root, sanitized, executable, rtk_applied, bash_mode = prepare_shell_execution(
         project_path,
         command,
         user_rtk_enabled=resolved_rtk,
@@ -337,17 +361,27 @@ async def stream_shell_execution(
                 stderr=asyncio.subprocess.STDOUT,
             )
         else:
-            process = await asyncio.create_subprocess_exec(
-                executable,
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                sanitized,
-                cwd=str(root),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
+            if bash_mode:
+                process = await asyncio.create_subprocess_exec(
+                    executable,
+                    "-lc",
+                    sanitized,
+                    cwd=str(root),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    executable,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    sanitized,
+                    cwd=str(root),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
 
         if process.stdout is None:
             raise ShellError("Unable to capture shell output")

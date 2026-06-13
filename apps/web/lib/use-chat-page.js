@@ -7,28 +7,42 @@ import { canWriteSession, isViewOnlySession } from "@codeforge/shared/sessions";
 import { useShellBar } from "./shell-context";
 import {
   applyGitConflictAssist,
+  commitGitChanges,
   compactWorkflow,
   createAgentTemplate,
+  createPullRequest,
   createSession,
   createWorkflowPlan,
   decideProposal,
   executeWorkflowPlan,
   fetchSessionArtifactPreviewHtml,
   forkSession,
+  getAgentPreferences,
+  getGitDiff,
+  getGitStatus,
+  gitPush,
   listAgentTemplates,
+  listCheckpoints,
   listSessionArtifacts,
   getGitConflictGuide,
   getProposal,
   getUsageSummary,
   listMessages,
   listSessions,
+  listWorkspaceFiles,
+  rewindCheckpoint,
   rollbackWorkflowPlan,
   runAgentLoop,
+  searchSymbols,
+  searchWeb,
   sendMessage,
+  stageGitFiles,
+  streamShellCommand,
   streamSession,
   ultrareviewWorkflow,
 } from "./api";
 import { useAuth } from "./auth-context";
+import { consumePendingChatGoal } from "./product-features";
 import { runSlashCommand } from "./slash-commands";
 import { useToast } from "./toast-context";
 
@@ -55,7 +69,7 @@ export function useChatPage() {
   const [conflictStrategy, setConflictStrategy] = useState("ours");
   const [conflictPaths, setConflictPaths] = useState("");
   const [conflictApplyResult, setConflictApplyResult] = useState(null);
-  const [showWorkflows, setShowWorkflows] = useState(false);
+  const [showWorkflows, setShowWorkflows] = useState(true);
   const [planTargets, setPlanTargets] = useState("");
   const [activePlanId, setActivePlanId] = useState("");
   const [workflowOutput, setWorkflowOutput] = useState("");
@@ -74,6 +88,24 @@ export function useChatPage() {
     "You are a senior reviewer. Focus on correctness, security, and test coverage.",
   );
   const [sessionFilter, setSessionFilter] = useState("");
+  const [activeFile, setActiveFile] = useState("");
+  const [gitSummary, setGitSummary] = useState("");
+  const [shellCommand, setShellCommand] = useState("pytest -q");
+  const [shellOutput, setShellOutput] = useState("");
+  const [shellRunning, setShellRunning] = useState(false);
+  const [symbolQuery, setSymbolQuery] = useState("");
+  const [symbolResults, setSymbolResults] = useState([]);
+  const [webQuery, setWebQuery] = useState("");
+  const [webResults, setWebResults] = useState([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState([]);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [planMode, setPlanMode] = useState(false);
+  const [permissionMode, setPermissionMode] = useState("auto_safe");
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [checkpoints, setCheckpoints] = useState([]);
+  const [thinkingEvents, setThinkingEvents] = useState([]);
+  const [prTitle, setPrTitle] = useState("");
+  const [pushBranch, setPushBranch] = useState("");
   const [routingSignal, setRoutingSignal] = useState(null);
   const [streamingMessageId, setStreamingMessageId] = useState(null);
   const chatEndRef = useRef(null);
@@ -104,6 +136,18 @@ export function useChatPage() {
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || DEFAULT_PROJECT_PATH);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !token) {
+      return;
+    }
+    getAgentPreferences(token)
+      .then((prefs) => {
+        setPlanMode(Boolean(prefs.plan_mode_default));
+        setPermissionMode(prefs.permission_mode || "auto_safe");
+      })
+      .catch(() => undefined);
+  }, [ready, token]);
 
   useEffect(() => {
     setShellUsage(usage);
@@ -177,10 +221,36 @@ export function useChatPage() {
   }, [token, sessionId]);
 
   useEffect(() => {
+    if (!token || !sessionId) {
+      setWorkspaceFiles([]);
+      setGitSummary("");
+      return;
+    }
+    listWorkspaceFiles(token, sessionId)
+      .then((result) => setWorkspaceFiles(result.files || []))
+      .catch(() => undefined);
+    getGitStatus(token, sessionId)
+      .then((status) => setGitSummary(`${status.branch} · ${status.summary}`))
+      .catch(() => undefined);
+  }, [token, sessionId]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => () => streamRef.current?.close(), []);
+
+  useEffect(() => {
+    if (!ready || !token || loading) {
+      return;
+    }
+    const pending = consumePendingChatGoal();
+    if (!pending) {
+      return;
+    }
+    void handleStartWithGoal({ starterPrompt: pending.prompt, planMode: pending.planMode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when auth is ready
+  }, [ready, token]);
 
   async function refreshSessions() {
     const sessions = await listSessions(token);
@@ -219,6 +289,10 @@ export function useChatPage() {
       );
       setAgentEvents([]);
       setPendingProposal(null);
+      setThinkingEvents([]);
+      listCheckpoints(token, nextSessionId)
+        .then((result) => setCheckpoints(result.checkpoints || []))
+        .catch(() => undefined);
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -228,6 +302,190 @@ export function useChatPage() {
 
   function pushAgentEvents(entries) {
     setAgentEvents((prev) => [...entries.filter(Boolean), ...prev].slice(0, 12));
+  }
+
+  async function dispatchUserMessage(userText, activeSessionId = sessionId, options = {}) {
+    if (!token || !activeSessionId || !userText.trim()) {
+      return;
+    }
+    if (!options.skipWritableCheck && !sessionWritable) {
+      return;
+    }
+
+    const effectivePlanMode = options.planMode ?? planMode;
+    const assistantId = `a_${Date.now()}`;
+    setStreamingMessageId(assistantId);
+    setMessages((prev) => [
+      ...prev,
+      { id: `u_${Date.now()}`, role: "user", content: userText },
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
+
+    const messageContext = {
+      ...(activeFile.trim() ? { current_file: activeFile.trim() } : {}),
+      plan_mode: effectivePlanMode,
+      permission_mode: permissionMode,
+      attached_files: attachedFiles,
+    };
+    const hasContext = Object.keys(messageContext).length > 0;
+    const sent = await sendMessage(
+      activeSessionId,
+      userText,
+      token,
+      hasContext ? messageContext : null,
+      selectedTemplateId || null,
+    );
+    setRoutingSignal({
+      intent: sent.intent,
+      model_used: sent.model_used,
+      confidence_label: sent.confidence_label,
+      confidence_score: sent.confidence_score,
+      review_required: sent.review_required,
+      routing_tier: sent.routing_tier,
+      fallback_used: sent.fallback_used,
+    });
+
+    const source = streamSession(activeSessionId, token, (evt) => {
+      if (evt.type === "run_started") {
+        setRoutingSignal({
+          intent: evt.payload?.intent,
+          model_used: evt.payload?.model,
+          confidence_label: evt.payload?.confidence_label,
+          confidence_score: evt.payload?.confidence_score,
+          review_required: evt.payload?.review_required,
+          routing_tier: evt.payload?.routing_tier,
+          fallback_used: evt.payload?.fallback_used,
+        });
+      }
+
+      if (evt.type === "token") {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId
+              ? { ...msg, content: msg.content + (evt.payload?.content ?? evt.content ?? "") }
+              : msg
+          )
+        );
+      }
+
+      if (evt.type === "thinking") {
+        const content = evt.payload?.content || "";
+        if (content) {
+          setThinkingEvents((prev) => [...prev, content]);
+          pushAgentEvents([`💭 ${content}`]);
+        }
+      }
+
+      if (evt.type === "checkpoint_created") {
+        const checkpointId = evt.payload?.checkpoint_id;
+        if (checkpointId) {
+          pushAgentEvents([`Checkpoint ${checkpointId} saved`]);
+          listCheckpoints(token, activeSessionId)
+            .then((result) => setCheckpoints(result.checkpoints || []))
+            .catch(() => undefined);
+        }
+      }
+
+      if (evt.type === "tool_call") {
+        if (evt.payload?.tool === "verify.static" || evt.payload?.tool === "file.patch") {
+          pushAgentEvents([`${evt.payload?.tool === "file.patch" ? "Prepared" : "Checking"} ${evt.payload?.target || "change"}…`]);
+        }
+      }
+
+      if (evt.type === "diff") {
+        const applied = evt.payload?.applied || evt.payload?.status === "approved";
+        pushAgentEvents([applied ? `✓ Applied ${evt.payload?.file}` : `Updated ${evt.payload?.file}`]);
+        if (evt.payload?.proposal_id) {
+          setPendingProposal({
+            proposal_id: evt.payload.proposal_id,
+            target_file: evt.payload.file,
+            patch_preview: evt.payload.patch,
+            status: applied ? "approved" : evt.payload.status || "pending",
+            auto_applied: Boolean(applied),
+          });
+        }
+      }
+
+      if (evt.type === "approval_request") {
+        return;
+      }
+
+      if (evt.type === "tool_result") {
+        if (evt.payload?.message && !String(evt.payload.message).toLowerCase().includes("policy bound")) {
+          pushAgentEvents([evt.payload.message]);
+        }
+      }
+
+      if (evt.type === "complete") {
+        listMessages(activeSessionId, token)
+          .then((stored) => {
+            setMessages(
+              stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
+            );
+          })
+          .catch(() => undefined);
+        if (evt.payload?.applied || evt.payload?.auto_applied) {
+          pushAgentEvents([`✓ Saved to ${evt.payload?.target_file || "workspace"}`]);
+          setPendingProposal((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: "approved",
+                  auto_applied: true,
+                  target_file: evt.payload?.target_file || prev.target_file,
+                }
+              : prev,
+          );
+        }
+        source.close();
+        getUsageSummary(token).then(setUsage).catch(() => undefined);
+        listSessionArtifacts(activeSessionId, token)
+          .then((result) => setArtifacts(result.artifacts || []))
+          .catch(() => undefined);
+        setStreamingMessageId(null);
+        setLoading(false);
+      }
+    });
+    streamRef.current = source;
+
+    source.onerror = () => {
+      source.close();
+      toast.push("Streaming connection lost");
+      setStreamingMessageId(null);
+      setLoading(false);
+    };
+  }
+
+  async function handleStartWithGoal({ starterPrompt, planMode: nextPlanMode = false }) {
+    const text = String(starterPrompt || "").trim();
+    if (!text || !token) {
+      return;
+    }
+    if (!projectPath.trim()) {
+      toast.push("Pick a project folder first");
+      return;
+    }
+    if (nextPlanMode) {
+      setPlanMode(true);
+    }
+    setLoading(true);
+    try {
+      let activeSessionId = sessionId;
+      if (!activeSessionId) {
+        localStorage.setItem("codeforge_project_path", projectPath.trim());
+        const result = await createSession(projectPath.trim(), token);
+        activeSessionId = result.session_id;
+        setSessionId(activeSessionId);
+        setMessages([]);
+        setAgentEvents([]);
+        setPendingProposal(null);
+        await refreshSessions();
+      }
+      await dispatchUserMessage(text, activeSessionId, { planMode: nextPlanMode || planMode, skipWritableCheck: true });
+    } catch (error) {
+      toast.push(error.message);
+      setLoading(false);
+    }
   }
 
   async function handleSendPrompt(event) {
@@ -247,8 +505,22 @@ export function useChatPage() {
           token,
           projectPath: projectPath || null,
           sessionId,
+          planMode,
+          attachedFiles,
         });
         if (commandResult.handled) {
+          if (commandResult.activeFile) {
+            setActiveFile(commandResult.activeFile);
+          }
+          if (commandResult.activePlanId) {
+            setActivePlanId(commandResult.activePlanId);
+          }
+          if (typeof commandResult.planMode === "boolean") {
+            setPlanMode(commandResult.planMode);
+          }
+          if (commandResult.attachedFiles) {
+            setAttachedFiles(commandResult.attachedFiles);
+          }
           setMessages((prev) => [
             ...prev,
             { id: `u_${Date.now()}`, role: "user", content: userText },
@@ -264,117 +536,8 @@ export function useChatPage() {
       }
     }
 
-    const assistantId = `a_${Date.now()}`;
-    setStreamingMessageId(assistantId);
-    setMessages((prev) => [
-      ...prev,
-      { id: `u_${Date.now()}`, role: "user", content: userText },
-      { id: assistantId, role: "assistant", content: "" },
-    ]);
-
     try {
-      const sent = await sendMessage(sessionId, userText, token, null, selectedTemplateId || null);
-      setRoutingSignal({
-        intent: sent.intent,
-        model_used: sent.model_used,
-        confidence_label: sent.confidence_label,
-        confidence_score: sent.confidence_score,
-        review_required: sent.review_required,
-        routing_tier: sent.routing_tier,
-        fallback_used: sent.fallback_used,
-      });
-
-      const source = streamSession(sessionId, token, (evt) => {
-        if (evt.type === "run_started") {
-          setRoutingSignal({
-            intent: evt.payload?.intent,
-            model_used: evt.payload?.model,
-            confidence_label: evt.payload?.confidence_label,
-            confidence_score: evt.payload?.confidence_score,
-            review_required: evt.payload?.review_required,
-            routing_tier: evt.payload?.routing_tier,
-            fallback_used: evt.payload?.fallback_used,
-          });
-        }
-
-        if (evt.type === "token") {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantId
-                ? { ...msg, content: msg.content + (evt.payload?.content ?? evt.content ?? "") }
-                : msg
-            )
-          );
-        }
-
-        if (evt.type === "tool_call") {
-          if (evt.payload?.tool === "verify.static" || evt.payload?.tool === "file.patch") {
-            pushAgentEvents([`${evt.payload?.tool === "file.patch" ? "Prepared" : "Checking"} ${evt.payload?.target || "change"}…`]);
-          }
-        }
-
-        if (evt.type === "diff") {
-          const applied = evt.payload?.applied || evt.payload?.status === "approved";
-          pushAgentEvents([applied ? `✓ Applied ${evt.payload?.file}` : `Updated ${evt.payload?.file}`]);
-          if (evt.payload?.proposal_id) {
-            setPendingProposal({
-              proposal_id: evt.payload.proposal_id,
-              target_file: evt.payload.file,
-              patch_preview: evt.payload.patch,
-              status: applied ? "approved" : evt.payload.status || "pending",
-              auto_applied: Boolean(applied),
-            });
-          }
-        }
-
-        if (evt.type === "approval_request") {
-          return;
-        }
-
-        if (evt.type === "tool_result") {
-          if (evt.payload?.message && !String(evt.payload.message).toLowerCase().includes("policy bound")) {
-            pushAgentEvents([evt.payload.message]);
-          }
-        }
-
-        if (evt.type === "complete") {
-          listMessages(sessionId, token)
-            .then((stored) => {
-              setMessages(
-                stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
-              );
-            })
-            .catch(() => undefined);
-          if (evt.payload?.applied || evt.payload?.auto_applied) {
-            pushAgentEvents([`✓ Saved to ${evt.payload?.target_file || "workspace"}`]);
-            setPendingProposal((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    status: "approved",
-                    auto_applied: true,
-                    target_file: evt.payload?.target_file || prev.target_file,
-                  }
-                : prev,
-            );
-          }
-          source.close();
-          getUsageSummary(token).then(setUsage).catch(() => undefined);
-          listSessionArtifacts(sessionId, token)
-            .then((result) => setArtifacts(result.artifacts || []))
-            .catch(() => undefined);
-          setStreamingMessageId(null);
-          setLoading(false);
-        }
-      });
-      streamRef.current = source;
-
-      source.onerror = () => {
-        source.close();
-        toast.push("Streaming connection lost");
-        setStreamingMessageId(null);
-        setLoading(false);
-      };
+      await dispatchUserMessage(userText, sessionId);
     } catch (error) {
       toast.push(error.message);
       setStreamingMessageId(null);
@@ -590,6 +753,11 @@ export function useChatPage() {
     }
   }
 
+  async function handleRunTemplate(templateId) {
+    setSelectedTemplateId(templateId);
+    toast.push("Template selected for your next message", "success");
+  }
+
   async function handleCreateTemplate() {
     if (!templateName.trim() || !templatePrefix.trim()) {
       toast.push("Template name and prompt prefix are required");
@@ -629,6 +797,240 @@ export function useChatPage() {
       toast.push(error.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRefreshGit() {
+    if (!sessionId || !token) {
+      return;
+    }
+    try {
+      const status = await getGitStatus(token, sessionId);
+      setGitSummary(`${status.branch} · ${status.summary}`);
+    } catch (error) {
+      toast.push(error.message);
+    }
+  }
+
+  async function handleGitStatus() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const status = await getGitStatus(token, sessionId);
+      setGitSummary(`${status.branch} · ${status.summary}`);
+      const lines = [`${status.branch} | ${status.summary}`];
+      (status.changed_files || []).slice(0, 6).forEach((item) => lines.push(`${item.status} ${item.path}`));
+      pushAgentEvents(lines);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGitDiff() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const target = activeFile.trim() || null;
+      const diff = await getGitDiff(token, sessionId, target);
+      setShellOutput(diff.diff || diff.stat || "No diff.");
+      pushAgentEvents([`git diff ${target || "worktree"}`]);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStageAll() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await stageGitFiles(token, sessionId, { all_files: true, paths: [] });
+      setGitSummary(`staged ${(result.paths || []).length} path(s)`);
+      toast.push("All changes staged", "success");
+      await handleRefreshGit();
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGitCommit() {
+    if (!sessionId || !token || !commitMessage.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await commitGitChanges(token, sessionId, commitMessage.trim());
+      setCommitMessage("");
+      setGitSummary(`commit: ${result.message}`);
+      toast.push("Commit created", "success");
+      await handleRefreshGit();
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGitPush() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await gitPush(token, sessionId, {
+        remote: "origin",
+        branch: pushBranch.trim() || undefined,
+      });
+      pushAgentEvents([result.output || "Push completed"]);
+      toast.push("Branch pushed", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePr() {
+    if (!sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await createPullRequest(token, sessionId, {
+        title: prTitle.trim() || "CodeForge changes",
+        body: "Automated pull request from CodeForge workspace.",
+        provider: "github",
+      });
+      pushAgentEvents([result.url || result.message || "PR created"]);
+      toast.push("Pull request created", "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRefreshCheckpoints() {
+    if (!sessionId || !token) {
+      return;
+    }
+    try {
+      const result = await listCheckpoints(token, sessionId);
+      setCheckpoints(result.checkpoints || []);
+    } catch (error) {
+      toast.push(error.message);
+    }
+  }
+
+  async function handleRewindCheckpoint(checkpointId) {
+    if (!sessionId || !token || !checkpointId) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await rewindCheckpoint(token, sessionId, checkpointId);
+      pushAgentEvents([`Rewound: ${(result.restored_paths || []).join(", ")}`]);
+      toast.push("Checkpoint restored", "success");
+      await handleRefreshCheckpoints();
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleExecuteAgentPlan() {
+    setPlanMode(false);
+    const lastUser = [...messages].reverse().find((msg) => msg.role === "user");
+    if (lastUser?.content) {
+      setPrompt(lastUser.content);
+      toast.push("Plan mode off — send the message again to execute", "success");
+    } else {
+      toast.push("Plan mode disabled — ready to execute writes");
+    }
+  }
+
+  async function handleRunShell() {
+    if (!sessionId || !token || !shellCommand.trim()) {
+      return;
+    }
+    setShellRunning(true);
+    setShellOutput("");
+    try {
+      const chunks = [];
+      for await (const evt of streamShellCommand(token, sessionId, { command: shellCommand.trim() })) {
+        if (evt.type === "shell_output") {
+          chunks.push(evt.payload?.chunk || evt.payload?.output || "");
+          setShellOutput(chunks.join(""));
+        }
+        if (evt.type === "shell_result") {
+          chunks.push(`\n[exit ${evt.payload?.exit_code ?? "?"}]`);
+          setShellOutput(chunks.join(""));
+        }
+      }
+      pushAgentEvents([`shell: ${shellCommand.trim()}`]);
+    } catch (error) {
+      toast.push(error.message);
+      setShellOutput(error.message);
+    } finally {
+      setShellRunning(false);
+    }
+  }
+
+  async function handleSearchSymbols() {
+    if (!sessionId || !token || !symbolQuery.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await searchSymbols(token, sessionId, symbolQuery.trim());
+      setSymbolResults(result.matches || []);
+      if (result.matches?.[0]) {
+        setActiveFile(result.matches[0].file);
+      }
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleWebSearch() {
+    if (!sessionId || !token || !webQuery.trim()) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await searchWeb(token, sessionId, webQuery.trim());
+      setWebResults(result.results || []);
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRefreshFiles() {
+    if (!sessionId || !token) {
+      return;
+    }
+    try {
+      const result = await listWorkspaceFiles(token, sessionId);
+      setWorkspaceFiles(result.files || []);
+      toast.push(`Loaded ${result.files?.length || 0} files`, "success");
+    } catch (error) {
+      toast.push(error.message);
     }
   }
 
@@ -713,6 +1115,34 @@ export function useChatPage() {
     setTemplatePrefix,
     sessionFilter,
     setSessionFilter,
+    activeFile,
+    setActiveFile,
+    gitSummary,
+    shellCommand,
+    setShellCommand,
+    shellOutput,
+    shellRunning,
+    symbolQuery,
+    setSymbolQuery,
+    symbolResults,
+    webQuery,
+    setWebQuery,
+    webResults,
+    workspaceFiles,
+    commitMessage,
+    setCommitMessage,
+    planMode,
+    setPlanMode,
+    permissionMode,
+    setPermissionMode,
+    attachedFiles,
+    setAttachedFiles,
+    checkpoints,
+    thinkingEvents,
+    prTitle,
+    setPrTitle,
+    pushBranch,
+    setPushBranch,
     routingSignal,
     streamingMessageId,
     chatEndRef,
@@ -721,6 +1151,7 @@ export function useChatPage() {
     canSend,
     mascotState,
     handleCreateSession,
+    handleStartWithGoal,
     handleSelectSession,
     handleSendPrompt,
     handleProposalDecision,
@@ -732,8 +1163,23 @@ export function useChatPage() {
     handleRollbackPlan,
     handleRunLoop,
     handlePreviewArtifact,
+    handleRunTemplate,
     handleCreateTemplate,
     handleForkSession,
     handleApplyConflictAssist,
+    handleRefreshGit,
+    handleGitStatus,
+    handleGitDiff,
+    handleStageAll,
+    handleGitCommit,
+    handleGitPush,
+    handleCreatePr,
+    handleRefreshCheckpoints,
+    handleRewindCheckpoint,
+    handleExecuteAgentPlan,
+    handleRunShell,
+    handleSearchSymbols,
+    handleWebSearch,
+    handleRefreshFiles,
   };
 }

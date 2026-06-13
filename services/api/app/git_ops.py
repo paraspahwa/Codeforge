@@ -396,3 +396,20 @@ def git_conflict_assisted_apply(project_path: str, target_branch: str, strategy:
         "remaining_conflicts": remaining,
         "next_steps": next_steps,
     }
+
+
+def git_fetch(project_path: str, remote: str = "origin") -> dict[str, Any]:
+    output = _run_git(project_path, "fetch", remote)
+    return {"remote": remote, "output": output}
+
+
+def git_pull(project_path: str, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
+    head = branch or _run_git(project_path, "rev-parse", "--abbrev-ref", "HEAD")
+    output = _run_git(project_path, "pull", remote, head)
+    return {"branch": head, "remote": remote, "output": output}
+
+
+def git_push(project_path: str, remote: str = "origin", branch: str | None = None) -> dict[str, Any]:
+    head = branch or _run_git(project_path, "rev-parse", "--abbrev-ref", "HEAD")
+    output = _run_git(project_path, "push", remote, head)
+    return {"branch": head, "remote": remote, "output": output}

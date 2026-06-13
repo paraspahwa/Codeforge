@@ -88,6 +88,18 @@ export async function scrapeCoworkData(token, payload) {
   return shared.scrapeCoworkData(API_BASE, token, payload);
 }
 
+export async function previewCoworkGoal(token, payload) {
+  return shared.previewCoworkGoal(API_BASE, token, payload);
+}
+
+export async function runCoworkGoal(token, payload) {
+  return shared.runCoworkGoal(API_BASE, token, payload);
+}
+
+export async function synthesizeCoworkDocument(token, payload) {
+  return shared.synthesizeCoworkDocument(API_BASE, token, payload);
+}
+
 export async function listCoworkExtractions(token) {
   return shared.listCoworkExtractions(API_BASE, token);
 }
@@ -383,8 +395,8 @@ export function streamSession(sessionId, token, onData) {
   return createSessionStream(API_BASE, token, sessionId, onData);
 }
 
-export async function forkSession(sessionId, token) {
-  return shared.forkSession(API_BASE, token, sessionId);
+export async function forkSession(sessionId, token, payload = {}) {
+  return shared.forkSession(API_BASE, token, sessionId, payload);
 }
 
 export async function runAgentLoop(sessionId, token, payload) {
@@ -425,4 +437,72 @@ export async function getFilePreview(token, sessionId, path) {
 
 export function streamShellCommand(token, sessionId, payload) {
   return shared.streamShellCommand(API_BASE, token, sessionId, payload);
+}
+
+export async function getGitLog(token, sessionId, limit = 10) {
+  return shared.getGitLog(API_BASE, token, sessionId, limit);
+}
+
+export async function stageGitFiles(token, sessionId, payload) {
+  return shared.stageGitFiles(API_BASE, token, sessionId, payload);
+}
+
+export async function commitGitChanges(token, sessionId, message) {
+  return shared.commitGitChanges(API_BASE, token, sessionId, message);
+}
+
+export async function branchGitRepo(token, sessionId, payload) {
+  return shared.branchGitRepo(API_BASE, token, sessionId, payload);
+}
+
+export async function getGitMergeAssist(token, sessionId, targetBranch) {
+  return shared.getGitMergeAssist(API_BASE, token, sessionId, targetBranch);
+}
+
+export async function listWorkspaceFiles(token, sessionId, limit = 300) {
+  return shared.listWorkspaceFiles(API_BASE, token, sessionId, limit);
+}
+
+export async function searchWeb(token, sessionId, query, limit = 5) {
+  return shared.searchWeb(API_BASE, token, sessionId, query, limit);
+}
+
+export async function searchSymbols(token, sessionId, query, limit = 40) {
+  return shared.searchSymbols(API_BASE, token, sessionId, query, limit);
+}
+
+export async function gitPush(token, sessionId, payload = {}) {
+  return shared.gitPush(API_BASE, token, sessionId, payload);
+}
+
+export async function gitPull(token, sessionId, payload = {}) {
+  return shared.gitPull(API_BASE, token, sessionId, payload);
+}
+
+export async function gitFetch(token, sessionId, remote = "origin") {
+  return shared.gitFetch(API_BASE, token, sessionId, remote);
+}
+
+export async function createPullRequest(token, sessionId, payload) {
+  return shared.createPullRequest(API_BASE, token, sessionId, payload);
+}
+
+export async function listCheckpoints(token, sessionId) {
+  return shared.listCheckpoints(API_BASE, token, sessionId);
+}
+
+export async function rewindCheckpoint(token, sessionId, checkpointId, payload = {}) {
+  return shared.rewindCheckpoint(API_BASE, token, sessionId, checkpointId, payload);
+}
+
+export async function getContextStack(token, sessionId) {
+  return shared.getContextStack(API_BASE, token, sessionId);
+}
+
+export async function lspDefinition(token, sessionId, path, line = 1, character = 0) {
+  return shared.lspDefinition(API_BASE, token, sessionId, path, line, character);
+}
+
+export async function lspReferences(token, sessionId, path, line = 1, character = 0) {
+  return shared.lspReferences(API_BASE, token, sessionId, path, line, character);
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .db import get_session_by_id, get_session_for_user, list_sessions_for_user
+from .db import first_user_message_summaries, get_session_by_id, get_session_for_user, list_sessions_for_user
 from .projects_team_store import (
     get_active_session_share_access_level,
     get_workspace,
@@ -200,4 +200,9 @@ def list_accessible_sessions_for_actor(
                 existing["workspace_id"] = grant["workspace_id"]
 
     ordered = sorted(by_id.values(), key=lambda item: item["created_at"], reverse=True)
-    return ordered[offset : offset + limit]
+    page = ordered[offset : offset + limit]
+    summaries = first_user_message_summaries([item["session_id"] for item in page])
+    for item in page:
+        summary = summaries.get(item["session_id"], "").strip()
+        item["summary"] = summary or None
+    return page

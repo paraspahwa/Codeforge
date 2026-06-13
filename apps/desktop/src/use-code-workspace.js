@@ -218,6 +218,7 @@ export function useCodeWorkspace() {
           text: userText,
           token,
           projectPath: projectPath || null,
+          sessionId,
         });
         if (commandResult.handled) {
           setMessages((previous) => [

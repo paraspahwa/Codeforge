@@ -63,6 +63,8 @@ def _read_skill_file(path: Path) -> dict[str, Any] | None:
         "description": meta.get("description", ""),
         "source": meta.get("source"),
         "license": meta.get("license"),
+        "slash": meta.get("slash", ""),
+        "keywords": meta.get("keywords", ""),
         "body": body,
         "path": str(path),
         "origin": "project" if ".codeforge" in str(path) and "Indi-claude" not in str(path) else "bundled",
@@ -126,6 +128,8 @@ class SkillsService:
                     "path": skill["path"],
                     "source": skill.get("source"),
                     "license": skill.get("license"),
+                    "slash": skill.get("slash", ""),
+                    "keywords": skill.get("keywords", ""),
                 }
         return list(discovered.values())
 
@@ -140,6 +144,8 @@ class SkillsService:
         enabled_skills: list[str] | None = None,
         rtk_enabled: bool | None = None,
         agent_engine: str | None = None,
+        permission_mode: str | None = None,
+        plan_mode_default: bool | None = None,
     ) -> dict[str, Any]:
         current = self.get_preferences(user_id)
         mode = (caveman_mode or current["caveman_mode"]).strip().lower()
@@ -148,6 +154,9 @@ class SkillsService:
         engine = (agent_engine or current.get("agent_engine") or "codeforge").strip().lower()
         if engine not in VALID_AGENT_ENGINES:
             raise ValueError(f"Invalid agent_engine: {engine}")
+        perm = (permission_mode or current.get("permission_mode") or "auto_safe").strip().lower()
+        if perm not in {"ask", "auto_safe", "auto_all"}:
+            raise ValueError(f"Invalid permission_mode: {perm}")
         skills = enabled_skills if enabled_skills is not None else list(current["enabled_skills"])
         cleaned_skills = sorted({item.strip() for item in skills if item and item.strip()})
         skills_store.upsert_user_agent_preferences(
@@ -157,6 +166,8 @@ class SkillsService:
             updated_at=_utc_now_iso(),
             rtk_enabled=rtk_enabled if rtk_enabled is not None else current["rtk_enabled"],
             agent_engine=engine,
+            permission_mode=perm,
+            plan_mode_default=plan_mode_default if plan_mode_default is not None else current.get("plan_mode_default", False),
         )
         return self.get_preferences(user_id)
 
@@ -235,6 +246,22 @@ class SkillsService:
             active_skills.append(skill_name)
             sections.append(f"## Skill: {skill_name}\n{skill['body'][:2500]}")
 
+        prompt_lower = (user_prompt or "").lower()
+        for listed in self.list_skills(project_path):
+            if listed["name"] in active_skills:
+                continue
+            keywords = str(listed.get("keywords", "")).strip()
+            if not keywords:
+                continue
+            for keyword in keywords.split(","):
+                token = keyword.strip().lower()
+                if token and token in prompt_lower:
+                    skill = self.load_skill(listed["name"], project_path)
+                    if skill:
+                        active_skills.append(listed["name"])
+                        sections.append(f"## Skill: {listed['name']}\n{skill['body'][:2500]}")
+                    break
+
         instructions = "\n\n".join(section for section in sections if section.strip())
         meta = {
             "caveman_mode": caveman_mode,
@@ -242,6 +269,16 @@ class SkillsService:
             "token_saver_enabled": caveman_mode != "off",
         }
         return instructions, meta
+
+    def resolve_skill_by_slash(self, slash_command: str, project_path: str | None = None) -> dict[str, Any] | None:
+        normalized = slash_command.strip().lower()
+        if not normalized.startswith("/"):
+            normalized = f"/{normalized}"
+        for listed in self.list_skills(project_path):
+            slash = str(listed.get("slash", "")).strip().lower()
+            if slash and slash == normalized:
+                return self.load_skill(listed["name"], project_path)
+        return None
 
 
 skills_service = SkillsService()

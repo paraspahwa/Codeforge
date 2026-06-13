@@ -20,6 +20,7 @@ class SessionListItem(BaseModel):
     project_path: str
     model_preference: str
     created_at: datetime
+    summary: str | None = None
     access_source: Literal["owned", "granted"] = "owned"
     access_level: Literal["view", "delegate"] = "delegate"
     workspace_id: str | None = None
@@ -29,12 +30,16 @@ class SessionListItem(BaseModel):
 class MessageContext(BaseModel):
     current_file: str | None = None
     line_number: int | None = None
+    plan_mode: bool = False
+    attached_files: list[str] = Field(default_factory=list)
+    permission_mode: str | None = None
 
 
 class AgentEvent(BaseModel):
     type: Literal[
         "run_started",
         "token",
+        "thinking",
         "tool_call",
         "tool_result",
         "diff",
@@ -42,6 +47,9 @@ class AgentEvent(BaseModel):
         "shell_call",
         "shell_output",
         "shell_result",
+        "checkpoint_created",
+        "subagent_started",
+        "subagent_complete",
         "complete",
         "raw",
     ]
@@ -153,6 +161,9 @@ class AgentPreferencesResponse(BaseModel):
     rtk_last_stats: dict[str, Any] = Field(default_factory=dict)
     agent_engine: Literal["codeforge", "hermes"] = "codeforge"
     available_agent_engines: list[str] = Field(default_factory=lambda: ["codeforge", "hermes"])
+    permission_mode: Literal["ask", "auto_safe", "auto_all"] = "auto_safe"
+    plan_mode_default: bool = False
+    available_permission_modes: list[str] = Field(default_factory=lambda: ["ask", "auto_safe", "auto_all"])
 
 
 class AgentPreferencesUpdateRequest(BaseModel):
@@ -160,6 +171,8 @@ class AgentPreferencesUpdateRequest(BaseModel):
     enabled_skills: list[str] | None = None
     rtk_enabled: bool | None = None
     agent_engine: Literal["codeforge", "hermes"] | None = None
+    permission_mode: Literal["ask", "auto_safe", "auto_all"] | None = None
+    plan_mode_default: bool | None = None
 
 
 class HermesStatusResponse(BaseModel):
@@ -306,6 +319,75 @@ class SymbolSearchResponse(BaseModel):
     match_count: int
     matches: list[SymbolMatchItem]
     file_hits: list[str] = Field(default_factory=list)
+
+
+class CheckpointItem(BaseModel):
+    checkpoint_id: str
+    session_id: str
+    label: str
+    message_index: int | None = None
+    git_sha: str | None = None
+    created_at: str
+
+
+class CheckpointListResponse(BaseModel):
+    checkpoints: list[CheckpointItem]
+
+
+class RewindRequest(BaseModel):
+    checkpoint_id: str
+    truncate_messages: bool = False
+
+
+class RewindResponse(BaseModel):
+    checkpoint_id: str
+    restored_paths: list[str]
+    label: str
+
+
+class GitPushRequest(BaseModel):
+    remote: str = "origin"
+    branch: str | None = None
+
+
+class GitPullRequest(BaseModel):
+    remote: str = "origin"
+    branch: str | None = None
+
+
+class GitRemoteResponse(BaseModel):
+    branch: str
+    remote: str
+    output: str
+
+
+class CreatePullRequestPayload(BaseModel):
+    title: str
+    body: str = ""
+    provider: Literal["github", "gitlab"] = "github"
+    base_branch: str | None = None
+
+
+class CreatePullRequestResponse(BaseModel):
+    message: str
+    url: str | None = None
+    provider: str
+    number: int | None = None
+    iid: int | None = None
+
+
+class LspLocationResponse(BaseModel):
+    message: str
+    locations: list[SymbolMatchItem] = Field(default_factory=list)
+
+
+class ContextStackResponse(BaseModel):
+    project_memory: str = ""
+    skills: list[str] = Field(default_factory=list)
+    taste: str = ""
+    memory: str = ""
+    packs: list[str] = Field(default_factory=list)
+    attached_files: list[str] = Field(default_factory=list)
 
 
 class GitStatusItem(BaseModel):
@@ -583,6 +665,10 @@ class UltrareviewRequest(BaseModel):
     target_file: str | None = None
 
 
+class SessionForkRequest(BaseModel):
+    checkpoint_id: str | None = None
+
+
 class SessionForkResponse(BaseModel):
     session_id: str
     parent_session_id: str
@@ -695,7 +781,7 @@ class SessionState(BaseModel):
 class CoworkPlanRequest(BaseModel):
     session_id: str
     title: str = ""
-    task_type: Literal["shell", "extract", "browser", "connector", "scrape"]
+    task_type: Literal["shell", "extract", "browser", "connector", "scrape", "file_ops", "synthesize"]
     command: str | None = None
     source_path: str | None = None
     url: str | None = None
@@ -1334,6 +1420,71 @@ class CoworkReliabilitySnapshotItem(BaseModel):
 
 class CoworkReliabilityHistoryResponse(BaseModel):
     snapshots: list[CoworkReliabilitySnapshotItem]
+
+
+class CoworkGoalPreviewRequest(BaseModel):
+    session_id: str
+    goal: str = Field(min_length=3, max_length=4000)
+
+
+class CoworkGoalStepPreview(BaseModel):
+    step_id: str
+    task_type: str
+    title: str
+    requires_approval: bool = False
+
+
+class CoworkGoalPreviewResponse(BaseModel):
+    workflow_id: str
+    session_id: str
+    goal: str
+    step_count: int
+    preview_lines: list[str]
+    steps: list[CoworkGoalStepPreview]
+    requires_approval: bool
+    autonomous: bool = True
+
+
+class CoworkGoalRunRequest(BaseModel):
+    session_id: str
+    goal: str = Field(min_length=3, max_length=4000)
+    approved: bool = False
+
+
+class CoworkGoalStepResult(BaseModel):
+    step_id: str | None = None
+    task_type: str
+    status: str
+    summary: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class CoworkGoalRunResponse(BaseModel):
+    workflow_id: str
+    goal: str
+    status: str
+    summary: str
+    step_results: list[CoworkGoalStepResult]
+    preview_lines: list[str] = Field(default_factory=list)
+
+
+class CoworkSynthesizeRequest(BaseModel):
+    session_id: str
+    source_path: str = "."
+    output_name: str = "cowork-report.md"
+    format: Literal["markdown", "csv"] = "markdown"
+    title: str = "CodeForge Cowork Report"
+    prompt: str = ""
+
+
+class CoworkSynthesizeResponse(BaseModel):
+    status: str
+    summary: str
+    output_path: str
+    source_count: int = 0
+    entity_count: int = 0
+    format: str
+    byte_size: int = 0
 
 
 class OidcExchangeRequest(BaseModel):

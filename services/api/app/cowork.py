@@ -91,7 +91,7 @@ def _validate_http_url(url: str) -> str:
     return url.strip()
 
 
-_APPROVAL_REQUIRED_TASKS = {"browser", "connector", "scrape"}
+_APPROVAL_REQUIRED_TASKS = {"browser", "connector", "scrape", "file_ops"}
 _JOB_ALLOWED_TASKS = {"shell", "extract"}
 
 
@@ -499,6 +499,37 @@ class CoworkService:
                     "Require explicit user approval before execution",
                     "Ingest structured output into project knowledge and agent memory",
                 ]
+        elif task_type == "file_ops":
+            action = str(resolved_connector_arguments.get("action") or "organize_by_date")
+            target = source_path or "."
+            from .cowork_file_ops import preview_organize_by_date, preview_rename_pattern
+
+            if action == "rename_pattern":
+                preview = preview_rename_pattern(project_path, target)
+                preview_steps = [
+                    f"Rename files in {target}",
+                    f"Planned renames: {preview['rename_count']}",
+                    "Require explicit user approval before execution",
+                    "Write undo log to .codeforge/cowork/undo/",
+                ]
+            else:
+                preview = preview_organize_by_date(project_path, target)
+                preview_steps = [
+                    f"Organize files in {target} by date",
+                    f"Planned moves: {preview['move_count']}",
+                    "Require explicit user approval before execution",
+                    "Write undo log to .codeforge/cowork/undo/",
+                ]
+            resolved_connector_arguments["preview"] = preview
+        elif task_type == "synthesize":
+            if not source_path:
+                raise CoworkError("Synthesis tasks require a source path or folder")
+            preview_steps = [
+                f"Collect sources from {source_path}",
+                "Extract text and entities from workspace files",
+                f"Write deliverable to .codeforge/cowork/reports/",
+                "Store synthesis summary in cowork run history",
+            ]
         else:
             raise CoworkError("Unsupported cowork task type")
 
@@ -530,7 +561,7 @@ class CoworkService:
         if plan is None or plan["user_id"] != user_id:
             raise CoworkError("Plan not found")
 
-        if plan["requires_approval"] and trigger != "manual":
+        if plan["requires_approval"] and trigger not in {"manual", "workflow"}:
             raise CoworkError("Approval-required tasks cannot run from scheduled jobs")
 
         if plan["requires_approval"] and not approved:
@@ -624,6 +655,29 @@ class CoworkService:
                     details["extraction_id"] = extraction["extraction_id"]
             except ScrapeError as exc:
                 details = {"status": "failed", "summary": str(exc)}
+        elif plan["task_type"] == "file_ops":
+            from .cowork_file_ops import execute_file_operations
+
+            operations = list((plan.get("connector_arguments") or {}).get("operations") or [])
+            details = execute_file_operations(plan["project_path"], operations)
+        elif plan["task_type"] == "synthesize":
+            from .cowork_synthesis import synthesize_csv_entities, synthesize_markdown_report
+
+            args = dict(plan.get("connector_arguments") or {})
+            if str(args.get("format", "markdown")).lower() == "csv":
+                details = synthesize_csv_entities(
+                    project_path=str(plan["project_path"]),
+                    source_path=str(plan.get("source_path") or "."),
+                    output_name=str(args.get("output_name") or "cowork-entities.csv"),
+                )
+            else:
+                details = synthesize_markdown_report(
+                    project_path=str(plan["project_path"]),
+                    source_path=str(plan.get("source_path") or "."),
+                    output_name=str(args.get("output_name") or "cowork-report.md"),
+                    title=str(plan.get("title") or "CodeForge Cowork Report"),
+                    prompt=str(args.get("prompt") or ""),
+                )
         else:
             details = await _run_browser_task(
                 str(plan["url"]),

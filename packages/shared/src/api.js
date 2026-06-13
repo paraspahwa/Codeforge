@@ -82,10 +82,11 @@ export async function runAgentLoop(baseUrl, token, sessionId, payload) {
   });
 }
 
-export async function forkSession(baseUrl, token, sessionId) {
+export async function forkSession(baseUrl, token, sessionId, payload = {}) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/fork`, {
     method: "POST",
     token,
+    body: payload,
   });
 }
 
@@ -395,6 +396,30 @@ export async function scrapeCoworkData(baseUrl, token, payload) {
 
 export async function listCoworkExtractions(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/cowork/extract", { token });
+}
+
+export async function previewCoworkGoal(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/goals/preview", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function runCoworkGoal(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/goals/run", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function synthesizeCoworkDocument(baseUrl, token, payload) {
+  return requestJson(baseUrl, "/api/v1/cowork/synthesize", {
+    method: "POST",
+    token,
+    body: payload,
+  });
 }
 
 export async function exportSession(baseUrl, token, sessionId, format = "json", workspaceId = null) {
@@ -925,6 +950,90 @@ async function* streamSseJson(baseUrl, path, token) {
 
 export async function* streamTeamEvents(baseUrl, token) {
   yield* streamSseJson(baseUrl, "/api/v1/team/events", token);
+}
+
+export async function listWorkspaceFiles(baseUrl, token, sessionId, limit = 300) {
+  const query = new URLSearchParams({ limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/list?${query}`, { token });
+}
+
+export async function searchWeb(baseUrl, token, sessionId, query, limit = 5) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/search/web`, {
+    method: "POST",
+    token,
+    body: { query, limit },
+  });
+}
+
+export async function searchSymbols(baseUrl, token, sessionId, query, limit = 40) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/search/symbols?${params}`, { token });
+}
+
+export async function gitPush(baseUrl, token, sessionId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/push`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function gitPull(baseUrl, token, sessionId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/pull`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function gitFetch(baseUrl, token, sessionId, remote = "origin") {
+  const query = new URLSearchParams({ remote }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/fetch?${query}`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function createPullRequest(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/pr`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function listCheckpoints(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/checkpoints`, { token });
+}
+
+export async function rewindCheckpoint(baseUrl, token, sessionId, checkpointId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/checkpoints/${checkpointId}/rewind`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getContextStack(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/context/stack`, { token });
+}
+
+export async function lspDefinition(baseUrl, token, sessionId, path, line = 1, character = 0) {
+  const params = new URLSearchParams({
+    path,
+    line: String(line),
+    character: String(character),
+  }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/lsp/definition?${params}`, { token });
+}
+
+export async function lspReferences(baseUrl, token, sessionId, path, line = 1, character = 0) {
+  const params = new URLSearchParams({
+    path,
+    line: String(line),
+    character: String(character),
+  }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/lsp/references?${params}`, { token });
 }
 
 export async function* streamRemoteChannelEvents(baseUrl, token, channelId) {

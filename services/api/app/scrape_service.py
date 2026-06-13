@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+from html import unescape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -12,6 +14,9 @@ import httpx
 
 class ScrapeError(RuntimeError):
     pass
+
+
+_TAG_PATTERN = re.compile(r"<[^>]+>")
 
 
 def _safe_excerpt(text: str, limit: int = 1200) -> str:
@@ -115,6 +120,17 @@ async def _fallback_fetch_text(url: str) -> str:
     if response.status_code >= 400:
         raise ScrapeError(f"Failed to fetch URL with status {response.status_code}")
     return response.text
+
+
+async def scrape_url_excerpt(url: str, *, limit: int = 2000) -> str:
+    validated = _validate_http_url(url)
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        response = await client.get(validated, headers={"User-Agent": "CodeForge/1.0"})
+    if response.status_code >= 400:
+        raise ScrapeError(f"Failed to fetch URL ({response.status_code})")
+    text = unescape(_TAG_PATTERN.sub(" ", response.text))
+    text = re.sub(r"\s+", " ", text).strip()
+    return _safe_excerpt(text, limit=limit)
 
 
 async def run_scrape_extraction(

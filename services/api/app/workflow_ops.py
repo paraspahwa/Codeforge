@@ -50,6 +50,38 @@ def restore_file_snapshot(project_path: str, snapshot: dict[str, str]) -> list[s
     return restored
 
 
+async def build_compact_summary_llm(
+    *,
+    session_id: str,
+    project_path: str,
+    user_id: str,
+    message_limit: int = 12,
+) -> dict[str, Any]:
+    base = build_compact_summary(
+        session_id=session_id,
+        project_path=project_path,
+        user_id=user_id,
+        message_limit=message_limit,
+    )
+    from .agent import generation_client
+
+    response = await generation_client.generate(
+        prompt=(
+            "Summarize this coding session for continuation. Keep objectives, decisions, and next steps.\n\n"
+            f"{base['summary']}"
+        ),
+        system_prompt="You compress chat context for a coding agent. Output plain text under 250 words.",
+        max_tokens=500,
+    )
+    text = str(response.get("text", "")).strip()
+    if text and not text.startswith("Deterministic fallback"):
+        base["summary"] = text
+        base["engine"] = "llm"
+    else:
+        base["engine"] = "heuristic"
+    return base
+
+
 def build_compact_summary(
     *,
     session_id: str,

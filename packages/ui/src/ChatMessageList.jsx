@@ -63,6 +63,7 @@ export function ChatMessageList({
   loading = false,
   variant = "web",
   activeMessageIndex,
+  thinkingEvents = [],
   renderFooter,
   className = "",
 }) {
@@ -96,6 +97,16 @@ export function ChatMessageList({
               )}
             </div>
             {renderFooter ? renderFooter(message, index) : null}
+            {role === "assistant" && thinkingEvents.length && index === messages.length - 1 ? (
+              <details className="agent-thinking-block small">
+                <summary>Reasoning ({thinkingEvents.length})</summary>
+                <ul>
+                  {thinkingEvents.map((entry, thinkingIndex) => (
+                    <li key={`think-${thinkingIndex}`}>{entry}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </ItemTag>
         );
       })}
