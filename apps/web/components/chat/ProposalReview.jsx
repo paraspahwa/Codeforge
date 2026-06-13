@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export default function ProposalReview({ pendingProposal }) {
+export default function ProposalReview({ pendingProposal, onDecision, loading = false }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!pendingProposal) {
@@ -10,6 +10,7 @@ export default function ProposalReview({ pendingProposal }) {
   }
 
   const isApplied = pendingProposal.status === "approved" || pendingProposal.auto_applied;
+  const isPending = pendingProposal.status === "pending" && !pendingProposal.auto_applied;
   const lines = String(pendingProposal.patch_preview || "").split("\n");
   const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
   const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
@@ -34,6 +35,16 @@ export default function ProposalReview({ pendingProposal }) {
         <span className="diff-stat-remove">-{removed}</span>
       </div>
       {expanded ? <pre className="proposal-preview diff-unified">{pendingProposal.patch_preview}</pre> : null}
+      {isPending && onDecision ? (
+        <div className="proposal-actions">
+          <button type="button" onClick={() => onDecision("approve")} disabled={loading}>
+            Approve
+          </button>
+          <button type="button" className="ghost-btn" onClick={() => onDecision("reject")} disabled={loading}>
+            Reject
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

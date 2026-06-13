@@ -97,7 +97,27 @@ Not started (PRD long-horizon):
   - `/loop` fix-until-pass
   - `/compact` summarize context
   - `/ultrareview` deep audit
-  - auto mode with risk-based approvals
+
+### Track B2: Web IDE (Cursor / VS Code shell) — `/code`
+
+Implemented (2026-06):
+
+- **Phase 0** — Full-screen `IdeShell`: activity bar, menu bar, title bar, resizable panels (`react-resizable-panels`), hides AppShell nav on `/code`
+- **Phase 1** — Editor breadcrumbs (path + Markdown heading), Monaco DiffEditor for git diff tab
+- **Phase 2** — Sidebar views: Explorer + Outline + Timeline, SCM panel, workspace search (`GET /search/workspace`), Extensions + Settings sidebars
+- **Phase 3** — Bottom panel tabs: Problems, Output, Debug Console, Terminal (xterm), Ports, Git diff
+- **Phase 4** — Composer panel: Agent/Ask/Plan modes, model picker, `@` mention picker, slash hint, Undo/Review actions
+- **Phase 5** — Status bar: remote badge, branch*, error count, Spaces, LF, UTF-8, language
+- **Phase 6** — PTY WebSocket terminal, LSP diagnostics/Problems panel, split editors + tab menus, file-watch SSE, launch.json run configs, stable flex layout (replaced broken resizable panels)
+
+Still missing for full Cursor parity:
+
+- ~~Persistent PTY WebSocket terminal~~ (shipped)
+- ~~Real LSP diagnostics in Problems panel~~ (shipped)
+- ~~Split editor panes and tab context menu~~ (shipped)
+- ~~File watch SSE for live explorer refresh~~ (shipped)
+- `launch.json` run/debug configs (basic Run sidebar + workspace launch.json reader shipped)
+- auto mode with risk-based approvals
 
 ### Track C: Platform Surfaces
 

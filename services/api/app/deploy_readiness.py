@@ -6,7 +6,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
-from .auth import dev_auth_enabled, oidc_auth_enabled
+from .auth import dev_auth_enabled, dev_login_override_enabled, dev_login_secret_configured, oidc_auth_enabled
 
 
 def is_production_environment() -> bool:
@@ -95,6 +95,20 @@ def collect_deploy_readiness() -> dict[str, Any]:
             required=False,
         )
         if is_production_environment():
+            _add_check(
+                checks,
+                name="dev_login_disabled_in_production",
+                ok=not dev_login_override_enabled(),
+                detail="CODEFORGE_ALLOW_DEV_LOGIN must be false in production (arbitrary user impersonation risk)",
+                required=False,
+            )
+            _add_check(
+                checks,
+                name="dev_login_secret_in_production",
+                ok=not dev_login_override_enabled() or dev_login_secret_configured(),
+                detail="When dev-login is enabled in production, CODEFORGE_DEV_LOGIN_SECRET must be set",
+                required=True,
+            )
             _add_check(
                 checks,
                 name="supabase_jwt_secret",

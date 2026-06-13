@@ -60,9 +60,8 @@ export const FEATURE_CATEGORIES = [
         icon: "📋",
         href: "/",
         action: "goal",
-        planMode: true,
         starterPrompt:
-          "Help me write a Product Requirements Document (PRD) for my app idea. Ask me questions first, then produce a clear PRD in plain language with sections for users, features, and success metrics.",
+          "Help me write a Product Requirements Document (PRD) for my app idea. Ask me 4-5 clarifying questions first — do NOT write the PRD yet. Only ask questions about users, problem, features, and success metrics.",
       },
       {
         id: "implementation-plan",

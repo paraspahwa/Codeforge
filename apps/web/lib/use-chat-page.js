@@ -30,6 +30,7 @@ import {
   listMessages,
   listSessions,
   listWorkspaceFiles,
+  listAgents,
   rewindCheckpoint,
   rollbackWorkflowPlan,
   runAgentLoop,
@@ -37,11 +38,13 @@ import {
   searchWeb,
   sendMessage,
   stageGitFiles,
+  uploadSessionAttachments,
   streamShellCommand,
   streamSession,
   ultrareviewWorkflow,
 } from "./api";
 import { useAuth } from "./auth-context";
+import { consumePendingAgentSelection, DEFAULT_AGENT_TYPE } from "./agent-catalog";
 import { consumePendingChatGoal } from "./product-features";
 import { runSlashCommand } from "./slash-commands";
 import { useToast } from "./toast-context";
@@ -101,6 +104,8 @@ export function useChatPage() {
   const [commitMessage, setCommitMessage] = useState("");
   const [planMode, setPlanMode] = useState(false);
   const [permissionMode, setPermissionMode] = useState("auto_safe");
+  const [selectedAgent, setSelectedAgent] = useState(DEFAULT_AGENT_TYPE);
+  const [agentCatalog, setAgentCatalog] = useState([]);
   const [attachedFiles, setAttachedFiles] = useState([]);
   const [checkpoints, setCheckpoints] = useState([]);
   const [thinkingEvents, setThinkingEvents] = useState([]);
@@ -135,6 +140,10 @@ export function useChatPage() {
 
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || DEFAULT_PROJECT_PATH);
+    setSelectedAgent(localStorage.getItem("codeforge_agent_type") || DEFAULT_AGENT_TYPE);
+    listAgents()
+      .then((data) => setAgentCatalog(data.agents || []))
+      .catch(() => setAgentCatalog([]));
   }, []);
 
   useEffect(() => {
@@ -244,13 +253,27 @@ export function useChatPage() {
     if (!ready || !token || loading) {
       return;
     }
+    const pendingAgent = consumePendingAgentSelection();
+    if (pendingAgent) {
+      setSelectedAgent(pendingAgent);
+      localStorage.setItem("codeforge_agent_type", pendingAgent);
+    }
     const pending = consumePendingChatGoal();
     if (!pending) {
       return;
     }
-    void handleStartWithGoal({ starterPrompt: pending.prompt, planMode: pending.planMode });
+    void handleStartWithGoal({
+      starterPrompt: pending.prompt,
+      planMode: pending.planMode,
+      agentType: pendingAgent || selectedAgent,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when auth is ready
   }, [ready, token]);
+
+  function handleAgentChange(nextAgent) {
+    setSelectedAgent(nextAgent);
+    localStorage.setItem("codeforge_agent_type", nextAgent);
+  }
 
   async function refreshSessions() {
     const sessions = await listSessions(token);
@@ -325,6 +348,7 @@ export function useChatPage() {
       ...(activeFile.trim() ? { current_file: activeFile.trim() } : {}),
       plan_mode: effectivePlanMode,
       permission_mode: permissionMode,
+      agent_type: options.agentType || selectedAgent,
       attached_files: attachedFiles,
     };
     const hasContext = Object.keys(messageContext).length > 0;
@@ -335,6 +359,7 @@ export function useChatPage() {
       hasContext ? messageContext : null,
       selectedTemplateId || null,
     );
+    setAttachedFiles([]);
     setRoutingSignal({
       intent: sent.intent,
       model_used: sent.model_used,
@@ -416,6 +441,21 @@ export function useChatPage() {
         }
       }
 
+      if (evt.type === "error") {
+        toast.push(evt.payload?.message || "Agent run failed");
+        listMessages(activeSessionId, token)
+          .then((stored) => {
+            setMessages(
+              stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
+            );
+          })
+          .catch(() => undefined);
+        setStreamingMessageId(null);
+        setLoading(false);
+        source.close();
+        return;
+      }
+
       if (evt.type === "complete") {
         listMessages(activeSessionId, token)
           .then((stored) => {
@@ -456,17 +496,24 @@ export function useChatPage() {
     };
   }
 
-  async function handleStartWithGoal({ starterPrompt, planMode: nextPlanMode = false }) {
+  async function handleStartWithGoal({ starterPrompt, planMode: nextPlanMode = false, agentType }) {
     const text = String(starterPrompt || "").trim();
     if (!text || !token) {
       return;
+    }
+    if (agentType) {
+      setSelectedAgent(agentType);
+      localStorage.setItem("codeforge_agent_type", agentType);
     }
     if (!projectPath.trim()) {
       toast.push("Pick a project folder first");
       return;
     }
-    if (nextPlanMode) {
+    const usePlanMode = nextPlanMode && !/prd|product requirements|ask me|ask.*questions/i.test(text);
+    if (usePlanMode) {
       setPlanMode(true);
+    } else if (/prd|product requirements|ask me|ask.*questions/i.test(text)) {
+      setPlanMode(false);
     }
     setLoading(true);
     try {
@@ -481,7 +528,11 @@ export function useChatPage() {
         setPendingProposal(null);
         await refreshSessions();
       }
-      await dispatchUserMessage(text, activeSessionId, { planMode: nextPlanMode || planMode, skipWritableCheck: true });
+      await dispatchUserMessage(text, activeSessionId, {
+        planMode: usePlanMode ? true : planMode,
+        agentType: agentType || selectedAgent,
+        skipWritableCheck: true,
+      });
     } catch (error) {
       toast.push(error.message);
       setLoading(false);
@@ -1034,6 +1085,31 @@ export function useChatPage() {
     }
   }
 
+  async function handleUploadAttachments(fileList) {
+    if (!sessionId || !token || !fileList.length) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await uploadSessionAttachments(token, sessionId, fileList);
+      const paths = (result.uploaded || []).map((item) => item.path);
+      setAttachedFiles((prev) => [...new Set([...prev, ...paths])]);
+      toast.push(`Attached ${paths.length} file(s)`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleAttachWorkspaceFile(path) {
+    setAttachedFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  }
+
+  function handleRemoveAttachment(path) {
+    setAttachedFiles((prev) => prev.filter((item) => item !== path));
+  }
+
   async function handleApplyConflictAssist() {
     setLoading(true);
     try {
@@ -1135,8 +1211,15 @@ export function useChatPage() {
     setPlanMode,
     permissionMode,
     setPermissionMode,
+    selectedAgent,
+    setSelectedAgent,
+    agentCatalog,
+    handleAgentChange,
     attachedFiles,
     setAttachedFiles,
+    handleUploadAttachments,
+    handleAttachWorkspaceFile,
+    handleRemoveAttachment,
     checkpoints,
     thinkingEvents,
     prTitle,

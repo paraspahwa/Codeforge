@@ -1049,6 +1049,8 @@ def _migrate_optional_columns(conn_or_cur=None) -> None:
         """,
         "ALTER TABLE user_agent_preferences ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'auto_safe'",
         "ALTER TABLE user_agent_preferences ADD COLUMN plan_mode_default INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE user_agent_preferences ADD COLUMN enabled_extensions_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE user_agent_preferences ADD COLUMN extension_versions_json TEXT NOT NULL DEFAULT '{}'",
     ]
     for statement in migrations:
         try:
@@ -1944,3 +1946,11 @@ def list_mcp_connectors_store(owner_id: str) -> list[dict[str, Any]]:
     for row in rows:
         row["enabled"] = bool(row.get("enabled", 1))
     return rows
+
+
+def delete_mcp_connector_store(*, connector_id: str, owner_id: str) -> bool:
+    _execute(
+        "DELETE FROM mcp_connectors_store WHERE connector_id = ? AND owner_id = ?",
+        (connector_id, owner_id),
+    )
+    return True

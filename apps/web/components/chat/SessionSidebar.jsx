@@ -7,6 +7,7 @@ import { Button } from "@codeforge/ui";
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
 import AgentMascot from "./AgentMascot";
+import AgentPicker from "./AgentPicker";
 
 const WORKSPACE_PRESETS = [
   { label: "Demo project", path: "/workspaces/demo" },
@@ -24,6 +25,9 @@ export default function SessionSidebar({
   sessionFilter,
   onSessionFilterChange,
   mascotState = "idle",
+  agents = [],
+  selectedAgent,
+  onSelectAgent,
 }) {
   const filtered = sessionHistory.filter((entry) => {
     if (!sessionFilter.trim()) {
@@ -78,6 +82,17 @@ export default function SessionSidebar({
 
       <Link href="/features" className="agent-features-link cf-hover-lift">
         <span aria-hidden>✨</span> Explore all features
+      </Link>
+
+      <AgentPicker
+        agents={agents}
+        selectedAgent={selectedAgent}
+        onSelectAgent={onSelectAgent}
+        loading={loading}
+      />
+
+      <Link href="/agents" className="agent-features-link cf-hover-lift">
+        <span aria-hidden>🤖</span> Browse AI agents
       </Link>
 
       {sessionId ? (

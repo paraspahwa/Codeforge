@@ -6,21 +6,31 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .agent import build_agent_run, get_synthesis_rollout_status, route_request, run_routing_benchmark, serialize_sse_event
 from .agent_loop_v2 import AgentLoopV2Config, build_agent_run_v2
+from .agent_orchestrator import run_typed_agent
+from .agent_registry import category_counts, list_agent_categories, list_agents
 from .agent_loop import run_verify_fix_loop
-from .auth import AuthUser, dev_auth_enabled, get_current_user, oidc_auth_enabled
+from .auth import AuthUser, dev_auth_enabled, get_current_user, oidc_auth_enabled, resolve_user_from_token, verify_dev_login_secret
 from . import team_event_bus
 from . import remote_channels
 from .remote_channels import RemoteChannelError
 from .context_mcp import ContextMcpError, context_mcp_service
+from .extensions_service import ExtensionsError, extensions_service
+from .session_attachments import (
+    SessionAttachmentError,
+    compose_attached_files_context,
+    list_session_attachments,
+    upload_session_attachments,
+)
 from .cowork import CoworkError, cowork_service
 from .cowork_scheduler import cowork_scheduler_enabled
 from .routers import hermes as hermes_router
@@ -81,7 +91,16 @@ from .db import (
     update_billing_order_status,
     upsert_user_subscription,
 )
-from .file_ops import apply_proposed_content, list_workspace_files
+from .file_ops import (
+    apply_proposed_content,
+    create_workspace_file,
+    delete_workspace_file,
+    list_workspace_files,
+    rename_workspace_file,
+    resolve_project_root,
+    search_workspace_paths,
+    grep_workspace_content,
+)
 from .project_paths import normalize_project_path, resolved_project_path
 from .org_service import OrgError, org_service
 from .session_access import (
@@ -129,6 +148,9 @@ from .models import (
     AgentLoopAttemptResponse,
     AgentLoopRequest,
     AgentLoopResponse,
+    AgentCatalogItem,
+    AgentCategoryMeta,
+    AgentListResponse,
     AgentProposal,
     AgentTemplateComposeRequest,
     AgentTemplateComposeResponse,
@@ -183,10 +205,17 @@ from .models import (
     DeploymentRolloutValidationResponse,
     FileApplyRequest,
     FileApplyResponse,
+    FileCreateRequest,
+    FileDeleteRequest,
+    FileRenameRequest,
     WorkspaceFilesResponse,
+    SessionAttachmentItem,
+    SessionAttachmentListResponse,
+    SessionAttachmentUploadResponse,
     WebSearchRequest,
     WebSearchResponse,
     SymbolSearchResponse,
+    WorkspaceSearchResponse,
     CheckpointListResponse,
     CheckpointItem,
     RewindRequest,
@@ -197,6 +226,8 @@ from .models import (
     CreatePullRequestPayload,
     CreatePullRequestResponse,
     LspLocationResponse,
+    DiagnosticsResponse,
+    DiagnosticItem,
     ContextStackResponse,
     FileContentResponse,
     FilePreviewResponse,
@@ -244,7 +275,18 @@ from .models import (
     McpConnectorListResponse,
     McpConnectorResponse,
     McpConnectorToggleRequest,
+    McpCatalogInstallCategoryRequest,
+    McpCatalogInstallRequest,
+    McpCatalogInstallResponse,
+    McpCatalogListResponse,
     McpInvokeResponse,
+    ExtensionCatalogResponse,
+    ExtensionDisableRequest,
+    ExtensionInstallRequest,
+    ExtensionInstallResponse,
+    McpCatalogActionResponse,
+    McpCatalogDisableRequest,
+    McpCatalogUpdateRequest,
     SessionArtifactCreateRequest,
     SessionArtifactItem,
     SessionArtifactListResponse,
@@ -462,8 +504,32 @@ async def attach_trace_id(request: Request, call_next):
 def dev_login(payload: DevLoginRequest, request: Request) -> DevLoginResponse:
     if not dev_auth_enabled():
         raise HTTPException(status_code=404, detail="Not found")
+    if not verify_dev_login_secret(request):
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            from pathlib import Path as _Path
+            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
+            _lp.parent.mkdir(parents=True, exist_ok=True)
+            with _lp.open("a", encoding="utf-8") as _h:
+                _h.write(_json.dumps({"sessionId":"074757","runId":"post-fix","hypothesisId":"D","location":"main.py:dev_login","message":"dev_login_blocked_missing_secret","data":{"client_host":request.client.host if request.client else "unknown"},"timestamp":int(_time.time()*1000)}) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        raise HTTPException(status_code=403, detail="Dev login requires server-side authentication")
     client_host = request.client.host if request.client else "unknown"
     _enforce_rate_limit("dev-login", client_host, 10)
+    # #region agent log
+    try:
+        import json as _json, time as _time
+        from pathlib import Path as _Path
+        _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
+        _lp.parent.mkdir(parents=True, exist_ok=True)
+        with _lp.open("a", encoding="utf-8") as _h:
+            _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"D","location":"main.py:dev_login","message":"dev_login_success","data":{"client_host":client_host,"user_id_len":len(payload.user_id)},"timestamp":int(_time.time()*1000)}) + "\n")
+    except Exception:
+        pass
+    # #endregion
     return DevLoginResponse(access_token=f"dev_{payload.user_id}")
 
 
@@ -609,6 +675,19 @@ def fork_session(
         project_path=parent["project_path"],
         stream_url=f"{api_base}/api/v1/sessions/{new_session_id}/stream",
         created_at=created_at,
+    )
+
+
+@app.get("/api/v1/agents", response_model=AgentListResponse)
+def list_agent_catalog(
+    category: str | None = Query(default=None, description="Agent category id"),
+) -> AgentListResponse:
+    agents = list_agents(category=category)
+    return AgentListResponse(
+        agents=[AgentCatalogItem(**agent) for agent in agents],
+        total=len(agents),
+        categories=[AgentCategoryMeta(**row) for row in list_agent_categories()],
+        category_counts=category_counts(),
     )
 
 
@@ -1250,11 +1329,17 @@ def apply_session_file(
     user: AuthUser = Depends(get_current_user),
 ) -> FileApplyResponse:
     project_path = _session_project_path(session_id, user, write=True)
-    resolved = resolve_repo_path(project_path, payload.path)
-    if resolved is None:
-        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        project_root = resolve_project_root(project_path)
+    except FileOpsError:
+        raise HTTPException(status_code=404, detail="Project path not found")
+    relative_path = (repo_relative_path(project_path, payload.path) or payload.path).replace("\\", "/").lstrip("/")
+    target = (project_root / relative_path).resolve()
+    try:
+        target.relative_to(project_root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Invalid file path")
 
-    relative_path = repo_relative_path(project_path, payload.path) or payload.path
     applied = apply_proposed_content(project_path, relative_path, payload.content)
     if not applied:
         raise HTTPException(status_code=400, detail="Unable to apply file content")
@@ -1275,6 +1360,88 @@ def list_session_files(
     project_path = _session_project_path(session_id, user)
     files = list_workspace_files(project_path, max_files=limit)
     return WorkspaceFilesResponse(files=files, truncated=len(files) >= limit)
+
+
+@app.post("/api/v1/sessions/{session_id}/files/create", response_model=FileApplyResponse)
+def create_session_file(
+    session_id: str,
+    payload: FileCreateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> FileApplyResponse:
+    project_path = _session_project_path(session_id, user, write=True)
+    relative_path = payload.path.replace("\\", "/").lstrip("/")
+    if not create_workspace_file(project_path, relative_path, payload.content):
+        raise HTTPException(status_code=400, detail="Unable to create file")
+    return FileApplyResponse(
+        path=relative_path,
+        applied=True,
+        line_count=read_file_line_count(project_path, relative_path),
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/files/delete")
+def delete_session_file(
+    session_id: str,
+    payload: FileDeleteRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> dict[str, bool]:
+    project_path = _session_project_path(session_id, user, write=True)
+    relative_path = payload.path.replace("\\", "/").lstrip("/")
+    if not delete_workspace_file(project_path, relative_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"deleted": True}
+
+
+@app.post("/api/v1/sessions/{session_id}/files/rename", response_model=FileApplyResponse)
+def rename_session_file(
+    session_id: str,
+    payload: FileRenameRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> FileApplyResponse:
+    project_path = _session_project_path(session_id, user, write=True)
+    from_path = payload.from_path.replace("\\", "/").lstrip("/")
+    to_path = payload.to_path.replace("\\", "/").lstrip("/")
+    if not rename_workspace_file(project_path, from_path, to_path):
+        raise HTTPException(status_code=400, detail="Unable to rename file")
+    return FileApplyResponse(
+        path=to_path,
+        applied=True,
+        line_count=read_file_line_count(project_path, to_path),
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/attachments/upload", response_model=SessionAttachmentUploadResponse)
+async def upload_session_attachment_files(
+    session_id: str,
+    files: list[UploadFile] = File(default=[]),
+    user: AuthUser = Depends(get_current_user),
+) -> SessionAttachmentUploadResponse:
+    project_path = _session_project_path(session_id, user, write=True)
+    uploads: list[tuple[str, bytes]] = []
+    for upload in files:
+        raw = await upload.read()
+        uploads.append((upload.filename or "attachment.bin", raw))
+    try:
+        saved = upload_session_attachments(
+            project_path=project_path,
+            session_id=session_id,
+            uploads=uploads,
+        )
+    except SessionAttachmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SessionAttachmentUploadResponse(
+        uploaded=[SessionAttachmentItem(**row) for row in saved],
+    )
+
+
+@app.get("/api/v1/sessions/{session_id}/attachments", response_model=SessionAttachmentListResponse)
+def list_session_attachment_files(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionAttachmentListResponse:
+    project_path = _session_project_path(session_id, user)
+    rows = list_session_attachments(project_path=project_path, session_id=session_id)
+    return SessionAttachmentListResponse(attachments=[SessionAttachmentItem(**row) for row in rows])
 
 
 @app.post("/api/v1/sessions/{session_id}/search/web", response_model=WebSearchResponse)
@@ -1304,6 +1471,19 @@ def session_symbol_search(
     except SymbolSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return SymbolSearchResponse(**result)
+
+
+@app.get("/api/v1/sessions/{session_id}/search/workspace", response_model=WorkspaceSearchResponse)
+def session_workspace_search(
+    session_id: str,
+    q: str = Query(min_length=1, max_length=200),
+    user: AuthUser = Depends(get_current_user),
+) -> WorkspaceSearchResponse:
+    session = _require_session(session_id, user)
+    project_path = resolved_project_path(session)
+    path_hits = search_workspace_paths(project_path, q, limit=80)
+    content_hits = grep_workspace_content(project_path, q, limit=60)
+    return WorkspaceSearchResponse(query=q, path_hits=path_hits, content_hits=content_hits)
 
 
 @app.get("/api/v1/sessions/{session_id}/checkpoints", response_model=CheckpointListResponse)
@@ -1366,7 +1546,7 @@ async def session_lsp_definition(
     session = _require_session(session_id, user)
     from .lsp_service import lsp_tool_dispatch
 
-    payload = await lsp_tool_dispatch("go_to_definition", {"path": path, "line": line, "character": character}, resolved_project_path(session))
+    payload = await lsp_tool_dispatch("go_to_definition", {"path": path, "line": line, "character": character}, resolved_project_path(session), user_id=user.user_id)
     return LspLocationResponse(message=payload.get("message", ""), locations=payload.get("locations", []))
 
 
@@ -1381,8 +1561,75 @@ async def session_lsp_references(
     session = _require_session(session_id, user)
     from .lsp_service import lsp_tool_dispatch
 
-    payload = await lsp_tool_dispatch("find_references", {"path": path, "line": line, "character": character}, resolved_project_path(session))
+    payload = await lsp_tool_dispatch("find_references", {"path": path, "line": line, "character": character}, resolved_project_path(session), user_id=user.user_id)
     return LspLocationResponse(message=payload.get("message", ""), locations=payload.get("references", []))
+
+
+@app.get("/api/v1/sessions/{session_id}/lsp/diagnostics", response_model=DiagnosticsResponse)
+async def session_lsp_diagnostics(
+    session_id: str,
+    path: str,
+    user: AuthUser = Depends(get_current_user),
+) -> DiagnosticsResponse:
+    session = _require_session(session_id, user)
+    from .lsp_service import lsp_tool_dispatch
+
+    payload = await lsp_tool_dispatch("get_diagnostics", {"path": path}, resolved_project_path(session), user_id=user.user_id)
+    items = [DiagnosticItem(**item) for item in payload.get("diagnostics", [])]
+    return DiagnosticsResponse(path=path, diagnostics=items)
+
+
+@app.get("/api/v1/sessions/{session_id}/files/watch")
+async def session_file_watch(
+    session_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    session = _require_session(session_id, user)
+    project_path = resolved_project_path(session)
+    from .file_watch import watch_workspace_changes
+
+    async def event_generator():
+        sequence = 0
+        async for events in watch_workspace_changes(project_path):
+            if events:
+                yield serialize_sse_event(
+                    event_type="file_changed",
+                    payload={"events": events},
+                    sequence=sequence,
+                )
+                sequence += 1
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.websocket("/api/v1/sessions/{session_id}/shell/pty")
+async def session_shell_pty(websocket: WebSocket, session_id: str, token: str = Query(default="")) -> None:
+    await websocket.accept()
+    user = resolve_user_from_token(token)
+    if user is None:
+        await websocket.close(code=4401)
+        return
+    try:
+        session = _require_session(session_id, user, write=True)
+    except HTTPException:
+        await websocket.close(code=4403)
+        return
+
+    from .pty_shell import bridge_pty_websocket, open_pty_session
+
+    try:
+        pty_session = open_pty_session(resolved_project_path(session))
+    except RuntimeError as exc:
+        await websocket.send_text(f"\r\n[codeforge] Failed to start shell: {exc}\r\n")
+        await websocket.close(code=1011)
+        return
+
+    try:
+        await bridge_pty_websocket(websocket, pty_session)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pty_session.close()
 
 
 @app.post("/api/v1/sessions/{session_id}/git/push", response_model=GitRemoteResponse)
@@ -2589,6 +2836,175 @@ def invoke_mcp_connector(
     return McpInvokeResponse(**result)
 
 
+@app.get("/api/v1/extensions/catalog", response_model=ExtensionCatalogResponse)
+def list_extensions_catalog(
+    category: str | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> ExtensionCatalogResponse:
+    payload = extensions_service.list_catalog(user_id=user.user_id, category=category)
+    return ExtensionCatalogResponse(**payload)
+
+
+@app.post("/api/v1/extensions/install", response_model=ExtensionInstallResponse)
+def install_extension(
+    payload: ExtensionInstallRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> ExtensionInstallResponse:
+    try:
+        result = extensions_service.install_extension(
+            user_id=user.user_id,
+            extension_id=payload.extension_id,
+            project_path=payload.project_path,
+        )
+    except ExtensionsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ExtensionInstallResponse(**result)
+
+
+@app.post("/api/v1/extensions/disable", response_model=ExtensionInstallResponse)
+def disable_extension(
+    payload: ExtensionDisableRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> ExtensionInstallResponse:
+    try:
+        result = extensions_service.disable_extension(
+            user_id=user.user_id,
+            extension_id=payload.extension_id,
+        )
+    except ExtensionsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ExtensionInstallResponse(**result)
+
+
+@app.post("/api/v1/extensions/update", response_model=ExtensionInstallResponse)
+def update_extension(
+    payload: ExtensionInstallRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> ExtensionInstallResponse:
+    try:
+        result = extensions_service.update_extension(
+            user_id=user.user_id,
+            extension_id=payload.extension_id,
+            project_path=payload.project_path,
+        )
+    except ExtensionsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ExtensionInstallResponse(**result)
+
+
+@app.post("/api/v1/extensions/install-lsp-all")
+def install_all_lsp_extensions(user: AuthUser = Depends(get_current_user)) -> dict[str, Any]:
+    return extensions_service.install_all_lsp(user_id=user.user_id)
+
+
+@app.get("/api/v1/mcp/catalog", response_model=McpCatalogListResponse)
+def list_mcp_catalog(
+    category: str | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> McpCatalogListResponse:
+    payload = context_mcp_service.list_catalog(user_id=user.user_id, category=category)
+    return McpCatalogListResponse(**payload)
+
+
+@app.post("/api/v1/mcp/catalog/install", response_model=McpCatalogInstallResponse)
+def install_mcp_catalog_server(
+    payload: McpCatalogInstallRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> McpCatalogInstallResponse:
+    try:
+        result = context_mcp_service.install_catalog_server(
+            user_id=user.user_id,
+            server_id=payload.server_id,
+        )
+    except ContextMcpError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    connector = McpConnectorResponse(**result["connector"])
+    return McpCatalogInstallResponse(
+        server_id=result["server_id"],
+        created=1 if result["created"] else 0,
+        total=1,
+        connectors=[connector],
+    )
+
+
+@app.post("/api/v1/mcp/catalog/install-category", response_model=McpCatalogInstallResponse)
+def install_mcp_catalog_category(
+    payload: McpCatalogInstallCategoryRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> McpCatalogInstallResponse:
+    try:
+        result = context_mcp_service.install_catalog_category(
+            user_id=user.user_id,
+            category_id=payload.category_id,
+        )
+    except ContextMcpError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    connectors = [McpConnectorResponse(**item) for item in result["connectors"]]
+    return McpCatalogInstallResponse(
+        category_id=result["category_id"],
+        created=result["created"],
+        total=result["total"],
+        connectors=connectors,
+    )
+
+
+@app.post("/api/v1/mcp/catalog/install-all", response_model=McpCatalogInstallResponse)
+def install_all_mcp_catalog(user: AuthUser = Depends(get_current_user)) -> McpCatalogInstallResponse:
+    result = context_mcp_service.install_all_catalog(user_id=user.user_id)
+    connectors = [McpConnectorResponse(**item) for item in result["connectors"]]
+    return McpCatalogInstallResponse(
+        created=result["created"],
+        total=result["total"],
+        connectors=connectors,
+    )
+
+
+@app.post("/api/v1/mcp/catalog/disable", response_model=McpCatalogActionResponse)
+def disable_mcp_catalog_server(
+    payload: McpCatalogDisableRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> McpCatalogActionResponse:
+    result = context_mcp_service.disable_catalog_server(
+        user_id=user.user_id,
+        server_id=payload.server_id,
+    )
+    return McpCatalogActionResponse(
+        server_id=result["server_id"],
+        enabled=False,
+        removed=result.get("removed", False),
+        connector_id=result.get("connector_id"),
+    )
+
+
+@app.post("/api/v1/mcp/catalog/update", response_model=McpCatalogActionResponse)
+def update_mcp_catalog_server(
+    payload: McpCatalogUpdateRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> McpCatalogActionResponse:
+    try:
+        result = context_mcp_service.update_catalog_server(
+            user_id=user.user_id,
+            server_id=payload.server_id,
+        )
+    except ContextMcpError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    connector = None
+    if result.get("connector"):
+        connector = McpConnectorResponse(**result["connector"])
+    return McpCatalogActionResponse(
+        server_id=result["server_id"],
+        enabled=True,
+        updated=result.get("updated", False),
+        catalog_version=result.get("catalog_version"),
+        installed_version=result.get("installed_version"),
+        update_available=False,
+        connector=connector,
+    )
+
+
 @app.get("/api/v1/sessions/{session_id}/git/status", response_model=GitStatusResponse)
 def session_git_status(session_id: str, user: AuthUser = Depends(get_current_user)) -> GitStatusResponse:
     session = _require_session(session_id, user)
@@ -3120,6 +3536,19 @@ async def stream_session(
             )
             if style_instructions:
                 composed_prompt = f"{style_instructions}\n\n{composed_prompt}"
+            mcp_context = context_mcp_service.compose_mcp_tools_context(user_id=user.user_id)
+            if mcp_context:
+                composed_prompt = f"{mcp_context}\n\n{composed_prompt}"
+            project_path_for_hooks = resolved_project_path(session) if session else None
+            if project_path_for_hooks:
+                from .hooks_runner import collect_prompt_hook_context, run_hooks
+
+                session_hooks = run_hooks("SessionStart", project_path_for_hooks, user_id=user.user_id)
+                hook_context = collect_prompt_hook_context(session_hooks)
+                if hook_context:
+                    composed_prompt = f"{hook_context}\n\n{composed_prompt}"
+            trace_id = current_trace_id()
+            project_path = resolved_project_path(session) if session else None
             project_memory = compose_project_memory_context(project_path) if project_path else ""
             if project_memory:
                 composed_prompt = f"{project_memory}\n\n{composed_prompt}"
@@ -3131,12 +3560,32 @@ async def stream_session(
                         add_span_event("agent.web_search_injected", {"query": search_payload.get("query")})
                 except WebSearchError:
                     pass
-            trace_id = current_trace_id()
-            project_path = resolved_project_path(session) if session else None
             message_context = latest_user_message_context(session_id)
             current_file = message_context.get("current_file")
+            attached_files = message_context.get("attached_files") or []
+            if attached_files and project_path:
+                attachment_context = compose_attached_files_context(
+                    project_path=project_path,
+                    attached_files=attached_files,
+                )
+                if attachment_context:
+                    composed_prompt = f"{attachment_context}\n\n{composed_prompt}"
+            selection_text = (message_context.get("selection_text") or "").strip()
+            if selection_text and current_file:
+                start_line = message_context.get("selection_start_line")
+                end_line = message_context.get("selection_end_line")
+                line_hint = ""
+                if start_line and end_line:
+                    line_hint = f" (lines {start_line}-{end_line})"
+                composed_prompt = (
+                    f"Active editor selection in {current_file}{line_hint}:\n"
+                    f"```\n{selection_text}\n```\n\n{composed_prompt}"
+                )
 
-            if hermes_adapter.should_run_hermes(user.user_id):
+            agent_type = message_context.get("agent_type") or "conversational"
+            use_hermes_engine = agent_type == "hermes" or hermes_adapter.should_run_hermes(user.user_id)
+
+            if use_hermes_engine:
                 sequence = 0
                 assistant_parts: list[str] = []
                 fallback_to_codeforge = False
@@ -3202,18 +3651,21 @@ async def stream_session(
             set_span_attributes({"codeforge.agent_engine": "codeforge"})
             plan_mode = bool(message_context.get("plan_mode"))
             permission_mode = message_context.get("permission_mode") or default_permission_mode()
-            loop_v2 = await build_agent_run_v2(
-                prompt=composed_prompt,
+            if agent_type == "hermes":
+                agent_type = "task_orchestration"
+            set_span_attributes({"codeforge.agent_type": agent_type})
+            loop_v2 = await run_typed_agent(
+                agent_type,
                 session_id=session_id,
+                user_prompt=user_prompt,
+                composed_prompt=composed_prompt,
                 project_path=project_path,
                 current_file=current_file,
-                style_instructions="",
                 user_id=user.user_id,
-                config=AgentLoopV2Config(
-                    plan_mode=plan_mode,
-                    permission_mode=permission_mode,
-                    checkpoints_enabled=True,
-                ),
+                plan_mode=plan_mode,
+                permission_mode=permission_mode,
+                memory_context=memory_context or "",
+                taste_context=taste_context or "",
             )
             run = loop_v2.run
             set_span_attributes(
@@ -3259,9 +3711,14 @@ async def stream_session(
                         "proposal.auto_applied",
                         {"proposal_id": proposal_id, "target_file": run.target_file},
                     )
-                    hook_results = run_hooks("after_file_apply", resolved_project_path(session), target_file=run.target_file)
+                    hook_results = run_hooks(
+                        "FileChanged",
+                        resolved_project_path(session),
+                        target_file=run.target_file,
+                        user_id=user.user_id,
+                    )
                     if hook_results:
-                        add_span_event("hooks.after_file_apply", {"count": len(hook_results)})
+                        add_span_event("hooks.file_changed", {"count": len(hook_results)})
 
             yield serialize_sse_event(
                 event_type="run_started",
@@ -3279,6 +3736,7 @@ async def stream_session(
                     "fallback_used": run.fallback_used,
                     "trace_id": trace_id,
                     "agent_engine": "codeforge",
+                    "agent_type": agent_type,
                     "caveman_mode": skills_meta.get("caveman_mode"),
                     "token_saver_enabled": skills_meta.get("token_saver_enabled"),
                     "active_skills": skills_meta.get("active_skills"),
@@ -3338,6 +3796,7 @@ async def stream_session(
                 "fallback_used": run.fallback_used,
                 "trace_id": trace_id,
                 "agent_engine": "codeforge",
+                "agent_type": agent_type,
                 "caveman_mode": skills_meta.get("caveman_mode"),
                 "token_saver_enabled": skills_meta.get("token_saver_enabled"),
                 "active_skills": skills_meta.get("active_skills"),

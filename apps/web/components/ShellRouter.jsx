@@ -11,6 +11,9 @@ function isMinimalRoute(pathname) {
   if (pathname === "/login" || pathname.startsWith("/auth/")) {
     return true;
   }
+  if (pathname === "/code" || pathname.startsWith("/code/")) {
+    return true;
+  }
   return pathname.startsWith("/share/");
 }
 

@@ -29,7 +29,18 @@ print("Hello, World!")
 To run the tests for this project, ensure you have pytest installed. Run the following command:
 
 ```bash
-python -m pytest -q
+python -m pytest -q test_hello.py
 ```
 
 If you encounter an issue with PowerShell, consider using a different terminal or command prompt compatible with Python.
+
+## Test Code
+
+Here is a simple test code for the "Hello, World!" program:
+
+```python
+def test_hello_world(capsys):
+    print("Hello, World!")
+    captured = capsys.readouterr()
+    assert captured.out == "Hello, World!\n"
+```

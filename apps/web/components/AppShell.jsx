@@ -14,7 +14,10 @@ const NAV_SECTIONS = [
     title: "Build",
     items: [
       { href: "/", label: "AI partner", icon: "💬", hint: "Describe your app idea" },
-      { href: "/features", label: "Features", icon: "✨", hint: "All agents & tools" },
+      { href: "/agents", label: "Agents", icon: "🤖", hint: "30+ agent patterns" },
+      { href: "/features", label: "Features", icon: "✨", hint: "All tools" },
+      { href: "/extensions", label: "Extensions", icon: "🔌", hint: "LSP & plugins" },
+      { href: "/mcp", label: "MCP servers", icon: "🌐", hint: "Model Context Protocol" },
     ],
   },
   {
@@ -22,7 +25,7 @@ const NAV_SECTIONS = [
     items: [
       { href: "/cowork", label: "Automations", icon: "🤝", hint: "Files & workflows" },
       { href: "/sessions", label: "My chats", icon: "🗂️", hint: "Past conversations" },
-      { href: "/code", label: "Code view", icon: "⌨️", hint: "Advanced editing" },
+      { href: "/code", label: "Code editor", icon: "⌨️", hint: "Full IDE editing" },
     ],
   },
   {
@@ -36,7 +39,7 @@ const NAV_SECTIONS = [
   },
 ];
 
-const PROTECTED_PREFIXES = ["/", "/features", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
+const PROTECTED_PREFIXES = ["/", "/agents", "/features", "/extensions", "/mcp", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
 
 function isProtectedRoute(pathname) {
   if (pathname === "/billing") {
@@ -61,7 +64,22 @@ export default function AppShell({ children }) {
     if (!ready) {
       return;
     }
-    if (!token && isProtectedRoute(pathname)) {
+    const isProtected = isProtectedRoute(pathname);
+    if (!token && isProtected) {
+      // #region agent log
+      fetch("http://localhost:7347/ingest/3861442b-55e9-43a6-aabe-0a4eb7bec9cf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "074757" },
+        body: JSON.stringify({
+          sessionId: "074757",
+          hypothesisId: "E",
+          location: "AppShell.jsx:auth_guard",
+          message: "protected_route_without_token",
+          data: { pathname, protected: isProtected },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
   }, [ready, token, pathname, router]);

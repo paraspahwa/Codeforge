@@ -38,7 +38,24 @@ export function formatSessionListLabel(session) {
     return "";
   }
   const summary = truncateChatSummary(session.summary || session.title || "");
-  const base = summary || session.session_id || "New chat";
+  let base = summary;
+  if (!base) {
+    if (session.created_at) {
+      const date = new Date(session.created_at);
+      if (!Number.isNaN(date.getTime())) {
+        const when = date.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        base = `New chat · ${when}`;
+      }
+    }
+    if (!base) {
+      base = "New chat";
+    }
+  }
   if (session.access_source !== "granted") {
     return base;
   }

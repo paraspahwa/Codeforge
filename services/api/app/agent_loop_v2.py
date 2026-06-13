@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .agent import AgentRunResult, _format_assistant_reply, _language_for_file, build_agent_run, generation_client, route_request
+from .discovery_service import maybe_discovery_response, maybe_prd_response
 from .agent_tools import ToolContext, ToolResult, execute_tool, infer_tool_plan, parse_tool_plan_with_llm
 from .file_ops import build_patch_preview, infer_target_file, read_file_content
 from .models import AgentEvent, utc_now
@@ -149,8 +150,27 @@ async def build_agent_run_v2(
     style_instructions: str = "",
     config: AgentLoopV2Config | None = None,
     user_id: str = "system",
+    user_prompt: str | None = None,
 ) -> AgentLoopV2Result:
     cfg = config or AgentLoopV2Config()
+    raw_prompt = (user_prompt or prompt).strip()
+
+    discovery = await maybe_discovery_response(
+        session_id=session_id,
+        user_prompt=raw_prompt,
+        generation_client=generation_client,
+    )
+    if discovery is not None:
+        return AgentLoopV2Result(run=discovery)
+
+    prd = await maybe_prd_response(
+        session_id=session_id,
+        user_prompt=raw_prompt,
+        generation_client=generation_client,
+    )
+    if prd is not None:
+        return AgentLoopV2Result(run=prd)
+
     decision = route_request(prompt)
     timestamp = utc_now()
     events: list[AgentEvent] = []

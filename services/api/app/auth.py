@@ -14,6 +14,25 @@ def dev_login_override_enabled() -> bool:
     return os.getenv("CODEFORGE_ALLOW_DEV_LOGIN", "").strip().lower() in {"1", "true", "yes"}
 
 
+def dev_login_secret_configured() -> bool:
+    return bool(os.getenv("CODEFORGE_DEV_LOGIN_SECRET", "").strip())
+
+
+def verify_dev_login_secret(request) -> bool:
+    """In production with dev-login enabled, require the server-side secret header."""
+    from .deploy_readiness import is_production_environment
+
+    if not (is_production_environment() and dev_login_override_enabled()):
+        return True
+    secret = os.getenv("CODEFORGE_DEV_LOGIN_SECRET", "").strip()
+    if not secret:
+        return False
+    import hmac
+
+    provided = (request.headers.get("X-Codeforge-Dev-Secret") or "").strip()
+    return bool(provided) and hmac.compare_digest(provided, secret)
+
+
 def dev_auth_enabled() -> bool:
     if dev_login_override_enabled():
         return True
@@ -49,6 +68,17 @@ def _token_to_user_id(token: str) -> str:
 
 def get_current_user(authorization: str | None = Header(default=None)) -> AuthUser:
     if not authorization or not authorization.startswith("Bearer "):
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            from pathlib import Path as _Path
+            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
+            _lp.parent.mkdir(parents=True, exist_ok=True)
+            with _lp.open("a", encoding="utf-8") as _h:
+                _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"A","location":"auth.py:get_current_user","message":"auth_missing_token","data":{"has_auth":bool(authorization)},"timestamp":int(_time.time()*1000)}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.removeprefix("Bearer ").strip()
     user_id = _token_to_user_id(token)
@@ -66,3 +96,12 @@ def get_current_user_optional(
     except HTTPException:
         return None
     return AuthUser(user_id=user_id)
+
+
+def resolve_user_from_token(token: str) -> AuthUser | None:
+    if not token or not token.strip():
+        return None
+    try:
+        return AuthUser(user_id=_token_to_user_id(token.strip()))
+    except HTTPException:
+        return None

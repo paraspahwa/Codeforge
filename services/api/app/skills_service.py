@@ -33,10 +33,17 @@ def _utc_now_iso() -> str:
 def _repo_skills_root() -> Path:
     configured = os.getenv("CODEFORGE_REPO_ROOT", "").strip()
     if configured:
-        candidate = Path(configured).resolve() / ".codeforge" / "skills"
+        return Path(configured).resolve() / ".codeforge" / "skills"
+
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / ".codeforge" / "skills"
         if candidate.exists():
             return candidate
-    return Path(__file__).resolve().parents[3] / ".codeforge" / "skills"
+
+    # Docker API layout: /app/app/skills_service.py -> /app/.codeforge/skills
+    api_root = here.parents[1] if len(here.parents) > 1 else here.parent
+    return api_root / ".codeforge" / "skills"
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, str], str]:
@@ -73,7 +80,9 @@ def _read_skill_file(path: Path) -> dict[str, Any] | None:
 
 class SkillsService:
     def bundled_skills_root(self) -> Path:
-        return _repo_skills_root()
+        root = _repo_skills_root()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
 
     def project_skills_root(self, project_path: str | None) -> Path | None:
         if not project_path:
@@ -146,6 +155,8 @@ class SkillsService:
         agent_engine: str | None = None,
         permission_mode: str | None = None,
         plan_mode_default: bool | None = None,
+        enabled_extensions: list[str] | None = None,
+        extension_versions: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         current = self.get_preferences(user_id)
         mode = (caveman_mode or current["caveman_mode"]).strip().lower()
@@ -159,6 +170,9 @@ class SkillsService:
             raise ValueError(f"Invalid permission_mode: {perm}")
         skills = enabled_skills if enabled_skills is not None else list(current["enabled_skills"])
         cleaned_skills = sorted({item.strip() for item in skills if item and item.strip()})
+        extensions = enabled_extensions if enabled_extensions is not None else list(current.get("enabled_extensions") or [])
+        cleaned_extensions = sorted({item.strip() for item in extensions if item and item.strip()})
+        extension_versions = extension_versions if extension_versions is not None else dict(current.get("extension_versions") or {})
         skills_store.upsert_user_agent_preferences(
             user_id=user_id,
             caveman_mode=mode,
@@ -168,6 +182,8 @@ class SkillsService:
             agent_engine=engine,
             permission_mode=perm,
             plan_mode_default=plan_mode_default if plan_mode_default is not None else current.get("plan_mode_default", False),
+            enabled_extensions=cleaned_extensions,
+            extension_versions=extension_versions,
         )
         return self.get_preferences(user_id)
 

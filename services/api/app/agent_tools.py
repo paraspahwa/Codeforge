@@ -35,6 +35,7 @@ TOOL_NAMES = (
     "get_diagnostics",
     "create_pull_request",
     "cowork_run",
+    "mcp_call",
 )
 
 WRITE_TOOLS = frozenset({"write_file", "git_stage", "create_pull_request"})
@@ -80,6 +81,7 @@ def tool_definitions() -> list[dict[str, Any]]:
         {"name": "get_diagnostics", "description": "LSP diagnostics for file", "parameters": {"path": "string"}},
         {"name": "create_pull_request", "description": "Create GitHub/GitLab PR/MR", "parameters": {"title": "string", "body": "string", "provider": "string"}},
         {"name": "cowork_run", "description": "Run autonomous CodeForge Cowork workflow from a natural-language goal", "parameters": {"goal": "string"}},
+        {"name": "mcp_call", "description": "Invoke a tool on an enabled MCP connector", "parameters": {"connector_id": "string", "tool_name": "string", "arguments": "object"}},
     ]
 
 
@@ -106,6 +108,19 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
     if tool_name not in TOOL_NAMES:
         return ToolResult(tool=tool_name, status="error", message=f"Unknown tool: {tool_name}")
 
+    from .hooks_runner import collect_prompt_hook_context, run_hooks
+
+    pre_hook_results: list[dict[str, Any]] = []
+    if ctx.project_path:
+        pre_hook_results = run_hooks(
+            "PreToolUse",
+            ctx.project_path,
+            tool_name=tool_name,
+            tool_args=args,
+            user_id=ctx.user_id,
+        )
+    pre_hook_context = collect_prompt_hook_context(pre_hook_results)
+
     if _blocked_by_plan_mode(tool_name, ctx):
         return ToolResult(
             tool=tool_name,
@@ -126,6 +141,23 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
             note="awaiting user approval",
         )
         ctx.pending_approvals.append({"tool": tool_name, "args": args})
+        if ctx.project_path:
+            denied_hooks = run_hooks(
+                "PermissionDenied",
+                ctx.project_path,
+                tool_name=tool_name,
+                tool_args=args,
+                user_id=ctx.user_id,
+            )
+            denied_context = collect_prompt_hook_context(denied_hooks)
+            if denied_context:
+                return ToolResult(
+                    tool=tool_name,
+                    status="pending_approval",
+                    message=f"Permission mode 'ask' requires approval for {tool_name}.\n{denied_context}",
+                    blocked=True,
+                    data={"hook_guidance": denied_context},
+                )
         return ToolResult(
             tool=tool_name,
             status="pending_approval",
@@ -221,6 +253,22 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
             applied = apply_proposed_content(ctx.project_path, path, patch.proposed_content)
             if applied:
                 ctx.edited_files.append(path)
+                if ctx.project_path:
+                    post_hooks = run_hooks(
+                        "PostToolUse",
+                        ctx.project_path,
+                        tool_name=tool_name,
+                        tool_args=args,
+                        target_file=path,
+                        user_id=ctx.user_id,
+                    )
+                    if post_hooks:
+                        return ToolResult(
+                            tool_name,
+                            "completed",
+                            f"Updated {path}",
+                            {"path": path, "applied": applied, "source": patch.source, "post_hooks": post_hooks},
+                        )
             return ToolResult(
                 tool_name,
                 "completed" if applied else "error",
@@ -231,7 +279,7 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
         if tool_name in {"go_to_definition", "find_references", "get_diagnostics"}:
             from .lsp_service import lsp_tool_dispatch
 
-            payload = await lsp_tool_dispatch(tool_name, args, ctx.project_path)
+            payload = await lsp_tool_dispatch(tool_name, args, ctx.project_path, user_id=ctx.user_id)
             return ToolResult(tool_name, "completed", payload.get("message", "ok"), payload)
 
         if tool_name == "spawn_subagent":
@@ -274,6 +322,30 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
                 tool_name,
                 str(payload.get("status", "completed")),
                 str(payload.get("summary", "Cowork workflow finished")),
+                payload,
+            )
+
+        if tool_name == "mcp_call":
+            from .context_mcp import ContextMcpError, context_mcp_service
+
+            connector_id = str(args.get("connector_id", "")).strip()
+            mcp_tool = str(args.get("tool_name", "")).strip()
+            mcp_args = args.get("arguments") if isinstance(args.get("arguments"), dict) else {}
+            if not connector_id or not mcp_tool:
+                return ToolResult(tool_name, "error", "connector_id and tool_name are required")
+            try:
+                payload = context_mcp_service.invoke_connector(
+                    user_id=ctx.user_id,
+                    connector_id=connector_id,
+                    tool_name=mcp_tool,
+                    arguments=mcp_args,
+                )
+            except ContextMcpError as exc:
+                return ToolResult(tool_name, "error", str(exc))
+            return ToolResult(
+                tool_name,
+                "completed",
+                f"MCP {mcp_tool} on {connector_id}",
                 payload,
             )
 

@@ -863,6 +863,9 @@ export default function SettingsPage() {
   ) : (
     <section className="panel">
       <h2>MCP Connectors</h2>
+      <p className="small">
+        Browse the <a href="/extensions">Extensions catalog</a> (LSP, plugins, hooks) or <a href="/mcp">MCP servers</a> to one-click install standard integrations.
+      </p>
       <form onSubmit={handleCreateConnector}>
         <label className="small" htmlFor="connector-name">
           Name

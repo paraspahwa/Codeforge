@@ -33,6 +33,9 @@ export default function ChatPage() {
       sessionFilter={chat.sessionFilter}
       onSessionFilterChange={chat.setSessionFilter}
       mascotState={chat.mascotState}
+      agents={chat.agentCatalog}
+      selectedAgent={chat.selectedAgent}
+      onSelectAgent={chat.handleAgentChange}
     />
   );
 
@@ -174,6 +177,11 @@ export default function ChatPage() {
         canSend={chat.canSend}
         loading={chat.loading}
         sessionId={chat.sessionId}
+        attachedFiles={chat.attachedFiles}
+        onRemoveAttachment={chat.handleRemoveAttachment}
+        onAttachWorkspaceFile={chat.handleAttachWorkspaceFile}
+        onUploadAttachments={chat.handleUploadAttachments}
+        workspaceFiles={chat.workspaceFiles}
       />
     </section>
   );

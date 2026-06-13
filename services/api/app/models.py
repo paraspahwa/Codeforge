@@ -30,9 +30,13 @@ class SessionListItem(BaseModel):
 class MessageContext(BaseModel):
     current_file: str | None = None
     line_number: int | None = None
+    selection_start_line: int | None = None
+    selection_end_line: int | None = None
+    selection_text: str | None = None
     plan_mode: bool = False
     attached_files: list[str] = Field(default_factory=list)
     permission_mode: str | None = None
+    agent_type: str | None = None
 
 
 class AgentEvent(BaseModel):
@@ -175,6 +179,41 @@ class AgentPreferencesUpdateRequest(BaseModel):
     plan_mode_default: bool | None = None
 
 
+class AgentCatalogItem(BaseModel):
+    id: str
+    name: str
+    category: Literal[
+        "foundational",
+        "design_pattern",
+        "multi_agent",
+        "human_integration",
+        "industry",
+        "infrastructure",
+        "lifecycle",
+        "operational",
+    ]
+    complexity: Literal["low", "medium", "high", "critical"] = "medium"
+    icon: str
+    tagline: str
+    description: str
+    example: str
+    starter_prompt: str
+
+
+class AgentCategoryMeta(BaseModel):
+    id: str
+    title: str
+    subtitle: str
+    emoji: str
+
+
+class AgentListResponse(BaseModel):
+    agents: list[AgentCatalogItem]
+    total: int
+    categories: list[AgentCategoryMeta]
+    category_counts: dict[str, int]
+
+
 class HermesStatusResponse(BaseModel):
     env_enabled: bool
     binary_available: bool
@@ -288,6 +327,38 @@ class WorkspaceFilesResponse(BaseModel):
     truncated: bool = False
 
 
+class FileCreateRequest(BaseModel):
+    path: str = Field(min_length=1)
+    content: str = ""
+
+
+class FileDeleteRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class FileRenameRequest(BaseModel):
+    from_path: str = Field(min_length=1)
+    to_path: str = Field(min_length=1)
+
+
+class SessionAttachmentItem(BaseModel):
+    attachment_id: str
+    name: str
+    path: str
+    kind: str
+    byte_size: int = 0
+    excerpt: str = ""
+    method: str = "upload"
+
+
+class SessionAttachmentListResponse(BaseModel):
+    attachments: list[SessionAttachmentItem]
+
+
+class SessionAttachmentUploadResponse(BaseModel):
+    uploaded: list[SessionAttachmentItem]
+
+
 class WebSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=300)
     limit: int = Field(default=5, ge=1, le=10)
@@ -319,6 +390,18 @@ class SymbolSearchResponse(BaseModel):
     match_count: int
     matches: list[SymbolMatchItem]
     file_hits: list[str] = Field(default_factory=list)
+
+
+class WorkspaceGrepHit(BaseModel):
+    path: str
+    line: int
+    text: str
+
+
+class WorkspaceSearchResponse(BaseModel):
+    query: str
+    path_hits: list[str] = Field(default_factory=list)
+    content_hits: list[WorkspaceGrepHit] = Field(default_factory=list)
 
 
 class CheckpointItem(BaseModel):
@@ -379,6 +462,19 @@ class CreatePullRequestResponse(BaseModel):
 class LspLocationResponse(BaseModel):
     message: str
     locations: list[SymbolMatchItem] = Field(default_factory=list)
+
+
+class DiagnosticItem(BaseModel):
+    path: str
+    line: int = 1
+    severity: str = "error"
+    message: str
+    source: str | None = None
+
+
+class DiagnosticsResponse(BaseModel):
+    path: str
+    diagnostics: list[DiagnosticItem] = Field(default_factory=list)
 
 
 class ContextStackResponse(BaseModel):
@@ -1173,12 +1269,166 @@ class McpConnectorResponse(BaseModel):
     tools: list[str] = []
     enabled: bool
     last_result: str
+    catalog_id: str | None = None
+    integration: str | None = None
+    category: str | None = None
+    package: str | None = None
+    env_vars: list[str] = []
+    setup_note: str = ""
     created_at: datetime
     updated_at: datetime
 
 
 class McpConnectorListResponse(BaseModel):
     connectors: list[McpConnectorResponse]
+
+
+class McpCatalogCategory(BaseModel):
+    id: str
+    title: str
+    emoji: str
+
+
+class McpCatalogServer(BaseModel):
+    id: str
+    name: str
+    description: str
+    category: str
+    integration: str
+    transport: str
+    endpoint: str
+    tools: list[str] = []
+    package: str | None = None
+    env_vars: list[str] = []
+    setup_note: str = ""
+    version: str | None = None
+    installed: bool = False
+    enabled: bool = False
+    connector_id: str | None = None
+    catalog_version: str | None = None
+    installed_version: str | None = None
+    update_available: bool = False
+
+
+class McpCatalogListResponse(BaseModel):
+    categories: list[McpCatalogCategory]
+    servers: list[McpCatalogServer]
+    total: int
+    installed_count: int
+    enabled_count: int = 0
+    catalog_revision: str | None = None
+
+
+class McpCatalogInstallRequest(BaseModel):
+    server_id: str = Field(min_length=1)
+
+
+class McpCatalogInstallCategoryRequest(BaseModel):
+    category_id: str = Field(min_length=1)
+
+
+class McpCatalogInstallResponse(BaseModel):
+    server_id: str | None = None
+    category_id: str | None = None
+    created: int
+    total: int
+    connectors: list[McpConnectorResponse]
+
+
+class ExtensionCategory(BaseModel):
+    id: str
+    title: str
+    emoji: str
+
+
+class ExtensionCatalogItem(BaseModel):
+    id: str
+    kind: str
+    category: str
+    name: str
+    description: str
+    enabled: bool = False
+    binary: str | None = None
+    binary_installed: bool | None = None
+    ready: bool | None = None
+    install_hint: str | None = None
+    language: str | None = None
+    skills: list[str] = []
+    config_path: str | None = None
+    setup_note: str | None = None
+    catalog_version: str | None = None
+    installed_version: str | None = None
+    update_available: bool = False
+
+
+class LspPluginStatus(BaseModel):
+    id: str
+    name: str
+    language: str
+    binary: str
+    package: str | None = None
+    install_hint: str = ""
+    installed: bool
+    resolved_binary: str | None = None
+    enabled: bool
+    ready: bool
+
+
+class ExtensionCatalogResponse(BaseModel):
+    categories: list[ExtensionCategory]
+    extensions: list[ExtensionCatalogItem]
+    lsp_plugins: list[LspPluginStatus]
+    hook_events: list[str]
+    hook_types: list[str]
+    catalog_revision: str | None = None
+    total: int
+    enabled_count: int
+
+
+class ExtensionInstallRequest(BaseModel):
+    extension_id: str = Field(min_length=1)
+    project_path: str | None = None
+
+
+class ExtensionDisableRequest(BaseModel):
+    extension_id: str = Field(min_length=1)
+
+
+class McpCatalogDisableRequest(BaseModel):
+    server_id: str = Field(min_length=1)
+
+
+class McpCatalogUpdateRequest(BaseModel):
+    server_id: str = Field(min_length=1)
+
+
+class ExtensionInstallResponse(BaseModel):
+    extension_id: str
+    enabled: bool
+    created: bool = False
+    updated: bool = False
+    removed: bool = False
+    skills_enabled: list[str] = []
+    binary_installed: bool | None = None
+    install_hint: str | None = None
+    setup_note: str | None = None
+    catalog_version: str | None = None
+    installed_version: str | None = None
+    update_available: bool = False
+    hooks_template: str | None = None
+    template: dict[str, Any] | None = None
+
+
+class McpCatalogActionResponse(BaseModel):
+    server_id: str
+    enabled: bool = False
+    removed: bool = False
+    updated: bool = False
+    catalog_version: str | None = None
+    installed_version: str | None = None
+    update_available: bool = False
+    connector_id: str | None = None
+    connector: McpConnectorResponse | None = None
 
 
 class McpInvokeResponse(BaseModel):

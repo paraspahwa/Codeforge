@@ -154,6 +154,61 @@ export async function applyFile(baseUrl, token, sessionId, payload) {
   });
 }
 
+export async function createWorkspaceFile(baseUrl, token, sessionId, payload) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/create`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function deleteWorkspaceFile(baseUrl, token, sessionId, path) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/delete`, {
+    method: "POST",
+    token,
+    body: { path },
+  });
+}
+
+export async function renameWorkspaceFile(baseUrl, token, sessionId, fromPath, toPath) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/files/rename`, {
+    method: "POST",
+    token,
+    body: { from_path: fromPath, to_path: toPath },
+  });
+}
+
+export async function uploadSessionAttachments(baseUrl, token, sessionId, files) {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/sessions/${sessionId}/attachments/upload`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: form,
+  });
+  if (!response.ok) {
+    let detail = `Upload failed with status ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody && typeof errorBody.detail === "string") {
+        detail = errorBody.detail;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+export async function listSessionAttachments(baseUrl, token, sessionId) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/attachments`, { token });
+}
+
 export async function getGitStatus(baseUrl, token, sessionId) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/status`, { token });
 }
@@ -776,6 +831,86 @@ export async function invokeMcpConnector(baseUrl, token, connectorId, payload) {
   });
 }
 
+export async function listMcpCatalog(baseUrl, token, category) {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  return requestJson(baseUrl, `/api/v1/mcp/catalog${query}`, { token });
+}
+
+export async function installMcpCatalogServer(baseUrl, token, serverId) {
+  return requestJson(baseUrl, "/api/v1/mcp/catalog/install", {
+    method: "POST",
+    token,
+    body: { server_id: serverId },
+  });
+}
+
+export async function installMcpCatalogCategory(baseUrl, token, categoryId) {
+  return requestJson(baseUrl, "/api/v1/mcp/catalog/install-category", {
+    method: "POST",
+    token,
+    body: { category_id: categoryId },
+  });
+}
+
+export async function installAllMcpCatalog(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/mcp/catalog/install-all", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function listExtensionsCatalog(baseUrl, token, category) {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  return requestJson(baseUrl, `/api/v1/extensions/catalog${query}`, { token });
+}
+
+export async function installExtension(baseUrl, token, extensionId, projectPath) {
+  return requestJson(baseUrl, "/api/v1/extensions/install", {
+    method: "POST",
+    token,
+    body: { extension_id: extensionId, project_path: projectPath || null },
+  });
+}
+
+export async function installAllLspExtensions(baseUrl, token) {
+  return requestJson(baseUrl, "/api/v1/extensions/install-lsp-all", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function disableExtension(baseUrl, token, extensionId) {
+  return requestJson(baseUrl, "/api/v1/extensions/disable", {
+    method: "POST",
+    token,
+    body: { extension_id: extensionId },
+  });
+}
+
+export async function updateExtension(baseUrl, token, extensionId, projectPath) {
+  return requestJson(baseUrl, "/api/v1/extensions/update", {
+    method: "POST",
+    token,
+    body: { extension_id: extensionId, project_path: projectPath || null },
+  });
+}
+
+export async function disableMcpCatalogServer(baseUrl, token, serverId) {
+  return requestJson(baseUrl, "/api/v1/mcp/catalog/disable", {
+    method: "POST",
+    token,
+    body: { server_id: serverId },
+  });
+}
+
+export async function updateMcpCatalogServer(baseUrl, token, serverId) {
+  return requestJson(baseUrl, "/api/v1/mcp/catalog/update", {
+    method: "POST",
+    token,
+    body: { server_id: serverId },
+  });
+}
+
 export async function listBillingPlans(baseUrl, token) {
   return requestJson(baseUrl, "/api/v1/billing/plans", { token });
 }
@@ -970,6 +1105,11 @@ export async function searchSymbols(baseUrl, token, sessionId, query, limit = 40
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/search/symbols?${params}`, { token });
 }
 
+export async function searchWorkspace(baseUrl, token, sessionId, query) {
+  const params = new URLSearchParams({ q: query }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/search/workspace?${params}`, { token });
+}
+
 export async function gitPush(baseUrl, token, sessionId, payload = {}) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/git/push`, {
     method: "POST",
@@ -1038,6 +1178,22 @@ export async function lspReferences(baseUrl, token, sessionId, path, line = 1, c
 
 export async function* streamRemoteChannelEvents(baseUrl, token, channelId) {
   yield* streamSseJson(baseUrl, `/api/v1/remote/channels/${channelId}/events`, token);
+}
+
+export async function getDiagnostics(baseUrl, token, sessionId, path) {
+  const params = new URLSearchParams({ path }).toString();
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/lsp/diagnostics?${params}`, { token });
+}
+
+export function ptyWebSocketUrl(baseUrl, sessionId, token) {
+  const normalized = normalizeBaseUrl(baseUrl);
+  const wsBase = normalized.replace(/^http/, "ws");
+  const params = new URLSearchParams({ token }).toString();
+  return `${wsBase}/api/v1/sessions/${sessionId}/shell/pty?${params}`;
+}
+
+export async function* streamFileWatchEvents(baseUrl, token, sessionId) {
+  yield* streamSseJson(baseUrl, `/api/v1/sessions/${sessionId}/files/watch`, token);
 }
 
 export async function* streamSessionEvents(baseUrl, token, sessionId) {

@@ -54,6 +54,16 @@ def _safe_project_path(project_root: Path, candidate: str | None) -> Path | None
     try:
         path.relative_to(project_root)
     except ValueError:
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            from pathlib import Path as _Path
+            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
+            with _lp.open("a", encoding="utf-8") as _h:
+                _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"C","location":"file_ops.py:_safe_project_path","message":"path_traversal_blocked","data":{"candidate":candidate},"timestamp":int(_time.time()*1000)}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         return None
 
     if path.is_file():
@@ -292,3 +302,85 @@ def apply_proposed_content(project_path: str | None, relative_path: str, propose
 
     path.write_text(proposed_content, encoding="utf-8")
     return True
+
+
+def _resolve_target_path(project_path: str | None, relative_path: str) -> tuple[Path, Path] | None:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return None
+    normalized = relative_path.replace("\\", "/").lstrip("/")
+    if not normalized:
+        return None
+    target = (project_root / normalized).resolve()
+    try:
+        target.relative_to(project_root)
+    except ValueError:
+        return None
+    return project_root, target
+
+
+def create_workspace_file(project_path: str | None, relative_path: str, content: str = "") -> bool:
+    resolved = _resolve_target_path(project_path, relative_path)
+    if not resolved:
+        return False
+    project_root, target = resolved
+    if target.exists():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return True
+
+
+def delete_workspace_file(project_path: str | None, relative_path: str) -> bool:
+    resolved = _resolve_target_path(project_path, relative_path)
+    if not resolved:
+        return False
+    _, target = resolved
+    if not target.is_file():
+        return False
+    target.unlink()
+    return True
+
+
+def rename_workspace_file(project_path: str | None, from_path: str, to_path: str) -> bool:
+    resolved_from = _resolve_target_path(project_path, from_path)
+    resolved_to = _resolve_target_path(project_path, to_path)
+    if not resolved_from or not resolved_to:
+        return False
+    _, source = resolved_from
+    _, destination = resolved_to
+    if not source.is_file() or destination.exists():
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(destination)
+    return True
+
+
+def search_workspace_paths(project_path: str | None, query: str, *, limit: int = 80) -> list[str]:
+    needle = query.strip().lower()
+    if not needle:
+        return []
+    return [path for path in list_workspace_files(project_path) if needle in path.lower()][:limit]
+
+
+def grep_workspace_content(
+    project_path: str | None,
+    query: str,
+    *,
+    limit: int = 60,
+) -> list[dict[str, str | int]]:
+    needle = query.strip()
+    if not needle:
+        return []
+    hits: list[dict[str, str | int]] = []
+    for relative_path in list_workspace_files(project_path, max_files=400):
+        content = read_file_content(project_path, relative_path)
+        if not content or needle not in content:
+            continue
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            if needle in line:
+                hits.append({"path": relative_path, "line": line_no, "text": line.strip()[:240]})
+                if len(hits) >= limit:
+                    return hits
+    return hits

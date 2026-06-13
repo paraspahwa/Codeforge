@@ -6,11 +6,14 @@ from typing import Any
 from uuid import uuid4
 
 from .db import (
+    delete_mcp_connector_store,
     list_context_packs_store,
     list_mcp_connectors_store,
     upsert_context_pack_store,
     upsert_mcp_connector_store,
 )
+from .mcp_catalog import get_server, list_categories, list_servers
+from .catalog_versions import catalog_version_for
 
 
 def utc_now_iso() -> str:
@@ -65,6 +68,13 @@ class ContextMcpService:
                 "tools": json.loads(row.get("tools_json") or "[]"),
                 "enabled": bool(row.get("enabled", 1)),
                 "last_result": config.get("last_result", "never invoked"),
+                "catalog_id": config.get("catalog_id"),
+                "integration": config.get("integration"),
+                "category": config.get("category"),
+                "package": config.get("package"),
+                "env_vars": config.get("env_vars", []),
+                "setup_note": config.get("setup_note", ""),
+                "catalog_version": config.get("catalog_version"),
                 "created_at": row["created_at"],
                 "updated_at": config.get("updated_at", row["created_at"]),
             }
@@ -100,6 +110,13 @@ class ContextMcpService:
                 {
                     "description": connector.get("description", ""),
                     "last_result": connector.get("last_result", ""),
+                    "catalog_id": connector.get("catalog_id"),
+                    "integration": connector.get("integration"),
+                    "category": connector.get("category"),
+                    "package": connector.get("package"),
+                    "env_vars": connector.get("env_vars", []),
+                    "setup_note": connector.get("setup_note", ""),
+                    "catalog_version": connector.get("catalog_version"),
                     "updated_at": connector.get("updated_at", utc_now_iso()),
                 }
             ),
@@ -218,6 +235,13 @@ class ContextMcpService:
         endpoint: str,
         transport: str,
         tools: list[str],
+        catalog_id: str | None = None,
+        integration: str | None = None,
+        category: str | None = None,
+        package: str | None = None,
+        env_vars: list[str] | None = None,
+        setup_note: str = "",
+        catalog_version: str | None = None,
     ) -> dict[str, Any]:
         self._ensure_user_loaded(user_id)
         connector_id = f"mcp_{uuid4().hex[:10]}"
@@ -232,6 +256,13 @@ class ContextMcpService:
             "tools": [tool.strip() for tool in tools if tool.strip()],
             "enabled": True,
             "last_result": "never invoked",
+            "catalog_id": catalog_id,
+            "integration": integration,
+            "category": category,
+            "package": package,
+            "env_vars": env_vars or [],
+            "setup_note": setup_note,
+            "catalog_version": catalog_version,
             "created_at": now,
             "updated_at": now,
         }
@@ -273,14 +304,25 @@ class ContextMcpService:
         if tool_name not in allowed_tools:
             raise ContextMcpError("Tool is not registered on this MCP connector")
 
-        from .mcp_transport import invoke_remote_tool
+        integration = connector.get("integration") or connector.get("transport")
+        if integration == "native" or str(connector.get("endpoint", "")).startswith("native://"):
+            from .mcp_native import invoke_native_tool
 
-        result_payload = invoke_remote_tool(
-            endpoint=str(connector["endpoint"]),
-            transport=str(connector.get("transport") or "http"),
-            tool_name=tool_name,
-            arguments=arguments,
-        )
+            catalog_id = connector.get("catalog_id") or str(connector["endpoint"]).replace("native://", "")
+            result_payload = invoke_native_tool(
+                server_id=catalog_id,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+        else:
+            from .mcp_transport import invoke_remote_tool
+
+            result_payload = invoke_remote_tool(
+                endpoint=str(connector["endpoint"]),
+                transport=str(connector.get("transport") or "http"),
+                tool_name=tool_name,
+                arguments=arguments,
+            )
 
         connector["last_result"] = f"{tool_name} invoked"
         connector["updated_at"] = utc_now_iso()
@@ -291,6 +333,196 @@ class ContextMcpService:
             "result": result_payload,
             "invoked_at": utc_now_iso(),
         }
+
+    def _installed_catalog_ids(self, *, user_id: str) -> set[str]:
+        self._ensure_user_loaded(user_id)
+        ids: set[str] = set()
+        for connector in self._connectors.values():
+            if connector["owner_id"] != user_id:
+                continue
+            catalog_id = connector.get("catalog_id")
+            if catalog_id:
+                ids.add(str(catalog_id))
+        return ids
+
+    def _connector_for_catalog(self, *, user_id: str, server_id: str) -> dict[str, Any] | None:
+        self._ensure_user_loaded(user_id)
+        for connector in self._connectors.values():
+            if connector["owner_id"] == user_id and connector.get("catalog_id") == server_id:
+                return connector
+        return None
+
+    def list_catalog(self, *, user_id: str, category: str | None = None) -> dict[str, Any]:
+        self._ensure_user_loaded(user_id)
+        servers = []
+        enabled_count = 0
+        for row in list_servers(category=category):
+            connector = self._connector_for_catalog(user_id=user_id, server_id=row["id"])
+            catalog_version = catalog_version_for(row)
+            installed_version = connector.get("catalog_version") if connector else None
+            enabled = bool(connector and connector.get("enabled"))
+            if enabled:
+                enabled_count += 1
+            servers.append({
+                **row,
+                "installed": connector is not None,
+                "enabled": enabled,
+                "connector_id": connector["connector_id"] if connector else None,
+                "catalog_version": catalog_version,
+                "installed_version": installed_version,
+                "update_available": bool(connector) and (
+                    not installed_version or installed_version != catalog_version
+                ),
+            })
+        return {
+            "categories": list_categories(),
+            "servers": servers,
+            "total": len(servers),
+            "installed_count": sum(1 for row in servers if row["installed"]),
+            "enabled_count": enabled_count,
+            "catalog_revision": catalog_version_for(),
+        }
+
+    def install_catalog_server(self, *, user_id: str, server_id: str) -> dict[str, Any]:
+        self._ensure_user_loaded(user_id)
+        server = get_server(server_id)
+        if server is None:
+            raise ContextMcpError(f"Unknown MCP catalog server: {server_id}")
+
+        existing = self._connector_for_catalog(user_id=user_id, server_id=server_id)
+        if existing:
+            existing["enabled"] = True
+            if not existing.get("catalog_version"):
+                existing["catalog_version"] = catalog_version_for(server)
+            existing["updated_at"] = utc_now_iso()
+            self._persist_connector(existing)
+            return {"connector": existing, "created": False, "server_id": server_id}
+
+        catalog_version = catalog_version_for(server)
+        connector = self.register_connector(
+            user_id=user_id,
+            name=server["name"],
+            description=server.get("description", ""),
+            endpoint=server["endpoint"],
+            transport=server["transport"],
+            tools=server.get("tools", []),
+            catalog_id=server["id"],
+            integration=server.get("integration"),
+            category=server.get("category"),
+            package=server.get("package"),
+            env_vars=server.get("env_vars", []),
+            setup_note=server.get("setup_note", ""),
+            catalog_version=catalog_version,
+        )
+        return {"connector": connector, "created": True, "server_id": server_id}
+
+    def disable_catalog_server(self, *, user_id: str, server_id: str) -> dict[str, Any]:
+        connector = self._connector_for_catalog(user_id=user_id, server_id=server_id)
+        if connector is None:
+            return {"server_id": server_id, "removed": False}
+        connector_id = connector["connector_id"]
+        delete_mcp_connector_store(connector_id=connector_id, owner_id=user_id)
+        self._connectors.pop(connector_id, None)
+        return {"server_id": server_id, "removed": True, "connector_id": connector_id}
+
+    def update_catalog_server(self, *, user_id: str, server_id: str) -> dict[str, Any]:
+        self._ensure_user_loaded(user_id)
+        server = get_server(server_id)
+        if server is None:
+            raise ContextMcpError(f"Unknown MCP catalog server: {server_id}")
+        connector = self._connector_for_catalog(user_id=user_id, server_id=server_id)
+        if connector is None:
+            raise ContextMcpError("Enable the MCP server before updating")
+
+        catalog_version = catalog_version_for(server)
+        if connector.get("catalog_version") == catalog_version:
+            return {
+                "server_id": server_id,
+                "updated": False,
+                "catalog_version": catalog_version,
+                "installed_version": connector.get("catalog_version"),
+                "connector": connector,
+            }
+
+        connector["name"] = server["name"]
+        connector["description"] = server.get("description", "")
+        connector["endpoint"] = server["endpoint"]
+        connector["transport"] = server["transport"]
+        connector["tools"] = server.get("tools", [])
+        connector["integration"] = server.get("integration")
+        connector["category"] = server.get("category")
+        connector["package"] = server.get("package")
+        connector["env_vars"] = server.get("env_vars", [])
+        connector["setup_note"] = server.get("setup_note", "")
+        connector["catalog_version"] = catalog_version
+        connector["enabled"] = True
+        connector["updated_at"] = utc_now_iso()
+        self._persist_connector(connector)
+        return {
+            "server_id": server_id,
+            "updated": True,
+            "catalog_version": catalog_version,
+            "installed_version": catalog_version,
+            "connector": connector,
+        }
+
+    def install_catalog_category(self, *, user_id: str, category_id: str) -> dict[str, Any]:
+        self._ensure_user_loaded(user_id)
+        servers = list_servers(category=category_id)
+        if not servers:
+            raise ContextMcpError(f"Unknown MCP catalog category: {category_id}")
+
+        created = 0
+        connectors = []
+        for server in servers:
+            result = self.install_catalog_server(user_id=user_id, server_id=server["id"])
+            connectors.append(result["connector"])
+            if result["created"]:
+                created += 1
+        return {
+            "category_id": category_id,
+            "created": created,
+            "total": len(connectors),
+            "connectors": connectors,
+        }
+
+    def install_all_catalog(self, *, user_id: str) -> dict[str, Any]:
+        self._ensure_user_loaded(user_id)
+        created = 0
+        connectors = []
+        for server in list_servers():
+            result = self.install_catalog_server(user_id=user_id, server_id=server["id"])
+            connectors.append(result["connector"])
+            if result["created"]:
+                created += 1
+        return {
+            "created": created,
+            "total": len(connectors),
+            "connectors": connectors,
+        }
+
+    def compose_mcp_tools_context(self, *, user_id: str) -> str:
+        self._ensure_user_loaded(user_id)
+        enabled = [
+            item for item in self._connectors.values()
+            if item["owner_id"] == user_id and item.get("enabled")
+        ]
+        if not enabled:
+            return ""
+
+        lines = [
+            "Enabled MCP connectors (use mcp_call with connector_id, tool_name, arguments):",
+        ]
+        for connector in sorted(enabled, key=lambda row: row["name"]):
+            tools = ", ".join(connector.get("tools", [])[:8])
+            integration = connector.get("integration") or connector.get("transport", "http")
+            note = connector.get("setup_note", "")
+            lines.append(
+                f"- {connector['name']} [{connector['connector_id']}] ({integration}): {tools}"
+            )
+            if note and integration != "native":
+                lines.append(f"  Setup: {note}")
+        return "\n".join(lines)
 
 
 context_mcp_service = ContextMcpService()

@@ -22,7 +22,7 @@ def _dumps(value: Any) -> str:
 def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
     row = _fetchone(
         """
-        SELECT user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, permission_mode, plan_mode_default, updated_at
+        SELECT user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, permission_mode, plan_mode_default, enabled_extensions_json, extension_versions_json, updated_at
         FROM user_agent_preferences
         WHERE user_id = ?
         """,
@@ -38,6 +38,8 @@ def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
             "agent_engine": "codeforge",
             "permission_mode": "auto_safe",
             "plan_mode_default": False,
+            "enabled_extensions": [],
+            "extension_versions": {},
             "updated_at": None,
         }
     return {
@@ -49,6 +51,8 @@ def get_user_agent_preferences(user_id: str) -> dict[str, Any]:
         "agent_engine": (row.get("agent_engine") or "codeforge"),
         "permission_mode": row.get("permission_mode") or "auto_safe",
         "plan_mode_default": bool(row.get("plan_mode_default", 0)),
+        "enabled_extensions": _loads(row.get("enabled_extensions_json"), []),
+        "extension_versions": _loads(row.get("extension_versions_json"), {}),
         "updated_at": row["updated_at"],
     }
 
@@ -64,6 +68,8 @@ def upsert_user_agent_preferences(
     agent_engine: str | None = None,
     permission_mode: str | None = None,
     plan_mode_default: bool | None = None,
+    enabled_extensions: list[str] | None = None,
+    extension_versions: dict[str, str] | None = None,
 ) -> None:
     current = get_user_agent_preferences(user_id)
     resolved_rtk_enabled = current["rtk_enabled"] if rtk_enabled is None else rtk_enabled
@@ -71,12 +77,14 @@ def upsert_user_agent_preferences(
     resolved_agent_engine = current["agent_engine"] if agent_engine is None else agent_engine
     resolved_permission_mode = current["permission_mode"] if permission_mode is None else permission_mode
     resolved_plan_mode_default = current["plan_mode_default"] if plan_mode_default is None else plan_mode_default
+    resolved_extensions = current["enabled_extensions"] if enabled_extensions is None else enabled_extensions
+    resolved_versions = current.get("extension_versions") or {} if extension_versions is None else extension_versions
     _execute(
         """
         INSERT INTO user_agent_preferences(
-            user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, permission_mode, plan_mode_default, updated_at
+            user_id, caveman_mode, enabled_skills_json, rtk_enabled, rtk_last_stats_json, agent_engine, permission_mode, plan_mode_default, enabled_extensions_json, extension_versions_json, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             caveman_mode = excluded.caveman_mode,
             enabled_skills_json = excluded.enabled_skills_json,
@@ -85,6 +93,8 @@ def upsert_user_agent_preferences(
             agent_engine = excluded.agent_engine,
             permission_mode = excluded.permission_mode,
             plan_mode_default = excluded.plan_mode_default,
+            enabled_extensions_json = excluded.enabled_extensions_json,
+            extension_versions_json = excluded.extension_versions_json,
             updated_at = excluded.updated_at
         """,
         (
@@ -96,6 +106,8 @@ def upsert_user_agent_preferences(
             resolved_agent_engine,
             resolved_permission_mode,
             1 if resolved_plan_mode_default else 0,
+            _dumps(sorted({item.strip() for item in resolved_extensions if item and item.strip()})),
+            _dumps(resolved_versions),
             updated_at,
         ),
     )

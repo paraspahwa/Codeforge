@@ -16,8 +16,7 @@ const QUICK_STARTS = [
     label: "Write a PRD",
     icon: "📋",
     prompt:
-      "Help me write a Product Requirements Document. Ask me about my app idea first, then create a clear PRD.",
-    planMode: true,
+      "Help me write a PRD for my app idea. Ask me 4-5 clarifying questions first — do NOT write the PRD yet.",
     color: "#8b5cf6",
   },
   {

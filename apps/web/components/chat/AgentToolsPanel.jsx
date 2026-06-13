@@ -182,7 +182,7 @@ export default function AgentToolsPanel({
                 Refresh files
               </Button>
               <Link href="/code" className="agent-feature-link-inline">
-                Open code editor →
+                Open full file editor →
               </Link>
             </div>
             <label className="small" htmlFor="symbolQuery">

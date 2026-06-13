@@ -4,7 +4,24 @@ import { createSessionStream } from "@codeforge/shared/agent";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export async function devLogin(userId) {
-  const data = await shared.devLogin(API_BASE, userId);
+  const response = await fetch("/api/auth/dev-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.detail) {
+        detail = typeof errorBody.detail === "string" ? errorBody.detail : detail;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  const data = await response.json();
   return data.access_token;
 }
 
@@ -30,6 +47,15 @@ export async function createSession(projectPath, token) {
 
 export async function listSessions(token) {
   return shared.listSessions(API_BASE, token);
+}
+
+export async function listAgents(category) {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const response = await fetch(`${API_BASE}/api/v1/agents${query}`);
+  if (!response.ok) {
+    throw new Error("Failed to load agents");
+  }
+  return response.json();
 }
 
 export async function getUsageSummary(token) {
@@ -134,6 +160,54 @@ export async function createMcpConnector(token, payload) {
 
 export async function listMcpConnectors(token) {
   return shared.listMcpConnectors(API_BASE, token);
+}
+
+export async function toggleMcpConnector(token, connectorId, enabled) {
+  return shared.toggleMcpConnector(API_BASE, token, connectorId, enabled);
+}
+
+export async function listMcpCatalog(token, category) {
+  return shared.listMcpCatalog(API_BASE, token, category);
+}
+
+export async function installMcpCatalogServer(token, serverId) {
+  return shared.installMcpCatalogServer(API_BASE, token, serverId);
+}
+
+export async function installMcpCatalogCategory(token, categoryId) {
+  return shared.installMcpCatalogCategory(API_BASE, token, categoryId);
+}
+
+export async function installAllMcpCatalog(token) {
+  return shared.installAllMcpCatalog(API_BASE, token);
+}
+
+export async function listExtensionsCatalog(token, category) {
+  return shared.listExtensionsCatalog(API_BASE, token, category);
+}
+
+export async function installExtension(token, extensionId, projectPath) {
+  return shared.installExtension(API_BASE, token, extensionId, projectPath);
+}
+
+export async function installAllLspExtensions(token) {
+  return shared.installAllLspExtensions(API_BASE, token);
+}
+
+export async function disableExtension(token, extensionId) {
+  return shared.disableExtension(API_BASE, token, extensionId);
+}
+
+export async function updateExtension(token, extensionId, projectPath) {
+  return shared.updateExtension(API_BASE, token, extensionId, projectPath);
+}
+
+export async function disableMcpCatalogServer(token, serverId) {
+  return shared.disableMcpCatalogServer(API_BASE, token, serverId);
+}
+
+export async function updateMcpCatalogServer(token, serverId) {
+  return shared.updateMcpCatalogServer(API_BASE, token, serverId);
 }
 
 export async function listBillingPlans() {
@@ -435,6 +509,34 @@ export async function getFilePreview(token, sessionId, path) {
   return shared.getFilePreview(API_BASE, token, sessionId, path);
 }
 
+export async function getFileContent(token, sessionId, path) {
+  return shared.getFileContent(API_BASE, token, sessionId, path);
+}
+
+export async function applyFile(token, sessionId, payload) {
+  return shared.applyFile(API_BASE, token, sessionId, payload);
+}
+
+export async function createWorkspaceFile(token, sessionId, payload) {
+  return shared.createWorkspaceFile(API_BASE, token, sessionId, payload);
+}
+
+export async function deleteWorkspaceFile(token, sessionId, path) {
+  return shared.deleteWorkspaceFile(API_BASE, token, sessionId, path);
+}
+
+export async function renameWorkspaceFile(token, sessionId, fromPath, toPath) {
+  return shared.renameWorkspaceFile(API_BASE, token, sessionId, fromPath, toPath);
+}
+
+export async function uploadSessionAttachments(token, sessionId, files) {
+  return shared.uploadSessionAttachments(API_BASE, token, sessionId, files);
+}
+
+export async function listSessionAttachments(token, sessionId) {
+  return shared.listSessionAttachments(API_BASE, token, sessionId);
+}
+
 export function streamShellCommand(token, sessionId, payload) {
   return shared.streamShellCommand(API_BASE, token, sessionId, payload);
 }
@@ -471,6 +573,10 @@ export async function searchSymbols(token, sessionId, query, limit = 40) {
   return shared.searchSymbols(API_BASE, token, sessionId, query, limit);
 }
 
+export async function searchWorkspace(token, sessionId, query) {
+  return shared.searchWorkspace(API_BASE, token, sessionId, query);
+}
+
 export async function gitPush(token, sessionId, payload = {}) {
   return shared.gitPush(API_BASE, token, sessionId, payload);
 }
@@ -505,4 +611,58 @@ export async function lspDefinition(token, sessionId, path, line = 1, character 
 
 export async function lspReferences(token, sessionId, path, line = 1, character = 0) {
   return shared.lspReferences(API_BASE, token, sessionId, path, line, character);
+}
+
+export async function getDiagnostics(token, sessionId, path) {
+  return shared.getDiagnostics(API_BASE, token, sessionId, path);
+}
+
+export function ptyWebSocketUrl(sessionId, token) {
+  return shared.ptyWebSocketUrl(API_BASE, sessionId, token);
+}
+
+export function streamFileWatch(token, sessionId, onEvent) {
+  const controller = new AbortController();
+  const handle = { close: () => controller.abort() };
+
+  (async () => {
+    const response = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/files/watch`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "text/event-stream",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      while (buffer.includes("\n\n")) {
+        const boundary = buffer.indexOf("\n\n");
+        const chunk = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 2);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) {
+            continue;
+          }
+          try {
+            const payload = JSON.parse(line.slice(6));
+            onEvent?.(payload);
+          } catch {
+            // ignore malformed chunks
+          }
+        }
+      }
+    }
+  })().catch(() => undefined);
+
+  return handle;
 }

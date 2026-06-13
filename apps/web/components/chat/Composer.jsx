@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
+import ChatAttachments from "./ChatAttachments";
 import { useSessionAccess } from "../../lib/session-context";
 
 export default function Composer({
@@ -13,6 +14,11 @@ export default function Composer({
   canSend,
   loading,
   sessionId,
+  attachedFiles = [],
+  onRemoveAttachment,
+  onAttachWorkspaceFile,
+  onUploadAttachments,
+  workspaceFiles = [],
 }) {
   const { currentSession, sessionWritable } = useSessionAccess();
   const textareaRef = useRef(null);
@@ -35,6 +41,17 @@ export default function Composer({
         <p className="small agent-composer-hint">
           Pick a quick-start above or click <strong>Start a new chat</strong> to begin.
         </p>
+      ) : null}
+      {sessionId ? (
+        <ChatAttachments
+          attachedFiles={attachedFiles}
+          onRemove={onRemoveAttachment}
+          onAttachWorkspaceFile={onAttachWorkspaceFile}
+          onUploadFiles={onUploadAttachments}
+          workspaceFiles={workspaceFiles}
+          loading={loading}
+          disabled={!sessionWritable}
+        />
       ) : null}
       <div className="agent-composer-row">
         <textarea
@@ -59,7 +76,7 @@ export default function Composer({
         </button>
       </div>
       <p className="small agent-composer-foot">
-        Enter to send · Shift+Enter for new line · The AI guides you step by step
+        Enter to send · Shift+Enter for new line · 📎 attach PDF, images, Markdown
       </p>
     </form>
   );

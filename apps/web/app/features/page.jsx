@@ -23,6 +23,9 @@ export default function FeaturesPage() {
         <Link href="/" className="features-hero-link cf-hover-lift">
           ← Back to chat
         </Link>
+        <Link href="/agents" className="features-hero-link cf-hover-lift" style={{ marginLeft: "1rem" }}>
+          Browse AI agents →
+        </Link>
       </header>
 
       <section className="features-journey-banner cf-animate-in" style={{ animationDelay: "80ms" }}>

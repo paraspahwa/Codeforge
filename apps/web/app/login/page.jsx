@@ -37,7 +37,9 @@ export default function LoginPage() {
     getDeployReadiness(false)
       .then((readiness) => {
         const devBlocked = (readiness.checks || []).some(
-          (check) => check.name === "dev_login_disabled_under_oidc" && check.ok,
+          (check) =>
+            (check.name === "dev_login_disabled_under_oidc" && check.ok) ||
+            (check.name === "dev_login_disabled_in_production" && check.ok),
         );
         setDevLoginAllowed(!devBlocked);
         setShowDevLogin(!devBlocked);
