@@ -1,14 +1,11 @@
 "use client";
 
+import { ChatMessageList } from "@codeforge/ui";
+
 import AgentActivityFeed from "../components/chat/AgentActivityFeed";
-import ArtifactPanel from "../components/chat/ArtifactPanel";
 import ChatLayout from "../components/chat/ChatLayout";
 import Composer from "../components/chat/Composer";
-import ConflictAssistant from "../components/chat/ConflictAssistant";
-import { ChatMessageList } from "@codeforge/ui";
-import RoutingSignalBanner from "../components/chat/RoutingSignalBanner";
 import SessionSidebar from "../components/chat/SessionSidebar";
-import WorkflowDrawer from "../components/chat/WorkflowDrawer";
 import { SessionProvider } from "../lib/session-context";
 import { useChatPage } from "../lib/use-chat-page";
 
@@ -20,102 +17,68 @@ export default function ChatPage() {
   }
 
   const sidebar = (
-    <>
-      <SessionSidebar
-        projectPath={chat.projectPath}
-        onProjectPathChange={chat.setProjectPath}
-        onCreateSession={chat.handleCreateSession}
-        sessionId={chat.sessionId}
-        sessionHistory={chat.sessionHistory}
-        onSelectSession={chat.handleSelectSession}
-        loading={chat.loading}
-        usage={chat.usage}
-        lastModel={chat.lastModel}
-        sessionFilter={chat.sessionFilter}
-        onSessionFilterChange={chat.setSessionFilter}
-        sessionWritable={chat.sessionWritable}
-        currentSession={chat.currentSession}
-      />
-      <section className="panel mt-9">
-        <WorkflowDrawer
-          showWorkflows={chat.showWorkflows}
-          onToggle={() => chat.setShowWorkflows((prev) => !prev)}
-          sessionId={chat.sessionId}
-          loading={chat.loading}
-          sessionWritable={chat.sessionWritable}
-          loopVerify={chat.loopVerify}
-          onLoopVerifyChange={chat.setLoopVerify}
-          loopPrompt={chat.loopPrompt}
-          onLoopPromptChange={chat.setLoopPrompt}
-          loopMaxAttempts={chat.loopMaxAttempts}
-          onLoopMaxAttemptsChange={chat.setLoopMaxAttempts}
-          loopRunning={chat.loopRunning}
-          onRunLoop={chat.handleRunLoop}
-          planTargets={chat.planTargets}
-          onPlanTargetsChange={chat.setPlanTargets}
-          autoMode={chat.autoMode}
-          onAutoModeChange={chat.setAutoMode}
-          onCompact={chat.handleCompact}
-          onUltrareview={chat.handleUltrareview}
-          onFork={chat.handleForkSession}
-          onCreatePlan={chat.handleCreatePlan}
-          onExecutePlan={chat.handleExecutePlan}
-          onRollbackPlan={chat.handleRollbackPlan}
-          activePlanId={chat.activePlanId}
-          workflowOutput={chat.workflowOutput}
-          templateName={chat.templateName}
-          onTemplateNameChange={chat.setTemplateName}
-          templatePrefix={chat.templatePrefix}
-          onTemplatePrefixChange={chat.setTemplatePrefix}
-          onCreateTemplate={chat.handleCreateTemplate}
-          templates={chat.templates}
-          onRunTemplate={chat.setSelectedTemplateId}
-          selectedTemplateId={chat.selectedTemplateId}
-        />
-        {chat.showWorkflows ? (
-          <>
-            <h4 className="small mt-8">Artifacts preview</h4>
-            <ArtifactPanel
-              artifacts={chat.artifacts}
-              selectedArtifactId={chat.selectedArtifactId}
-              artifactPreviewHtml={chat.artifactPreviewHtml}
-              loading={chat.loading}
-              onPreview={chat.handlePreviewArtifact}
-            />
-          </>
-        ) : null}
-        <ConflictAssistant
-          show={chat.showConflictTool}
-          onToggle={() => chat.setShowConflictTool((prev) => !prev)}
-          conflictTargetBranch={chat.conflictTargetBranch}
-          onConflictTargetBranchChange={chat.setConflictTargetBranch}
-          conflictGuide={chat.conflictGuide}
-          conflictStrategy={chat.conflictStrategy}
-          onConflictStrategyChange={chat.setConflictStrategy}
-          conflictPaths={chat.conflictPaths}
-          onConflictPathsChange={chat.setConflictPaths}
-          sessionId={chat.sessionId}
-          loading={chat.loading}
-          sessionWritable={chat.sessionWritable}
-          onLoadGuide={chat.handleLoadConflictGuide}
-          onApply={chat.handleApplyConflictAssist}
-        />
-      </section>
-    </>
+    <SessionSidebar
+      projectPath={chat.projectPath}
+      onProjectPathChange={chat.setProjectPath}
+      onCreateSession={chat.handleCreateSession}
+      sessionId={chat.sessionId}
+      sessionHistory={chat.sessionHistory}
+      onSelectSession={chat.handleSelectSession}
+      loading={chat.loading}
+      sessionFilter={chat.sessionFilter}
+      onSessionFilterChange={chat.setSessionFilter}
+      mascotState={chat.mascotState}
+    />
   );
 
   const chatPanel = (
-    <section className="panel chat-panel">
-      <h2>Chat</h2>
-      <RoutingSignalBanner signal={chat.routingSignal} />
-      <ChatMessageList
-        variant="web"
-        messages={chat.messages}
-        chatEndRef={chat.chatEndRef}
-        streamingMessageId={chat.streamingMessageId}
-        sessionId={chat.sessionId}
-        loading={chat.loading}
-      />
+    <section className="agent-chat">
+      <header className="agent-chat-header">
+        <div>
+          <h1>Coding agent</h1>
+          <p className="small">
+            {chat.sessionId
+              ? "Ask for code — I'll write files and show the result right here."
+              : "Start a session, then chat like you would with a senior engineer."}
+          </p>
+        </div>
+        {chat.usage ? (
+          <span className="usage-pill small">{chat.usage.requests_remaining ?? 0} requests left</span>
+        ) : null}
+      </header>
+
+      <div className="agent-chat-log">
+        {!chat.sessionId ? (
+          <div className="agent-welcome">
+            <p className="agent-welcome-kicker">CodeForge</p>
+            <h2>What should we build?</h2>
+            <ul className="agent-welcome-list">
+              <li>Generate Python, APIs, and scripts in real files</li>
+              <li>See full code blocks inline — no manual approve step</li>
+              <li>Debug errors and refactor across your workspace</li>
+            </ul>
+            <button type="button" className="agent-welcome-cta" onClick={chat.handleCreateSession} disabled={chat.loading}>
+              {chat.loading ? "Starting…" : "Start coding session"}
+            </button>
+          </div>
+        ) : (
+          <ChatMessageList
+            variant="web"
+            messages={chat.messages}
+            chatEndRef={chat.chatEndRef}
+            streamingMessageId={chat.streamingMessageId}
+            sessionId={chat.sessionId}
+            loading={chat.loading}
+          />
+        )}
+      </div>
+
+      {chat.pendingProposal && chat.sessionId ? (
+        <div className="agent-inline-activity">
+          <AgentActivityFeed agentEvents={chat.agentEvents} pendingProposal={chat.pendingProposal} />
+        </div>
+      ) : null}
+
       <Composer
         prompt={chat.prompt}
         onPromptChange={chat.setPrompt}
@@ -123,25 +86,13 @@ export default function ChatPage() {
         canSend={chat.canSend}
         loading={chat.loading}
         sessionId={chat.sessionId}
-        selectedTemplateId={chat.selectedTemplateId}
-        onTemplateChange={chat.setSelectedTemplateId}
-        templates={chat.templates}
       />
     </section>
   );
 
-  const activity = (
-    <AgentActivityFeed
-      agentEvents={chat.agentEvents}
-      pendingProposal={chat.pendingProposal}
-      onDecision={chat.handleProposalDecision}
-      loading={chat.loading}
-    />
-  );
-
   return (
     <SessionProvider sessionId={chat.sessionId} sessions={chat.sessionHistory}>
-      <ChatLayout sidebar={sidebar} chat={chatPanel} activity={activity} />
+      <ChatLayout sidebar={sidebar} chat={chatPanel} />
     </SessionProvider>
   );
 }

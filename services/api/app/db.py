@@ -69,6 +69,7 @@ def _execute(statement: str, params: tuple[Any, ...] = ()) -> None:
         with _pg_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(statement.replace("?", "%s"), params)
+            conn.commit()
     else:
         conn = _sqlite_connection()
         try:
@@ -558,8 +559,11 @@ def init_db() -> None:
                         rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
                         agent_engine TEXT NOT NULL DEFAULT 'codeforge',
                         updated_at TEXT NOT NULL
-                    );
-
+                    )
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS agent_memories (
                         memory_id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL,
@@ -573,9 +577,15 @@ def init_db() -> None:
                     )
                     """
                 )
+            conn.commit()
+            _migrate_optional_columns()
+            with conn.cursor() as cur:
                 for statement in INDEX_STATEMENTS:
-                    cur.execute(statement)
-                _migrate_optional_columns(cur)
+                    try:
+                        cur.execute(statement)
+                    except Exception:
+                        pass
+            conn.commit()
         return
 
     conn = _sqlite_connection()
@@ -961,7 +971,7 @@ def init_db() -> None:
         conn.close()
 
 
-def _migrate_optional_columns(conn_or_cur) -> None:
+def _migrate_optional_columns(conn_or_cur=None) -> None:
     migrations = [
         "ALTER TABLE team_delegations ADD COLUMN orchestration_mode TEXT DEFAULT 'single'",
         "ALTER TABLE team_delegations ADD COLUMN agent_roles_json TEXT DEFAULT '[]'",
@@ -990,7 +1000,12 @@ def _migrate_optional_columns(conn_or_cur) -> None:
     ]
     for statement in migrations:
         try:
-            if hasattr(conn_or_cur, "execute"):
+            if _is_postgres():
+                with _pg_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(statement)
+                    conn.commit()
+            elif conn_or_cur is not None and hasattr(conn_or_cur, "execute"):
                 conn_or_cur.execute(statement)
             else:
                 _execute(statement)
@@ -1057,6 +1072,22 @@ def latest_user_message(session_id: str) -> str:
         (session_id,),
     )
     return row["content"] if row else ""
+
+
+def latest_user_message_context(session_id: str) -> dict[str, Any]:
+    import json
+
+    row = _fetchone(
+        "SELECT context_json FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1",
+        (session_id,),
+    )
+    if not row or not row.get("context_json"):
+        return {}
+    try:
+        payload = json.loads(row["context_json"])
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def insert_usage_log(
@@ -1247,6 +1278,7 @@ def upsert_user_subscription(
                     """,
                     (user_id, plan_id, status, amount_inr, order_id, updated_at, razorpay_subscription_id),
                 )
+            conn.commit()
         return
 
     conn = _sqlite_connection()
@@ -1483,6 +1515,7 @@ def upsert_routing_benchmark_baseline(
                         updated_by,
                     ),
                 )
+            conn.commit()
         return
 
     conn = _sqlite_connection()

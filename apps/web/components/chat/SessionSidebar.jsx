@@ -1,8 +1,28 @@
 "use client";
 
-import { Badge, Button } from "@codeforge/ui";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+import { Button } from "@codeforge/ui";
 
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
+
+import AgentMascot from "./AgentMascot";
+
+const WORKSPACE_PRESETS = [
+  { label: "Demo project", path: "/workspaces/demo" },
+  { label: "Main workspace", path: "/workspaces/main" },
+];
+
+const FEATURE_LINKS = [
+  { href: "/code", label: "Code editor", icon: "⌨️" },
+  { href: "/sessions", label: "Sessions", icon: "🗂️" },
+  { href: "/cowork", label: "Cowork", icon: "🤝" },
+  { href: "/team", label: "Team", icon: "👥" },
+  { href: "/analytics", label: "Analytics", icon: "📊" },
+  { href: "/billing", label: "Billing", icon: "💳" },
+  { href: "/settings", label: "Settings", icon: "⚙️" },
+];
 
 export default function SessionSidebar({
   projectPath,
@@ -12,13 +32,12 @@ export default function SessionSidebar({
   sessionHistory,
   onSelectSession,
   loading,
-  usage,
-  lastModel,
   sessionFilter,
   onSessionFilterChange,
-  sessionWritable,
-  currentSession,
+  mascotState = "idle",
 }) {
+  const pathname = usePathname();
+
   const filtered = sessionHistory.filter((entry) => {
     if (!sessionFilter.trim()) {
       return true;
@@ -31,56 +50,96 @@ export default function SessionSidebar({
   });
 
   return (
-    <section className="panel">
-      <h2>Session</h2>
+    <aside className="agent-sidebar">
+      <AgentMascot state={mascotState} />
+
+      <div className="agent-sidebar-header">
+        <h2>Workspace</h2>
+        <p className="small">Point the agent at a folder inside the server.</p>
+      </div>
+
+      <div className="workspace-presets">
+        {WORKSPACE_PRESETS.map((preset) => (
+          <button
+            key={preset.path}
+            type="button"
+            className={`workspace-preset ${projectPath === preset.path ? "workspace-preset-active" : ""}`}
+            onClick={() => onProjectPathChange(preset.path)}
+            disabled={loading}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
       <label className="small" htmlFor="projectPath">
-        Project Path
+        Project path
       </label>
       <input
         id="projectPath"
+        className="agent-input"
         value={projectPath}
-        placeholder="c:/path/to/your/project"
+        placeholder="/workspaces/demo"
         onChange={(event) => onProjectPathChange(event.target.value)}
         disabled={loading}
       />
-      <div className="mt-8">
-        <Button type="button" onClick={onCreateSession} disabled={loading || !projectPath.trim()}>
-          {sessionId ? "New Session" : "Create Session"}
-        </Button>
+
+      <Button type="button" className="agent-primary-btn" onClick={onCreateSession} disabled={loading || !projectPath.trim()}>
+        {loading ? "Starting…" : sessionId ? "+ New chat" : "Start coding"}
+      </Button>
+
+      {sessionId ? (
+        <p className="small agent-meta">Session active — changes apply automatically.</p>
+      ) : (
+        <p className="small agent-meta">Create a session to send your first message.</p>
+      )}
+
+      <div className="agent-sidebar-divider" />
+
+      <div className="agent-sidebar-header">
+        <h3>Features</h3>
       </div>
-      <p className="small mt-8">Active: {sessionId ?? "none"}</p>
-      {!sessionWritable && currentSession ? (
-        <Badge variant="warning">View-only grant</Badge>
-      ) : null}
-      <p className="small">Last model: {lastModel}</p>
-      {usage ? (
-        <p className="small">
-          {usage.requests_used_in_period ?? usage.total_requests} requests ({usage.requests_remaining} left)
-        </p>
-      ) : null}
-      <h3>Sessions</h3>
+      <div className="agent-feature-grid">
+        {FEATURE_LINKS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`agent-feature-link ${pathname === item.href ? "agent-feature-link-active" : ""}`}
+          >
+            <span aria-hidden>{item.icon}</span>
+            <span>{item.label}</span>
+          </Link>
+        ))}
+      </div>
+
+      <div className="agent-sidebar-divider" />
+
+      <div className="agent-sidebar-header">
+        <h3>Recent chats</h3>
+      </div>
       <input
-        aria-label="Filter sessions"
-        placeholder="Search sessions..."
+        aria-label="Filter chats"
+        className="agent-input"
+        placeholder="Filter…"
         value={sessionFilter}
         onChange={(event) => onSessionFilterChange(event.target.value)}
         disabled={loading}
       />
-      <div className="session-list session-list-tall">
-        {filtered.length === 0 ? <p className="small">No sessions found.</p> : null}
+      <div className="agent-session-list">
+        {filtered.length === 0 ? <p className="small">No chats yet.</p> : null}
         {filtered.map((entry) => (
           <button
             key={entry.session_id}
-            className={`ghost-btn ${entry.session_id === sessionId ? "ghost-btn-active" : ""}`}
+            className={`agent-session-item ${entry.session_id === sessionId ? "agent-session-item-active" : ""}`}
             type="button"
             onClick={() => onSelectSession(entry.session_id)}
             disabled={loading}
           >
-            <span>{formatSessionListLabel(entry)}</span>
-            <span className="small block">{new Date(entry.created_at).toLocaleString()}</span>
+            <span className="agent-session-title">{formatSessionListLabel(entry)}</span>
+            <span className="small">{new Date(entry.created_at).toLocaleString()}</span>
           </button>
         ))}
       </div>
-    </section>
+    </aside>
   );
 }

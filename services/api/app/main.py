@@ -73,13 +73,14 @@ from .db import (
     latest_routing_benchmark_run,
     list_routing_benchmark_runs,
     latest_user_message,
+    latest_user_message_context,
     list_messages_for_session,
     upsert_routing_benchmark_baseline,
     update_agent_proposal_status,
     update_billing_order_status,
     upsert_user_subscription,
 )
-from .file_ops import apply_proposed_content
+from .file_ops import apply_proposed_content, list_workspace_files
 from .project_paths import normalize_project_path, resolved_project_path
 from .org_service import OrgError, org_service
 from .session_access import (
@@ -106,6 +107,14 @@ from .workflow_ops import (
 from .file_ops import read_file_content, read_file_excerpt, read_file_line_count, repo_relative_path, resolve_repo_path
 from .git_ops import GitError, git_branch, git_commit, git_conflict_assisted_apply, git_conflict_resolution_guide, git_diff, git_log, git_merge_assist, git_stage, git_status, git_worktree_create, git_worktree_list
 from .shell_ops import ShellError, prepare_shell_execution, stream_shell_execution
+from .symbol_search import SymbolSearchError, search_symbols
+from .web_search_service import (
+    WebSearchError,
+    format_search_context,
+    search_query_from_prompt,
+    search_web,
+    should_auto_search,
+)
 from .tracing import add_span_event, configure_tracing, current_trace_id, set_span_attributes, traced_span
 from .models import (
     AgentLoopAttemptResponse,
@@ -157,6 +166,10 @@ from .models import (
     DeploymentRolloutValidationResponse,
     FileApplyRequest,
     FileApplyResponse,
+    WorkspaceFilesResponse,
+    WebSearchRequest,
+    WebSearchResponse,
+    SymbolSearchResponse,
     FileContentResponse,
     FilePreviewResponse,
     GitBranchRequest,
@@ -2771,8 +2784,18 @@ async def stream_session(
             )
             if style_instructions:
                 composed_prompt = f"{style_instructions}\n\n{composed_prompt}"
+            if should_auto_search(user_prompt):
+                try:
+                    search_payload = await search_web(search_query_from_prompt(user_prompt), limit=4)
+                    if search_payload.get("results"):
+                        composed_prompt = f"{composed_prompt}\n\n{format_search_context(search_payload)}"
+                        add_span_event("agent.web_search_injected", {"query": search_payload.get("query")})
+                except WebSearchError:
+                    pass
             trace_id = current_trace_id()
             project_path = resolved_project_path(session) if session else None
+            message_context = latest_user_message_context(session_id)
+            current_file = message_context.get("current_file")
 
             if hermes_adapter.should_run_hermes(user.user_id):
                 sequence = 0
@@ -2842,7 +2865,7 @@ async def stream_session(
                 prompt=composed_prompt,
                 session_id=session_id,
                 project_path=project_path,
-                current_file=None,
+                current_file=current_file,
                 style_instructions="",
             )
             set_span_attributes(
@@ -2867,6 +2890,25 @@ async def stream_session(
             )
             add_span_event("proposal.created", {"proposal_id": proposal_id})
 
+            applied = False
+            if run.proposed_content != run.original_content:
+                applied = apply_proposed_content(
+                    resolved_project_path(session),
+                    run.target_file,
+                    run.proposed_content,
+                )
+                if applied:
+                    update_agent_proposal_status(
+                        proposal_id=proposal_id,
+                        status="approved",
+                        resolved_at=utc_now().isoformat(),
+                        resolution_note="Auto-applied",
+                    )
+                    add_span_event(
+                        "proposal.auto_applied",
+                        {"proposal_id": proposal_id, "target_file": run.target_file},
+                    )
+
             yield serialize_sse_event(
                 event_type="run_started",
                 payload={
@@ -2878,7 +2920,7 @@ async def stream_session(
                     "synthesis_source": run.synthesis_source,
                     "confidence_score": run.confidence_score,
                     "confidence_label": run.confidence_label,
-                    "review_required": run.review_required,
+                    "review_required": False,
                     "routing_tier": run.routing_tier,
                     "fallback_used": run.fallback_used,
                     "trace_id": trace_id,
@@ -2917,8 +2959,10 @@ async def stream_session(
             for offset, event in enumerate(run.events, start=len(run.token_chunks) + 1):
                 payload = dict(event.payload)
                 payload["trace_id"] = trace_id
-                if event.type in {"diff", "approval_request"}:
+                if event.type == "diff":
                     payload["proposal_id"] = proposal_id
+                    payload["applied"] = applied
+                    payload["status"] = "approved" if applied else "pending"
                 yield serialize_sse_event(event.type, payload, offset, event.timestamp)
 
             complete_payload = {
@@ -2933,7 +2977,7 @@ async def stream_session(
                 "synthesis_source": run.synthesis_source,
                 "confidence_score": run.confidence_score,
                 "confidence_label": run.confidence_label,
-                "review_required": run.review_required,
+                "review_required": False,
                 "routing_tier": run.routing_tier,
                 "fallback_used": run.fallback_used,
                 "trace_id": trace_id,
@@ -2941,6 +2985,9 @@ async def stream_session(
                 "caveman_mode": skills_meta.get("caveman_mode"),
                 "token_saver_enabled": skills_meta.get("token_saver_enabled"),
                 "active_skills": skills_meta.get("active_skills"),
+                "applied": applied,
+                "auto_applied": applied,
+                "target_file": run.target_file,
             }
             if extracted_artifacts:
                 complete_payload["artifact_ids"] = [item["artifact_id"] for item in extracted_artifacts]

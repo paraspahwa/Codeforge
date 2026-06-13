@@ -133,7 +133,7 @@ def _classify_intent(prompt: str) -> RoutingDecision:
             fallback_used=False,
         )
 
-    if any(keyword in lowered for keyword in ["test", "pytest", "npm test", "cargo test", "run tests"]):
+    if any(keyword in lowered for keyword in ["pytest", "npm test", "cargo test", "run tests", "run test"]):
         confidence = _estimate_confidence(prompt, "shell_cmd", "rule-engine")
         return RoutingDecision(
             intent="shell_cmd",
@@ -381,6 +381,43 @@ def _synthesize_azure_openai(
     return "", "deterministic"
 
 
+def _language_for_file(path: str) -> str:
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return {
+        "py": "python",
+        "js": "javascript",
+        "jsx": "javascript",
+        "ts": "typescript",
+        "tsx": "tsx",
+        "json": "json",
+        "md": "markdown",
+        "sh": "bash",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "rb": "ruby",
+        "go": "go",
+        "rs": "rust",
+    }.get(ext, ext)
+
+
+def _format_assistant_reply(
+    summary: str,
+    target_file: str,
+    proposed_content: str,
+    original_content: str,
+) -> str:
+    if not proposed_content or proposed_content == original_content:
+        return summary.strip() or "I could not produce a file change for that request."
+
+    lang = _language_for_file(target_file)
+    body = proposed_content.strip()
+    if len(body) > 6000:
+        body = body[:6000] + "\n# ... truncated ..."
+
+    intro = summary.strip() or f"Updated `{target_file}`."
+    return f"{intro}\n\n```{lang}\n{body}\n```"
+
+
 def _synthesize_with_remote_model(prompt: str, decision: RoutingDecision, target_file: str) -> tuple[str, str]:
     status = get_synthesis_rollout_status()
     preferred = status["strategy"]
@@ -394,15 +431,15 @@ def _synthesize_with_remote_model(prompt: str, decision: RoutingDecision, target
     azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "").strip()
 
     system_prompt = (
-        "You are CodeForge orchestration synthesis. Produce a concise developer-facing assistant response "
-        "that explains the routed intent, planned file scope, and verification posture. Keep it under 90 words."
+        "You are CodeForge, a helpful coding assistant. "
+        "Write ONE short sentence (max 20 words) describing what you built or changed. "
+        "Do not use markdown code fences. "
+        "Do not mention model names, routing tiers, confidence scores, or internal policy."
     )
     user_prompt = (
-        f"Intent: {decision.intent}\n"
-        f"Model route: {decision.model_used}\n"
+        f"User request: {prompt}\n"
         f"Target file: {target_file}\n"
-        f"Confidence: {decision.confidence_label} ({decision.confidence_score:.2f})\n"
-        f"User request: {prompt}"
+        "Reply with a single concise sentence only."
     )
 
     provider_chain: list[str]
@@ -616,12 +653,9 @@ async def build_agent_run(
         patch_backend = patch_result.backend if patch_result else "none"
         excerpt = read_file_excerpt(project_path, active_file) if active_file else ""
 
-        fallback_summary = (
-            f"Intent routed as {decision.intent.replace('_', ' ')} using {decision.model_used}. "
-            f"I will inspect the request, prepare a scoped change, emit a diff for approval, and then verify the result."
-        )
-
         diff_target = active_file or "README.md"
+        fallback_summary = f"Created `{diff_target}`."
+
         patch_preview = build_patch_preview(diff_target, prompt, excerpt, original_content, proposed_content)
         set_span_attributes(
             {
@@ -667,25 +701,31 @@ async def build_agent_run(
             },
         )
 
-        synthesis_system_prompt = "You are CodeForge synthesis orchestrator."
+        synthesis_system_prompt = "You are CodeForge, a helpful coding assistant."
         if style_instructions.strip():
             synthesis_system_prompt = f"{synthesis_system_prompt}\n\n{style_instructions.strip()}"
-        word_budget = "45 words" if "caveman" in style_instructions.lower() else "90 words"
-        model_response = await generation_client.generate(
-            prompt=(
-                "You are CodeForge orchestration synthesis. Produce a concise developer-facing assistant response "
-                f"that explains routed intent, planned file scope, and verification posture. Keep it under {word_budget}.\n\n"
-                f"Intent: {decision.intent}\n"
-                f"Model route: {decision.model_used}\n"
-                f"Target file: {diff_target}\n"
-                f"Confidence: {decision.confidence_label} ({decision.confidence_score:.2f})\n"
-                f"User request: {prompt}"
-            ),
-            system_prompt=synthesis_system_prompt,
-        )
-        synthesized_summary = str(model_response.get("text", "")).strip()
-        summary = synthesized_summary or fallback_summary
-        synthesis_source = str(model_response.get("backend", "deterministic"))
+        word_budget = "20 words" if "caveman" in style_instructions.lower() else "25 words"
+        synthesized_text, synthesis_source = _synthesize_with_remote_model(prompt, decision, diff_target)
+        if synthesized_text.strip():
+            summary = synthesized_text.strip()
+        else:
+            model_response = await generation_client.generate(
+                prompt=(
+                    f"User request: {prompt}\n"
+                    f"Target file: {diff_target}\n"
+                    f"Write one sentence under {word_budget} describing the change. "
+                    "Do not mention models, routing, or internal systems."
+                ),
+                system_prompt=synthesis_system_prompt,
+            )
+            synthesized_summary = str(model_response.get("text", "")).strip()
+            if synthesized_summary.startswith("Deterministic fallback"):
+                summary = fallback_summary
+            else:
+                summary = synthesized_summary or fallback_summary
+            synthesis_source = str(model_response.get("backend", "deterministic"))
+
+        summary = _format_assistant_reply(summary, diff_target, proposed_content, original_content)
 
         add_event(
             "tool_result",
@@ -725,20 +765,10 @@ async def build_agent_run(
             {
                 "file": diff_target,
                 "patch": patch_preview,
-                "kind": "proposed",
+                "kind": "applied",
                 "reason": decision.reason,
-                "review_required": decision.review_required,
-            },
-        )
-
-        add_event(
-            "approval_request",
-            {
-                "scope": "file_diff",
-                "message": f"Review the proposed update for {diff_target} before apply.",
-                "reason": decision.reason,
-                "review_required": decision.review_required,
-                "confidence_score": decision.confidence_score,
+                "review_required": False,
+                "auto_applied": True,
             },
         )
 
@@ -800,7 +830,7 @@ async def build_agent_run(
             patch_preview=patch_preview,
             confidence_score=decision.confidence_score,
             confidence_label=decision.confidence_label,
-            review_required=decision.review_required,
+            review_required=False,
             routing_tier=decision.routing_tier,
             fallback_used=decision.fallback_used,
             synthesis_source=synthesis_source,

@@ -310,7 +310,19 @@ ssh -i your-key.pem ec2-user@<public-ip>    # Amazon Linux
 ssh -i your-key.pem ubuntu@<public-ip>      # Ubuntu
 ```
 
-### 6.2 Install Docker
+### 6.2 Automated bootstrap (Ubuntu)
+
+On **Ubuntu 24.04**, after SSH you can run Phases 2–7 with one script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/paraspahwa/Indi-claude/main/scripts/ec2-bootstrap.sh | bash
+# or from a clone:
+./scripts/ec2-bootstrap.sh --openai-api-key sk-...
+```
+
+See [EC2_Runbook.md](EC2_Runbook.md) and `scripts/ec2-bootstrap.sh --help` for flags (`--skip-clone`, `--force-env`, custom secrets, etc.).
+
+### 6.3 Install Docker (manual)
 
 **Amazon Linux 2023:**
 
@@ -338,7 +350,7 @@ docker --version
 docker compose version
 ```
 
-### 6.3 Clone and configure
+### 6.4 Clone and configure
 
 ```bash
 git clone <your-repo-url>
@@ -369,7 +381,7 @@ docker compose -f docker-compose.prod.yml build \
   --build-arg NEXT_PUBLIC_API_BASE=http://${EC2_IP}:8000 web
 ```
 
-### 6.4 Start and verify
+### 6.5 Start and verify
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
@@ -386,7 +398,7 @@ Open http://\<EC2_PUBLIC_IP\>:3000 in your browser.
 
 Run the smoke gates from **section 5.3**, replacing `127.0.0.1` with `<EC2_PUBLIC_IP>`.
 
-### 6.5 Optional: Nginx + TLS on EC2
+### 6.6 Optional: Nginx + TLS on EC2
 
 For HTTPS and a single origin:
 
@@ -430,7 +442,7 @@ sudo certbot --nginx -d app.yourdomain.com -d api.yourdomain.com
 
 Update `.env` / rebuild web with `https://api.yourdomain.com` as `NEXT_PUBLIC_API_BASE`.
 
-### 6.6 Point clients at EC2
+### 6.7 Point clients at EC2
 
 On your laptop:
 
@@ -439,7 +451,7 @@ export CODEFORGE_API_BASE_URL=http://<EC2_PUBLIC_IP>:8000   # terminal
 export VITE_CODEFORGE_API_BASE_URL=http://<EC2_PUBLIC_IP>:8000  # desktop
 ```
 
-### 6.7 EC2 logs and debugging
+### 6.8 EC2 logs and debugging
 
 ```bash
 docker compose -f docker-compose.prod.yml logs -f api

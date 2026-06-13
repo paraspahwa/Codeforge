@@ -270,6 +270,44 @@ class FileApplyResponse(BaseModel):
     line_count: int
 
 
+class WorkspaceFilesResponse(BaseModel):
+    files: list[str]
+    truncated: bool = False
+
+
+class WebSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=300)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class WebSearchResultItem(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+    source: str = "web"
+
+
+class WebSearchResponse(BaseModel):
+    query: str
+    result_count: int
+    results: list[WebSearchResultItem]
+    provider: str
+
+
+class SymbolMatchItem(BaseModel):
+    symbol: str
+    kind: str
+    file: str
+    line: int
+
+
+class SymbolSearchResponse(BaseModel):
+    query: str
+    match_count: int
+    matches: list[SymbolMatchItem]
+    file_hits: list[str] = Field(default_factory=list)
+
+
 class GitStatusItem(BaseModel):
     status: str
     path: str

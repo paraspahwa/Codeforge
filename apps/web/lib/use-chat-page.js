@@ -32,12 +32,14 @@ import { useAuth } from "./auth-context";
 import { runSlashCommand } from "./slash-commands";
 import { useToast } from "./toast-context";
 
+const DEFAULT_PROJECT_PATH = "/workspaces/demo";
+
 export function useChatPage() {
   const { token, ready } = useAuth();
   const toast = useToast();
   const { setUsage: setShellUsage, setSessionGrant } = useShellBar();
 
-  const [projectPath, setProjectPath] = useState("");
+  const [projectPath, setProjectPath] = useState(DEFAULT_PROJECT_PATH);
   const [sessionId, setSessionId] = useState(null);
   const [sessionHistory, setSessionHistory] = useState([]);
   const [prompt, setPrompt] = useState("");
@@ -89,8 +91,18 @@ export function useChatPage() {
     [token, sessionId, prompt, loading, sessionWritable],
   );
 
+  const mascotState = useMemo(() => {
+    if (loading) {
+      return "thinking";
+    }
+    if (pendingProposal?.status === "approved" || pendingProposal?.auto_applied) {
+      return "celebrating";
+    }
+    return "idle";
+  }, [loading, pendingProposal]);
+
   useEffect(() => {
-    setProjectPath(localStorage.getItem("codeforge_project_path") || "");
+    setProjectPath(localStorage.getItem("codeforge_project_path") || DEFAULT_PROJECT_PATH);
   }, []);
 
   useEffect(() => {
@@ -140,6 +152,17 @@ export function useChatPage() {
       .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, token]);
+
+  useEffect(() => {
+    if (!ready || !token || sessionId || loading) {
+      return;
+    }
+    if (sessionHistory.length > 0) {
+      handleSelectSession(sessionHistory[0].session_id);
+    }
+    // Resume the most recent chat once after login.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, token, sessionHistory, sessionId, loading]);
 
   useEffect(() => {
     if (!token || !sessionId) {
@@ -251,7 +274,6 @@ export function useChatPage() {
 
     try {
       const sent = await sendMessage(sessionId, userText, token, null, selectedTemplateId || null);
-      setLastModel(sent.model_used ?? "-");
       setRoutingSignal({
         intent: sent.intent,
         model_used: sent.model_used,
@@ -261,12 +283,6 @@ export function useChatPage() {
         routing_tier: sent.routing_tier,
         fallback_used: sent.fallback_used,
       });
-      pushAgentEvents([
-        `route: ${sent.intent ?? "unknown"} via ${sent.model_used ?? "unknown"}`,
-        sent.routing_reason ? `why: ${sent.routing_reason}` : null,
-        `confidence: ${sent.confidence_label ?? "unknown"} (${Math.round((sent.confidence_score ?? 0) * 100)}%)`,
-        sent.review_required ? "review: human review recommended" : null,
-      ]);
 
       const source = streamSession(sessionId, token, (evt) => {
         if (evt.type === "run_started") {
@@ -279,16 +295,6 @@ export function useChatPage() {
             routing_tier: evt.payload?.routing_tier,
             fallback_used: evt.payload?.fallback_used,
           });
-          pushAgentEvents([
-            `run: ${evt.payload?.intent ?? "unknown"} via ${evt.payload?.model ?? "unknown"}`,
-            evt.payload?.reason ? `why: ${evt.payload.reason}` : null,
-            evt.payload?.confidence_label
-              ? `confidence: ${evt.payload.confidence_label} (${Math.round((evt.payload.confidence_score ?? 0) * 100)}%)`
-              : null,
-            evt.payload?.review_required ? "review: human review recommended" : null,
-            evt.payload?.routing_tier ? `tier: ${evt.payload.routing_tier}` : null,
-            evt.payload?.fallback_used ? "route: fallback model path" : null,
-          ]);
         }
 
         if (evt.type === "token") {
@@ -302,42 +308,56 @@ export function useChatPage() {
         }
 
         if (evt.type === "tool_call") {
-          pushAgentEvents([`tool: ${evt.payload?.tool} (${evt.payload?.status})`]);
+          if (evt.payload?.tool === "verify.static" || evt.payload?.tool === "file.patch") {
+            pushAgentEvents([`${evt.payload?.tool === "file.patch" ? "Prepared" : "Checking"} ${evt.payload?.target || "change"}…`]);
+          }
         }
 
         if (evt.type === "diff") {
-          pushAgentEvents([`diff: ${evt.payload?.file}`]);
+          const applied = evt.payload?.applied || evt.payload?.status === "approved";
+          pushAgentEvents([applied ? `✓ Applied ${evt.payload?.file}` : `Updated ${evt.payload?.file}`]);
           if (evt.payload?.proposal_id) {
             setPendingProposal({
               proposal_id: evt.payload.proposal_id,
               target_file: evt.payload.file,
               patch_preview: evt.payload.patch,
-              status: "pending",
+              status: applied ? "approved" : evt.payload.status || "pending",
+              auto_applied: Boolean(applied),
             });
           }
         }
 
         if (evt.type === "approval_request") {
-          pushAgentEvents([`approval: ${evt.payload?.message}`]);
-          if (evt.payload?.proposal_id) {
-            getProposal(sessionId, evt.payload.proposal_id, token)
-              .then(setPendingProposal)
-              .catch(() => undefined);
-          }
+          return;
         }
 
         if (evt.type === "tool_result") {
-          pushAgentEvents([`verify: ${evt.payload?.message}`]);
+          if (evt.payload?.message && !String(evt.payload.message).toLowerCase().includes("policy bound")) {
+            pushAgentEvents([evt.payload.message]);
+          }
         }
 
         if (evt.type === "complete") {
-          pushAgentEvents([
-            evt.payload?.confidence_label
-              ? `final confidence: ${evt.payload.confidence_label} (${Math.round((evt.payload.confidence_score ?? 0) * 100)}%)`
-              : null,
-            evt.payload?.review_required ? "final review: human review recommended" : null,
-            evt.payload?.artifact_ids?.length ? `artifacts: ${evt.payload.artifact_ids.join(", ")}` : null,
-          ]);
+          listMessages(sessionId, token)
+            .then((stored) => {
+              setMessages(
+                stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })),
+              );
+            })
+            .catch(() => undefined);
+          if (evt.payload?.applied || evt.payload?.auto_applied) {
+            pushAgentEvents([`✓ Saved to ${evt.payload?.target_file || "workspace"}`]);
+            setPendingProposal((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: "approved",
+                    auto_applied: true,
+                    target_file: evt.payload?.target_file || prev.target_file,
+                  }
+                : prev,
+            );
+          }
           source.close();
           getUsageSummary(token).then(setUsage).catch(() => undefined);
           listSessionArtifacts(sessionId, token)
@@ -699,6 +719,7 @@ export function useChatPage() {
     currentSession,
     sessionWritable,
     canSend,
+    mascotState,
     handleCreateSession,
     handleSelectSession,
     handleSendPrompt,

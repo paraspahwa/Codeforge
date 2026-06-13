@@ -59,6 +59,31 @@ ssh -i <YOUR_KEY.pem> ubuntu@<EC2_PUBLIC_IP>
 ssh -i <YOUR_KEY.pem> ec2-user@<EC2_PUBLIC_IP>
 What this does: Opens a shell on the EC2 instance so you run all following commands there (unless noted “from laptop”).
 
+## Automated bootstrap (Phases 2–7)
+
+After SSH (Phase 1), you can run one script instead of Phases 2–7 manually:
+
+```bash
+# Fresh clone on EC2 (Ubuntu 24.04)
+curl -fsSL https://raw.githubusercontent.com/paraspahwa/Indi-claude/main/scripts/ec2-bootstrap.sh | bash
+
+# Or from an existing clone
+cd ~/Indi-claude
+./scripts/ec2-bootstrap.sh
+
+# With OpenAI key for real LLM replies
+./scripts/ec2-bootstrap.sh --openai-api-key sk-your-key-here
+
+# Re-run compose only (Docker + repo already set up)
+./scripts/ec2-bootstrap.sh --skip-docker-install --skip-clone --force-env
+```
+
+The script: installs Docker on Ubuntu, clones the repo (unless `--skip-clone`), writes `.env` with EC2 public IP from instance metadata, creates `docker-compose.override.yml` for LLM keys, builds `web` with `NEXT_PUBLIC_API_BASE`, runs `docker compose up -d --build`, and hits `/health`.
+
+Options: `--repo-url`, `--repo-dir`, `--ec2-ip`, `--postgres-password`, `--supabase-jwt-secret`, `--force-env`, `--skip-build`, `--skip-up`. See `./scripts/ec2-bootstrap.sh --help`.
+
+---
+
 Phase 2 — Install Docker + Git on EC2
 Option A — Ubuntu 24.04 (recommended)
 Run on EC2:
@@ -391,6 +416,16 @@ docker compose -f docker-compose.prod.yml down -v
 In AWS Console: Stop or Terminate instance when done to avoid charges.
 
 Quick copy-paste sequence (EC2, after SSH)
+
+**Option A — automated (recommended)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/paraspahwa/Indi-claude/main/scripts/ec2-bootstrap.sh | bash
+```
+
+**Option B — manual**
+
+```bash
 sudo apt-get update -y && sudo apt-get install -y docker.io docker-compose-v2 git curl
 sudo systemctl enable --now docker && sudo usermod -aG docker $USER && newgrp docker
 cd ~ && git clone https://github.com/paraspahwa/Indi-claude.git && cd Indi-claude
@@ -403,8 +438,8 @@ docker compose -f docker-compose.prod.yml build --build-arg NEXT_PUBLIC_API_BASE
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml ps
 curl -fsS http://${EC2_IP}:8000/health
+```
+
 Then open http://<EC2_PUBLIC_IP>:3000 and run Phase 8 smoke tests.
 
-Your earlier error (POSTGRES_PASSWORD must be set) happens when .env is missing or empty before docker compose up. Creating .env in Phase 4 before starting fixes it.
-
-If you want, I can add a scripts/ec2-bootstrap.sh to the repo that automates Phases 2–7 on Ubuntu.
+Your earlier error (POSTGRES_PASSWORD must be set) happens when .env is missing or empty before docker compose up. Creating .env in Phase 4 (or running `scripts/ec2-bootstrap.sh`) before starting fixes it.

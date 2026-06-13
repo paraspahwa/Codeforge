@@ -1,42 +1,39 @@
 "use client";
 
-import { Button } from "@codeforge/ui";
+import { useState } from "react";
 
-import { useSessionAccess } from "../../lib/session-context";
+export default function ProposalReview({ pendingProposal }) {
+  const [expanded, setExpanded] = useState(false);
 
-export default function ProposalReview({ pendingProposal, loading, onDecision }) {
-  const { sessionWritable } = useSessionAccess();
   if (!pendingProposal) {
     return null;
   }
 
+  const isApplied = pendingProposal.status === "approved" || pendingProposal.auto_applied;
   const lines = String(pendingProposal.patch_preview || "").split("\n");
   const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
   const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
 
   return (
-    <div className="proposal-card">
+    <div className={`proposal-card ${isApplied ? "proposal-card-applied" : ""}`}>
       <div className="proposal-diff-header">
-        <strong>{pendingProposal.target_file || "unknown file"}</strong>
-        <span className="small">
-          {pendingProposal.proposal_id} · {pendingProposal.status}
-        </span>
+        <div className="proposal-diff-title">
+          <strong>{pendingProposal.target_file || "unknown file"}</strong>
+          {isApplied ? <span className="proposal-applied-badge">✓ Applied automatically</span> : null}
+        </div>
+        <button
+          type="button"
+          className="proposal-toggle small"
+          onClick={() => setExpanded((open) => !open)}
+        >
+          {expanded ? "Hide diff" : "View diff"}
+        </button>
       </div>
       <div className="proposal-diff-stats small">
         <span className="diff-stat-add">+{added}</span>
         <span className="diff-stat-remove">-{removed}</span>
       </div>
-      <pre className="proposal-preview diff-unified">{pendingProposal.patch_preview}</pre>
-      {pendingProposal.status === "pending" ? (
-        <div className="proposal-actions">
-          <Button type="button" onClick={() => onDecision("approve")} disabled={loading || !sessionWritable}>
-            Approve
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => onDecision("reject")} disabled={loading}>
-            Reject
-          </Button>
-        </div>
-      ) : null}
+      {expanded ? <pre className="proposal-preview diff-unified">{pendingProposal.patch_preview}</pre> : null}
     </div>
   );
 }

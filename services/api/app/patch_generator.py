@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
@@ -43,6 +44,30 @@ def _heuristic_patch(relative_path: str, prompt: str, original_content: str) -> 
 
     if not original_content.strip():
         if suffix == "py":
+            if "hello" in lowered:
+                return 'print("Hello, World!")\n'
+            if any(word in lowered for word in ("auth", "login", "sign in", "signin")):
+                return (
+                    'from fastapi import APIRouter, HTTPException\n'
+                    'from pydantic import BaseModel\n\n'
+                    'router = APIRouter(prefix="/auth", tags=["auth"])\n\n\n'
+                    'class LoginRequest(BaseModel):\n'
+                    '    username: str\n'
+                    '    password: str\n\n\n'
+                    '@router.post("/login")\n'
+                    'def login(payload: LoginRequest) -> dict[str, str]:\n'
+                    '    if not payload.username or not payload.password:\n'
+                    '        raise HTTPException(status_code=401, detail="Invalid credentials")\n'
+                    '    return {"token": "replace-with-jwt", "username": payload.username}\n'
+                )
+            if any(word in lowered for word in ("api", "endpoint", "route", "rest")):
+                return (
+                    'from fastapi import APIRouter\n\n'
+                    'router = APIRouter()\n\n\n'
+                    '@router.get("/health")\n'
+                    'def health() -> dict[str, str]:\n'
+                    '    return {"status": "ok"}\n'
+                )
             return '"""Module scaffold."""\n\n\ndef main() -> None:\n    pass\n\n\nif __name__ == "__main__":\n    main()\n'
         if suffix in {"js", "jsx", "ts", "tsx"}:
             return 'export function main() {\n  return null;\n}\n'
@@ -109,7 +134,14 @@ async def generate_proposed_content_async(
     model_hint: str | None = None,
 ) -> PatchGenerationResult:
     route = choose_model(prompt)
-    model_name = model_hint or route.model
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    synthesis_model = os.getenv("CODEFORGE_SYNTHESIS_MODEL", "gpt-4o-mini").strip()
+    if openai_key:
+        model_name = f"openai/{synthesis_model}"
+    elif model_hint and not model_hint.startswith(("rule-", "context-", "local")):
+        model_name = model_hint
+    else:
+        model_name = route.model
 
     system_prompt = (
         "You are CodeForge file editor. Return ONLY the complete updated file content. "

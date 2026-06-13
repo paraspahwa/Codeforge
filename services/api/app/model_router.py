@@ -62,7 +62,7 @@ def choose_model(prompt: str) -> RoutedModel:
     if any(keyword in text for keyword in ["architecture", "refactor", "multi-file", "optimize", "performance", "design", "system"]):
         return model_for_tier("deepseek_pro")
 
-    if any(keyword in text for keyword in ["test", "pytest", "npm test", "cargo test", "run tests"]):
+    if any(keyword in text for keyword in ["pytest", "npm test", "cargo test", "run tests", "run test"]):
         return model_for_tier("local_rule")
 
     return model_for_tier("deepseek_flash")
@@ -96,7 +96,12 @@ class GenerationClient:
         model: str | None = None,
     ) -> dict[str, Any]:
         route = choose_model(prompt)
-        selected_model = model or route.model
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        synthesis_model = os.getenv("CODEFORGE_SYNTHESIS_MODEL", "gpt-4o-mini").strip()
+        if openai_key:
+            selected_model = f"openai/{synthesis_model}"
+        else:
+            selected_model = model or route.model
 
         if self._litellm is not None:
             try:
@@ -120,10 +125,14 @@ class GenerationClient:
                 pass
 
         # Deterministic fallback keeps APIs responsive without external model credentials.
+        user_snippet = (prompt or "").strip()[:120]
         return {
             "backend": "deterministic",
             "provider": route.provider,
             "model": selected_model,
             "reason": route.reason,
-            "text": f"Deterministic fallback response for: {prompt[:160]}",
+            "text": (
+                f"I can help with that. To get a full AI-generated answer, set OPENAI_API_KEY on the API service. "
+                f"Request: {user_snippet}"
+            ),
         }

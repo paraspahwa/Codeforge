@@ -146,6 +146,20 @@ services:
 
       CODEFORGE_MODEL: ${CODEFORGE_MODEL:-deepseek-v4-flash}
 
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+
+      CODEFORGE_SYNTHESIS_MODEL: ${CODEFORGE_SYNTHESIS_MODEL:-gpt-4o-mini}
+
+      CODEFORGE_EMBEDDING_MODEL: ${CODEFORGE_EMBEDDING_MODEL:-text-embedding-3-small}
+
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      CODEFORGE_SCRAPE_ENABLED: ${CODEFORGE_SCRAPE_ENABLED:-true}
+
       CODEFORGE_WORKSPACES_CONTAINER_PREFIX: /workspaces
 
       CODEFORGE_WORKSPACES_HOST_PREFIX: ${CODEFORGE_WORKSPACES_HOST_PREFIX:-}
@@ -220,6 +234,14 @@ services:
 
       CODEFORGE_WORKSPACES_HOST_PREFIX: ${CODEFORGE_WORKSPACES_HOST_PREFIX:-}
 
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+
+      CODEFORGE_SYNTHESIS_MODEL: ${CODEFORGE_SYNTHESIS_MODEL:-gpt-4o-mini}
+
+      CODEFORGE_SCRAPE_ENABLED: ${CODEFORGE_SCRAPE_ENABLED:-true}
+
     volumes:
 
       - ${CODEFORGE_HOST_WORKSPACES:-./workspaces}:/workspaces:rw
@@ -250,7 +272,7 @@ services:
 
       args:
 
-        NEXT_PUBLIC_API_BASE: http://localhost:8000
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
 
     container_name: codeforge-web
 

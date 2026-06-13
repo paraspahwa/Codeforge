@@ -9,31 +9,15 @@ import { Badge } from "@codeforge/ui";
 import { useAuth } from "../lib/auth-context";
 import { useShellBar } from "../lib/shell-context";
 
-const NAV_GROUPS = [
-  {
-    label: "Build",
-    items: [
-      { href: "/", label: "Chat" },
-      { href: "/code", label: "Code" },
-      { href: "/sessions", label: "Sessions" },
-    ],
-  },
-  {
-    label: "Automate",
-    items: [{ href: "/cowork", label: "Cowork" }],
-  },
-  {
-    label: "Team",
-    items: [{ href: "/team", label: "Team" }],
-  },
-  {
-    label: "Account",
-    items: [
-      { href: "/analytics", label: "Analytics" },
-      { href: "/billing", label: "Billing" },
-      { href: "/settings", label: "Settings" },
-    ],
-  },
+const NAV_ITEMS = [
+  { href: "/", label: "Chat", icon: "💬", hint: "Coding agent" },
+  { href: "/code", label: "Code editor", icon: "⌨️", hint: "Edit files" },
+  { href: "/sessions", label: "Sessions", icon: "🗂️", hint: "History" },
+  { href: "/cowork", label: "Cowork", icon: "🤝", hint: "Shared work" },
+  { href: "/team", label: "Team", icon: "👥", hint: "Members" },
+  { href: "/analytics", label: "Analytics", icon: "📊", hint: "Usage" },
+  { href: "/billing", label: "Billing", icon: "💳", hint: "Plans" },
+  { href: "/settings", label: "Settings", icon: "⚙️", hint: "Preferences" },
 ];
 
 const PROTECTED_PREFIXES = ["/", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
@@ -76,24 +60,26 @@ export default function AppShell({ children }) {
         <span className="brand-mark">CF</span>
         <span>CodeForge</span>
       </div>
-      <nav>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="nav-group">
-            <p className="nav-group-label small">{group.label}</p>
-            {group.items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-link ${pathname === item.href ? "nav-link-active" : ""}`}
-                aria-current={pathname === item.href ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </div>
+      <nav className="sidebar-nav-full">
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`nav-link nav-link-feature ${pathname === item.href ? "nav-link-active" : ""}`}
+            aria-current={pathname === item.href ? "page" : undefined}
+            title={item.hint}
+          >
+            <span className="nav-link-icon" aria-hidden>
+              {item.icon}
+            </span>
+            <span className="nav-link-text">
+              <span className="nav-link-label">{item.label}</span>
+              <span className="nav-link-hint small">{item.hint}</span>
+            </span>
+          </Link>
         ))}
       </nav>
-      <div className="sidebar-footer small">India-first AI coding assistant</div>
+      <div className="sidebar-footer small">Frontier coding agent</div>
     </aside>
   );
 

@@ -83,6 +83,29 @@ def repo_relative_path(project_path: str | None, candidate: str | None) -> str |
 
 def _find_entry_file(project_root: Path, prompt: str) -> str | None:
     lowered = prompt.lower()
+
+    if any(
+        keyword in lowered
+        for keyword in ["api", "auth", "endpoint", "login", "fastapi", "flask", "route", "rest"]
+    ):
+        if any(word in lowered for word in ["auth", "login", "sign in", "signin"]):
+            return "auth_api.py"
+        for relative_path in ("api.py", "main.py", "app.py"):
+            if _safe_project_path(project_root, relative_path):
+                return relative_path
+        return "api.py"
+
+    if any(
+        keyword in lowered
+        for keyword in ["python", "hello world", ".py", "write code", "write a", "program", "script"]
+    ):
+        if "hello" in lowered:
+            return "hello.py"
+        for relative_path in ("main.py", "app.py", "hello.py"):
+            if _safe_project_path(project_root, relative_path):
+                return relative_path
+        return "main.py"
+
     candidates = [
         ("readme", "README.md"),
         ("package", "package.json"),
@@ -101,7 +124,23 @@ def _find_entry_file(project_root: Path, prompt: str) -> str | None:
     return None
 
 
-def infer_target_file(
+def list_workspace_files(project_path: str | None, *, max_files: int = 300) -> list[str]:
+    try:
+        project_root = _project_root(project_path)
+    except FileOpsError:
+        return []
+
+    skip_dirs = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", "target"}
+    files: list[str] = []
+    for path in sorted(project_root.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(part in skip_dirs for part in path.parts):
+            continue
+        files.append(path.relative_to(project_root).as_posix())
+        if len(files) >= max_files:
+            break
+    return files
     project_path: str | None,
     prompt: str,
     current_file: str | None = None,
