@@ -171,6 +171,7 @@ pytest tests/ -q         # full suite; conftest forces SQLite + in-memory vector
 
 ## Canonical Documents
 
+- [API reference](docs/API.md) — endpoint index, auth pattern, links to OpenAPI `/docs`
 - [Production deployment checklist](docs/PRODUCTION_DEPLOYMENT_CHECKLIST.md) — cheapest paths (VPS, Vercel + Supabase + Cloudflare), all API keys, your tick-list
 - [Implementation plan](docs/implementation-plan.md)
 - [Product requirements](PRD.md)
