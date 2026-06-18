@@ -34,6 +34,7 @@ CODEFORGE_SCRAPE_VERBOSE=false
 - Terminal: `/cowork scrape <url> --prompt <text> [--approve]`
 - Terminal: `/cowork scrape file <path> --prompt <text> [--approve]`
 - Web: Cowork → **Scrape (ScrapeGraphAI)** plan type or **Quick scrape** on Extractions tab
+- Desktop: Cowork workspace → scrape UI (URL + prompt + approve)
 
 ## Guardrails
 
