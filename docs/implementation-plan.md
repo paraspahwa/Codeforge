@@ -359,6 +359,10 @@ Recommended ticket order:
 6. [Phase 4 - Cowork Mode](docs/tickets/phase-4-cowork.md)
 7. [Phase 5 - Projects and Team Platform](docs/tickets/phase-5-projects-team.md)
 8. [Phase 6 - Quality and Routing](docs/tickets/phase-6-quality-routing.md)
+9. [Phase 7 - Taste (Coding Preferences)](docs/tickets/phase-7-taste.md)
+10. [Phase 8 - RTK and Memory](docs/tickets/phase-8-memory.md)
+11. [Phase 9 - ScrapeGraphAI](docs/tickets/phase-9-scrape.md)
+12. [Phase 10 - Anthropic Skills](docs/tickets/phase-10-anthropic-skills.md)
 
 ## What Is Done vs Left
 
@@ -376,6 +380,12 @@ Done:
 - Terminal file tree, chat, diff/review, and activity panes
 - Terminal command support for `/git`, `/run`, `/mode`, `/approve`, `/reject`, `/compact`, `/ultrareview`, `/plan`, `/rollback`, and `/loop`
 - VS Code extension manifest, backend-backed panel, inline diff preview, live editor-context sync, status bar actions, editor title actions, and explain/refactor/review command entry points
+- Phase 7 taste + skills: proposal feedback distillation, `.codeforge/skills/` playbooks, caveman token saver, taste/skills APIs
+- Phase 8 RTK + memory: shell output compression, Postgres/Qdrant agent memory, Supermemory BYOK, memory/RTK APIs
+- Phase 9 ScrapeGraphAI: Cowork scrape with approval gate, knowledge + memory ingestion
+- Phase 10 Anthropic skills: `frontend-design`, `webapp-testing`, `mcp-builder`, `skill-creator`, `doc-coauthoring`
+- Web `/code` workspace, PWA manifest, in-chat slash commands, Settings personalization tabs
+- Backend developer guide: [services/api/README.md](../services/api/README.md)
 
 Left:
 

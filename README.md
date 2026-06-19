@@ -26,7 +26,8 @@ Current implementation focus: surface parity (team/cowork/confidence on all clie
 - `apps/desktop`: React frontend plus Tauri shell
 - `apps/terminal`: Ink terminal client
 - `packages/shared`: Shared API and stream helpers
-- `services/api`: FastAPI backend
+- `services/api`: FastAPI backend ([developer guide](services/api/README.md))
+- `packages/shared`: Shared API client SDK ([module reference](packages/shared/README.md))
 - `docs/`: PRD, implementation plan, index, and tickets
 
 ## Local Setup
