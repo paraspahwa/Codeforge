@@ -1,16 +1,26 @@
 # CodeForge Desktop
 
-Tauri + React desktop client with Code, Cowork, Team, Analytics, Billing, and Settings.
+Tauri + React desktop client with Code, Cowork, Team, Analytics, Billing, and Settings. Uses the same `@codeforge/ui` components and `@codeforge/design-tokens` as the web app.
 
 ## Features
 
-- **Code mode**: sessions, chat with slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/help`), git/shell, workflows, artifacts, templates
+- **Code mode**: sessions, chat with slash commands (`/memory`, `/taste`, `/caveman`, `/rtk`, `/help`), git/shell, workflows, artifacts, templates — state in `use-code-workspace.js`, UI in `CodeWorkspace.jsx`
 - **Cowork mode**: plans, runs, jobs, browser tasks, OCR extraction, **ScrapeGraphAI scrape** (Phase 9)
 - **Team mode**: workspaces, knowledge, delegations, audit log, live SSE
 - **Settings** (Phases 7–10): taste import/export, agent memory, token saver + skills toggles, RTK, Supermemory status, SSO checklist
 - **Analytics**: usage, routing benchmarks, cowork reliability, synthesis rollout
 - **Billing**: plan/subscription view; Razorpay checkout opens in web app (`VITE_CODEFORGE_WEB_BASE_URL`)
 - **Auth**: dev login and OIDC SSO (`DesktopAuthContext`); callback `/auth/callback`
+
+## Shared frontend packages
+
+| Package | Usage |
+| --- | --- |
+| `@codeforge/ui` | `ChatMessageList`, buttons, panels — import `@codeforge/ui/styles.css` via `styles.css` |
+| `@codeforge/design-tokens` | `--cf-*` theme variables |
+| `@codeforge/shared` | SSE routing helpers, session grant checks (`canWriteSession`) |
+
+See [packages/ui/README.md](../../packages/ui/README.md) and [packages/design-tokens/README.md](../../packages/design-tokens/README.md).
 
 ## Local development
 

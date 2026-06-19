@@ -13,6 +13,10 @@
 - [docs/implementation-plan.md](docs/implementation-plan.md): execution plan and delivery order
 - [docs/tickets/README.md](docs/tickets/README.md): ticket backlog and phase slices
 - [README.md](README.md): repo setup and current implementation status
+- [apps/web/README.md](apps/web/README.md): web app architecture, routes, hooks, and styling
+- [packages/ui/README.md](packages/ui/README.md): shared React component library
+- [packages/design-tokens/README.md](packages/design-tokens/README.md): theme tokens and consumption
+- [packages/shared/README.md](packages/shared/README.md): cross-client API and session helpers
 
 ## Suggested Copilot Prompts
 
@@ -35,10 +39,10 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 ## Current Technical Direction
 
 - Backend: FastAPI + Python 3.13
-- Web: Next.js + React
-- Desktop: Tauri + React
-- Terminal: Ink + React
-- Shared package: browser/node API helpers and SSE parsing
+- Web: Next.js + React (App Router, Tailwind, shared `@codeforge/ui`)
+- Desktop: Tauri + React (shared `@codeforge/ui` + design tokens)
+- Terminal: Ink + React (`theme.json` from design tokens)
+- Shared packages: `@codeforge/ui`, `@codeforge/design-tokens`, `@codeforge/shared` (API, SSE, session grants)
 
 ## Backlog Areas (active)
 
@@ -47,6 +51,14 @@ Improve the web and desktop clients from `docs/tickets/phase-2-platform-surface.
 - Bootstrap SSM: Razorpay, OIDC, Qdrant — then OIDC cutover with `patch_ecs_oidc_enabled.py`
 
 Operator runbook: [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)
+
+## Recently shipped (shared UI refactor batch)
+
+- `@codeforge/ui` package: shared React components (`ChatMessageList`, `Button`, `Panel`, `Badge`, etc.) with `styles.css`
+- `@codeforge/design-tokens`: `--cf-*` CSS variables + `theme.json` for Ink terminal colors
+- Web: chat logic extracted to `use-chat-page.js`; `/code` uses `use-code-workspace.js`; `ShellRouter` + grouped nav in `AppShell`; dedicated `/login` page; Tailwind wired to design tokens
+- Desktop: code workspace logic in `use-code-workspace.js`; toast context; imports shared UI + tokens
+- Docs: [apps/web/README.md](apps/web/README.md), [packages/ui/README.md](packages/ui/README.md), expanded token/shared READMEs
 
 ## Recently shipped (client SSO + Qdrant CI batch)
 
