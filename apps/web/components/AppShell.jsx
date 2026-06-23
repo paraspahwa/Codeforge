@@ -66,20 +66,6 @@ export default function AppShell({ children }) {
     }
     const isProtected = isProtectedRoute(pathname);
     if (!token && isProtected) {
-      // #region agent log
-      fetch("http://localhost:7347/ingest/3861442b-55e9-43a6-aabe-0a4eb7bec9cf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "074757" },
-        body: JSON.stringify({
-          sessionId: "074757",
-          hypothesisId: "E",
-          location: "AppShell.jsx:auth_guard",
-          message: "protected_route_without_token",
-          data: { pathname, protected: isProtected },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
   }, [ready, token, pathname, router]);

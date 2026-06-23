@@ -95,9 +95,14 @@ class VectorStore:
             self._client = QdrantClient(url=self._url)
             self._backend = "qdrant"
             self._ensure_collection()
-        except Exception:
+        except ImportError:
             self._client = None
             self._backend = "memory"
+            logger.info("qdrant not available, using in-memory vector store")
+        except Exception as exc:
+            self._client = None
+            self._backend = "memory"
+            logger.warning("qdrant connection failed: %s", exc)
 
     @property
     def backend(self) -> str:

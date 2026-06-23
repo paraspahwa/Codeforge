@@ -142,7 +142,6 @@ resource "oci_load_balancer_listener_rule" "api_forward" {
   load_balancer_id = oci_load_balancer_load_balancer.this.id
 
   name     = "${var.name_prefix}-api-rule"
-  condition_language = "URI_TEMPLATE"
   condition {
     attribute = "host-header"
     operator  = "EXACT_MATCH"

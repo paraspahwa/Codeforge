@@ -52,8 +52,16 @@ def _sanitize_filename(name: str) -> str:
     return cleaned[:120] or "attachment.bin"
 
 
+def _sanitize_session_id(session_id: str) -> str:
+    cleaned = re.sub(r"[^\w\-]+", "_", session_id).strip("._")
+    if not cleaned:
+        raise SessionAttachmentError("Invalid session_id")
+    return cleaned
+
+
 def _attachment_root(project_path: str, session_id: str) -> Path:
-    root = Path(project_path).expanduser().resolve() / _ATTACHMENT_DIR / session_id
+    safe_session = _sanitize_session_id(session_id)
+    root = Path(project_path).expanduser().resolve() / _ATTACHMENT_DIR / safe_session
     root.mkdir(parents=True, exist_ok=True)
     return root
 

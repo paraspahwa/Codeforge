@@ -21,9 +21,14 @@ class RedisSessionStore:
 
             self._client = redis.Redis.from_url(self._url, decode_responses=True)
             self._backend = "redis"
-        except Exception:
+        except ImportError:
             self._client = None
             self._backend = "memory"
+            logger.info("redis not available, using in-memory cache")
+        except Exception as exc:
+            self._client = None
+            self._backend = "memory"
+            logger.warning("redis connection failed: %s", exc)
 
     @property
     def backend(self) -> str:
@@ -42,8 +47,8 @@ class RedisSessionStore:
             try:
                 value = self._client.get(key)
                 return default if value is None else value
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("redis get(%r) failed: %s", key, exc)
 
         with self._lock:
             return self._memory.get(key, default)
@@ -56,8 +61,8 @@ class RedisSessionStore:
                 else:
                     self._client.set(key, value)
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("redis set(%r) failed: %s", key, exc)
 
         with self._lock:
             self._memory[key] = value
@@ -67,8 +72,8 @@ class RedisSessionStore:
             try:
                 result = self._client.incrbyfloat(key, amount)
                 return float(result)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("redis incrbyfloat(%r) failed: %s", key, exc)
 
         with self._lock:
             current = float(self._memory.get(key, 0.0))
@@ -83,8 +88,8 @@ class RedisSessionStore:
                 if count == 1:
                     self._client.expire(key, ttl_seconds)
                 return count
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("redis incr_with_ttl(%r) failed: %s", key, exc)
 
         with self._lock:
             now = monotonic()

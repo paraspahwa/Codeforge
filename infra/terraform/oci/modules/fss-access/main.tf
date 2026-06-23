@@ -18,8 +18,8 @@ resource "oci_core_network_security_group_security_rule" "nfs_from_workers" {
 
   tcp_options {
     destination_port_range {
-      min = 2048
-      max = 2050
+      min = 2049
+      max = 2049
     }
   }
 }

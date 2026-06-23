@@ -163,7 +163,7 @@ print('Stack status gate passed')
 
       - name: Build and push Web image
         run: |
-          API_URL="${{ vars.TARGET_ENV == 'production' && vars.API_PUBLIC_URL_PRODUCTION || vars.API_PUBLIC_URL_STAGING }}"
+          API_URL="${{ (github.event.inputs.environment || 'staging') == 'production' && vars.API_PUBLIC_URL_PRODUCTION || vars.API_PUBLIC_URL_STAGING }}"
           docker build -f apps/web/Dockerfile \
             -t "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WEB}:${IMAGE_TAG}" \
             --build-arg "NEXT_PUBLIC_API_BASE=${API_URL}" .
@@ -177,7 +177,7 @@ print('Stack status gate passed')
       - name: Deploy API container instance
         run: |
           NSG_ID="${{ vars.TARGET_ENV == 'production' && vars.OCI_API_NSG_ID_PRODUCTION || vars.OCI_API_NSG_ID_STAGING }}"
-          ENV_DIR="${{ vars.TARGET_ENV == 'production' && 'production' || 'staging' }}"
+          ENV_DIR="${{ (github.event.inputs.environment || 'staging') == 'production' && 'production' || 'staging' }}"
 
           export COMPARTMENT_ID AVAILABILITY_DOMAIN PRIVATE_SUBNET_ID
           export OCIR_REGISTRY IMAGE_TAG OCIR_REPOSITORY_API
@@ -213,7 +213,7 @@ print('Stack status gate passed')
 
       - name: Deploy Worker container instance
         run: |
-          NSG_ID="${{ vars.TARGET_ENV == 'production' && vars.OCI_WORKER_NSG_ID_PRODUCTION || vars.OCI_WORKER_NSG_ID_STAGING }}"
+          NSG_ID="${{ (github.event.inputs.environment || 'staging') == 'production' && vars.OCI_WORKER_NSG_ID_PRODUCTION || vars.OCI_WORKER_NSG_ID_STAGING }}"
           ENV_DIR="${{ vars.TARGET_ENV == 'production' && 'production' || 'staging' }}"
 
           export COMPARTMENT_ID AVAILABILITY_DOMAIN PRIVATE_SUBNET_ID

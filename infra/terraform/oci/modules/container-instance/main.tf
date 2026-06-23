@@ -33,8 +33,6 @@ resource "oci_core_network_security_group_security_rule" "egress_all" {
   network_security_group_id = oci_core_network_security_group.tasks.id
   direction                 = "EGRESS"
   protocol                  = "all"
-  source_type               = "CIDR_BLOCK"
-  source                    = "0.0.0.0/0"
   destination_type          = "CIDR_BLOCK"
   destination               = "0.0.0.0/0"
 }
@@ -91,12 +89,7 @@ resource "oci_container_instances_container_instance" "this" {
     for_each = var.volumes
     content {
       name = volumes.value.name
-      volume_type = volumes.value.type
-      # For FSS-backed volumes
-      configs {
-        bind_mount_path = volumes.value.bind_mount_path
-        file_system_id  = volumes.value.file_system_id
-      }
+      volume_type = upper(volumes.value.type)
     }
   }
 }

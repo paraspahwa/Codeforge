@@ -121,8 +121,8 @@ class GenerationClient:
                     "reason": route.reason,
                     "text": content or "",
                 }
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("litellm completion failed: %s", exc)
 
         # Deterministic fallback keeps APIs responsive without external model credentials.
         user_snippet = (prompt or "").strip()[:120]
