@@ -68,17 +68,6 @@ def _token_to_user_id(token: str) -> str:
 
 def get_current_user(authorization: str | None = Header(default=None)) -> AuthUser:
     if not authorization or not authorization.startswith("Bearer "):
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            from pathlib import Path as _Path
-            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
-            _lp.parent.mkdir(parents=True, exist_ok=True)
-            with _lp.open("a", encoding="utf-8") as _h:
-                _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"A","location":"auth.py:get_current_user","message":"auth_missing_token","data":{"has_auth":bool(authorization)},"timestamp":int(_time.time()*1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.removeprefix("Bearer ").strip()
     user_id = _token_to_user_id(token)

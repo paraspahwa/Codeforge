@@ -1,0 +1,34 @@
+{
+  "displayName": "codeforge-worker-prod",
+  "compartmentId": "${COMPARTMENT_ID}",
+  "availabilityDomain": "${AVAILABILITY_DOMAIN}",
+  "shape": "CI.Standard.E4.Flex",
+  "shapeConfig": {
+    "ocpus": 1,
+    "memoryInGBs": 4
+  },
+  "containerRestartPolicy": "ON_FAILURE",
+  "vnics": [{
+    "displayName": "codeforge-worker-prod-vnic",
+    "subnetId": "${PRIVATE_SUBNET_ID}",
+    "isPublicIp": false,
+    "nsgIds": ["${WORKER_NSG_ID}"]
+  }],
+  "containers": [{
+    "displayName": "codeforge-worker",
+    "imageUrl": "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WORKER}:${IMAGE_TAG}",
+    "isResourcePrincipal": false,
+    "command": ["celery", "-A", "app.celery_worker:celery_app", "worker", "--beat", "--loglevel=info"],
+    "resourceConfig": {
+      "ocpus": 1,
+      "memoryInGBs": 4
+    },
+    "environmentVariables": {
+      "CODEFORGE_ENV": "production",
+      "OTEL_SERVICE_NAME": "codeforge-worker",
+      "CODEFORGE_DISABLE_PLAYWRIGHT": "false",
+      "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+      "CODEFORGE_WORKSPACES_CONTAINER_PREFIX": "/workspaces"
+    }
+  }]
+}

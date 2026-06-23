@@ -54,16 +54,6 @@ def _safe_project_path(project_root: Path, candidate: str | None) -> Path | None
     try:
         path.relative_to(project_root)
     except ValueError:
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            from pathlib import Path as _Path
-            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
-            with _lp.open("a", encoding="utf-8") as _h:
-                _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"C","location":"file_ops.py:_safe_project_path","message":"path_traversal_blocked","data":{"candidate":candidate},"timestamp":int(_time.time()*1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         return None
 
     if path.is_file():

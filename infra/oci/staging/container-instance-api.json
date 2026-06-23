@@ -1,0 +1,40 @@
+{
+  "displayName": "codeforge-api-staging",
+  "compartmentId": "${COMPARTMENT_ID}",
+  "availabilityDomain": "${AVAILABILITY_DOMAIN}",
+  "shape": "CI.Standard.E4.Flex",
+  "shapeConfig": {
+    "ocpus": 1,
+    "memoryInGBs": 2
+  },
+  "containerRestartPolicy": "ALWAYS",
+  "vnics": [{
+    "displayName": "codeforge-api-staging-vnic",
+    "subnetId": "${PRIVATE_SUBNET_ID}",
+    "isPublicIp": false,
+    "nsgIds": ["${API_NSG_ID}"]
+  }],
+  "containers": [{
+    "displayName": "codeforge-api",
+    "imageUrl": "${OCIR_REGISTRY}/${OCIR_REPOSITORY_API}:${IMAGE_TAG}",
+    "isResourcePrincipal": false,
+    "resourceConfig": {
+      "ocpus": 1,
+      "memoryInGBs": 2
+    },
+    "environmentVariables": {
+      "CODEFORGE_ENV": "production",
+      "OTEL_SERVICE_NAME": "codeforge-api",
+      "OTEL_ENVIRONMENT": "staging",
+      "CODEFORGE_COWORK_SCHEDULER_ENABLED": "false",
+      "OPENAI_BASE_URL": "https://api.openai.com/v1",
+      "CODEFORGE_SYNTHESIS_MODEL": "gpt-4o-mini",
+      "CODEFORGE_OIDC_ENABLED": "false",
+      "CODEFORGE_WEB_BASE_URL": "https://staging.codeforge.example"
+    },
+    "ports": [{
+      "port": 8000,
+      "protocol": "TCP"
+    }]
+  }]
+}

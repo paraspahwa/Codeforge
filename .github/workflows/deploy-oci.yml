@@ -1,0 +1,236 @@
+name: Deploy CodeForge to OCI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: true
+
+env:
+  OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+  OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+  OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+  OCI_CLI_REGION: ${{ secrets.OCI_REGION || 'ap-mumbai-1' }}
+  OCI_CLI_KEY_FILE: /tmp/oci-key.pem
+
+  OCIR_REGISTRY: ${{ secrets.OCIR_REGISTRY }}
+  OCIR_REPOSITORY_API: codeforge-api
+  OCIR_REPOSITORY_WEB: codeforge-web
+  OCIR_REPOSITORY_WORKER: codeforge-worker
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run API unit tests
+        run: |
+          pip install -r services/api/requirements.txt
+          cd services/api && pytest -q
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start stack
+        env:
+          POSTGRES_PASSWORD: ci-test-password
+          SUPABASE_JWT_SECRET: ci-test-jwt-secret
+          RAZORPAY_KEY_ID: rzp_test_ci
+          RAZORPAY_KEY_SECRET: ci_test_razorpay_secret
+          CODEFORGE_ALLOW_DEV_LOGIN: "true"
+        run: docker compose -f docker-compose.prod.yml up -d --build
+      - name: API health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health > /tmp/api-health.json; then
+              cat /tmp/api-health.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "API health check failed"
+          docker compose -f docker-compose.prod.yml logs
+          exit 1
+      - name: Deploy readiness gate
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/platform/deploy-readiness > /tmp/deploy-readiness.json 2>/dev/null; then
+              python3 -c "
+import json
+payload = json.load(open('/tmp/deploy-readiness.json'))
+ok = all(c.get('ok') for c in payload.get('checks', []) if c.get('required', True))
+if ok: print('Readiness gate passed')
+else:
+  failed = [c['name'] for c in payload.get('checks', []) if c.get('required', True) and not c.get('ok')]
+  print('Readiness gate failed:', ', '.join(failed))
+  exit(1)
+"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Readiness never returned ready" && exit 1
+      - name: Stack status gate
+        run: |
+          curl -fsS http://127.0.0.1:8000/api/v1/platform/stack-status > /tmp/stack-status.json
+          python3 -c "
+import json
+p = json.load(open('/tmp/stack-status.json'))
+issues = []
+if not p.get('redis',{}).get('healthy'): issues.append('redis')
+if not p.get('vector_store',{}).get('healthy'): issues.append('vector_store')
+if not p.get('task_queue',{}).get('healthy'): issues.append('task_queue')
+if issues: print('Unhealthy:', ', '.join(issues)); exit(1)
+print('Stack status gate passed')
+"
+      - name: Web health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000 > /dev/null 2>&1; then
+              echo "Web health check passed"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Web health check failed"
+          docker compose logs web
+          exit 1
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v
+
+  deploy:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    permissions:
+      contents: read
+
+    env:
+      TARGET_ENV: ${{ github.event.inputs.environment || 'staging' }}
+      IMAGE_TAG: ${{ github.sha }}
+      COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+      AVAILABILITY_DOMAIN: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
+      PRIVATE_SUBNET_ID: ${{ secrets.OCI_PRIVATE_SUBNET_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: |
+          curl -L -o /tmp/oci-install.sh https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh
+          bash /tmp/oci-install.sh --accept-all-defaults --exec-dir /usr/local/bin
+          oci --version
+
+      - name: Configure OCI credentials
+        run: |
+          echo "${{ secrets.OCI_API_KEY }}" > "$OCI_CLI_KEY_FILE"
+          chmod 600 "$OCI_CLI_KEY_FILE"
+          oci setup config --profile DEFAULT \
+            --user "$OCI_CLI_USER" \
+            --fingerprint "$OCI_CLI_FINGERPRINT" \
+            --tenancy-ocid "$OCI_CLI_TENANCY" \
+            --region "$OCI_CLI_REGION" \
+            --key-file "$OCI_CLI_KEY_FILE"
+
+      - name: Login to OCIR
+        run: |
+          # OCIR uses auth token from secrets
+          echo "${{ secrets.OCIR_AUTH_TOKEN }}" | \
+            docker login "${OCIR_REGISTRY}" \
+            --username "${{ secrets.OCI_USERNAME }}" \
+            --password-stdin
+
+      - name: Build and push API image
+        run: |
+          docker build -t "${OCIR_REGISTRY}/${OCIR_REPOSITORY_API}:${IMAGE_TAG}" services/api
+          docker push "${OCIR_REGISTRY}/${OCIR_REPOSITORY_API}:${IMAGE_TAG}"
+
+      - name: Build and push Web image
+        run: |
+          API_URL="${{ vars.TARGET_ENV == 'production' && vars.API_PUBLIC_URL_PRODUCTION || vars.API_PUBLIC_URL_STAGING }}"
+          docker build -f apps/web/Dockerfile \
+            -t "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WEB}:${IMAGE_TAG}" \
+            --build-arg "NEXT_PUBLIC_API_BASE=${API_URL}" .
+          docker push "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WEB}:${IMAGE_TAG}"
+
+      - name: Build and push Worker image
+        run: |
+          docker build -f Dockerfile.worker -t "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WORKER}:${IMAGE_TAG}" services/api
+          docker push "${OCIR_REGISTRY}/${OCIR_REPOSITORY_WORKER}:${IMAGE_TAG}"
+
+      - name: Deploy API container instance
+        run: |
+          NSG_ID="${{ vars.TARGET_ENV == 'production' && vars.OCI_API_NSG_ID_PRODUCTION || vars.OCI_API_NSG_ID_STAGING }}"
+          ENV_DIR="${{ vars.TARGET_ENV == 'production' && 'production' || 'staging' }}"
+
+          export COMPARTMENT_ID AVAILABILITY_DOMAIN PRIVATE_SUBNET_ID
+          export OCIR_REGISTRY IMAGE_TAG OCIR_REPOSITORY_API
+          export API_NSG_ID="${NSG_ID}"
+
+          envsubst < "infra/oci/${ENV_DIR}/container-instance-api.json" > /tmp/ci-api.json
+
+          oci container-instances container-instance launch-from-json \
+            --compartment-id "${COMPARTMENT_ID}" \
+            --from-json file:///tmp/ci-api.json \
+            --max-wait-seconds 180 \
+            --wait-for-state RUNNING || \
+          echo "Container instance may already exist; use update instead"
+
+      - name: Deploy Web container instance
+        run: |
+          NSG_ID="${{ vars.TARGET_ENV == 'production' && vars.OCI_WEB_NSG_ID_PRODUCTION || vars.OCI_WEB_NSG_ID_STAGING }}"
+          API_URL="${{ vars.TARGET_ENV == 'production' && vars.API_PUBLIC_URL_PRODUCTION || vars.API_PUBLIC_URL_STAGING }}"
+          ENV_DIR="${{ vars.TARGET_ENV == 'production' && 'production' || 'staging' }}"
+
+          export COMPARTMENT_ID AVAILABILITY_DOMAIN PRIVATE_SUBNET_ID
+          export OCIR_REGISTRY IMAGE_TAG OCIR_REPOSITORY_WEB
+          export WEB_NSG_ID="${NSG_ID}"
+          export API_PUBLIC_URL="${API_URL}"
+
+          envsubst < "infra/oci/${ENV_DIR}/container-instance-web.json" > /tmp/ci-web.json
+
+          oci container-instances container-instance launch-from-json \
+            --compartment-id "${COMPARTMENT_ID}" \
+            --from-json file:///tmp/ci-web.json \
+            --max-wait-seconds 180 \
+            --wait-for-state RUNNING || true
+
+      - name: Deploy Worker container instance
+        run: |
+          NSG_ID="${{ vars.TARGET_ENV == 'production' && vars.OCI_WORKER_NSG_ID_PRODUCTION || vars.OCI_WORKER_NSG_ID_STAGING }}"
+          ENV_DIR="${{ vars.TARGET_ENV == 'production' && 'production' || 'staging' }}"
+
+          export COMPARTMENT_ID AVAILABILITY_DOMAIN PRIVATE_SUBNET_ID
+          export OCIR_REGISTRY IMAGE_TAG OCIR_REPOSITORY_WORKER
+          export WORKER_NSG_ID="${NSG_ID}"
+
+          envsubst < "infra/oci/${ENV_DIR}/container-instance-worker.json" > /tmp/ci-worker.json
+
+          oci container-instances container-instance launch-from-json \
+            --compartment-id "${COMPARTMENT_ID}" \
+            --from-json file:///tmp/ci-worker.json \
+            --max-wait-seconds 180 \
+            --wait-for-state RUNNING || true
+
+      - name: Post-deploy smoke checks
+        env:
+          API_URL: ${{ vars.TARGET_ENV == 'production' && vars.API_PUBLIC_URL_PRODUCTION || vars.API_PUBLIC_URL_STAGING }}
+          WEB_URL: ${{ vars.TARGET_ENV == 'production' && vars.WEB_PUBLIC_URL_PRODUCTION || vars.WEB_PUBLIC_URL_STAGING }}
+        run: |
+          bash scripts/post_deploy_public_smoke.sh "${API_URL}" "${WEB_URL}"

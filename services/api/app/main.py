@@ -505,31 +505,9 @@ def dev_login(payload: DevLoginRequest, request: Request) -> DevLoginResponse:
     if not dev_auth_enabled():
         raise HTTPException(status_code=404, detail="Not found")
     if not verify_dev_login_secret(request):
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            from pathlib import Path as _Path
-            _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
-            _lp.parent.mkdir(parents=True, exist_ok=True)
-            with _lp.open("a", encoding="utf-8") as _h:
-                _h.write(_json.dumps({"sessionId":"074757","runId":"post-fix","hypothesisId":"D","location":"main.py:dev_login","message":"dev_login_blocked_missing_secret","data":{"client_host":request.client.host if request.client else "unknown"},"timestamp":int(_time.time()*1000)}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         raise HTTPException(status_code=403, detail="Dev login requires server-side authentication")
     client_host = request.client.host if request.client else "unknown"
     _enforce_rate_limit("dev-login", client_host, 10)
-    # #region agent log
-    try:
-        import json as _json, time as _time
-        from pathlib import Path as _Path
-        _lp = _Path("/home/ubuntu/Codeforge-1/.cursor/debug-074757.log")
-        _lp.parent.mkdir(parents=True, exist_ok=True)
-        with _lp.open("a", encoding="utf-8") as _h:
-            _h.write(_json.dumps({"sessionId":"074757","hypothesisId":"D","location":"main.py:dev_login","message":"dev_login_success","data":{"client_host":client_host,"user_id_len":len(payload.user_id)},"timestamp":int(_time.time()*1000)}) + "\n")
-    except Exception:
-        pass
-    # #endregion
     return DevLoginResponse(access_token=f"dev_{payload.user_id}")
 
 
