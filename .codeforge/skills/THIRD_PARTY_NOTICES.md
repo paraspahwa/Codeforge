@@ -24,6 +24,16 @@ Full license text: https://github.com/anthropics/skills/blob/main/LICENSE
 
 See `caveman/SKILL.md` — adapted from [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman).
 
+## Agent Reach (MIT)
+
+The `agent-reach` skill is adapted from [Panniantong/Agent-Reach](https://github.com/Panniantong/Agent-Reach).
+
+- Instructions-only: upstream `agent_reach/` Python package and install scripts are **not** vendored.
+- CodeForge adds server-native MCP tools (`fetch_web`, `youtube_transcript`, `rss_read`, `github_repo`) in `services/api/app/agent_reach_service.py`.
+- Full local install (`pipx install agent-reach`) remains optional for social/cookie channels.
+
+Full license text: https://github.com/Panniantong/Agent-Reach/blob/main/LICENSE
+
 ## CodeForge-native
 
 `pr-conventions` and other project-specific skills in this directory are maintained in-repo.

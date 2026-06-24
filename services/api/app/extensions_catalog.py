@@ -63,6 +63,15 @@ WORKFLOW_PLUGINS: list[dict[str, Any]] = [
         "template_prefix": "You assist developers building agentic systems — tool design, orchestration patterns, streaming, and SDK integration.",
         "verify_command": None,
     },
+    {
+        "id": "internet-research",
+        "name": "internet-research",
+        "description": "Internet research — web pages, YouTube transcripts, RSS, and GitHub via Agent Reach server tools; social platforms via local CLI.",
+        "skills": ["agent-reach"],
+        "template_name": "Internet research",
+        "template_prefix": "You research the open web and public sources. Prefer agent_reach MCP tools (fetch_web, youtube_transcript, rss_read, github_repo) for URLs. Summarize findings with citations. For Twitter/Reddit/XHS, instruct the user to enable local Agent Reach if server tools are insufficient.",
+        "verify_command": None,
+    },
 ]
 
 NATIVE_EXTENSIONS: list[dict[str, Any]] = [

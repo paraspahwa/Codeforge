@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 from .file_ops import (
     apply_proposed_content,
@@ -329,10 +330,18 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
             from .context_mcp import ContextMcpError, context_mcp_service
 
             connector_id = str(args.get("connector_id", "")).strip()
+            catalog_id = str(args.get("catalog_id", "")).strip()
+            if not connector_id and catalog_id:
+                resolved = context_mcp_service._connector_for_catalog(
+                    user_id=ctx.user_id,
+                    server_id=catalog_id,
+                )
+                if resolved:
+                    connector_id = str(resolved["connector_id"])
             mcp_tool = str(args.get("tool_name", "")).strip()
             mcp_args = args.get("arguments") if isinstance(args.get("arguments"), dict) else {}
             if not connector_id or not mcp_tool:
-                return ToolResult(tool_name, "error", "connector_id and tool_name are required")
+                return ToolResult(tool_name, "error", "connector_id (or catalog_id) and tool_name are required")
             try:
                 payload = context_mcp_service.invoke_connector(
                     user_id=ctx.user_id,
@@ -359,6 +368,64 @@ async def execute_tool(tool_name: str, args: dict[str, Any], ctx: ToolContext) -
 def infer_tool_plan(prompt: str, current_file: str | None = None) -> list[dict[str, Any]]:
     lowered = prompt.lower()
     plan: list[dict[str, Any]] = []
+
+    url_match = re.search(r"https?://[^\s<>\"']+", prompt)
+    url = url_match.group(0).rstrip(".,);]") if url_match else ""
+
+    if url:
+        host = urlparse(url).netloc.lower()
+        if "youtube.com" in host or "youtu.be" in host:
+            if any(k in lowered for k in ("youtube", "video", "transcript", "subtitle", "summarize", "summary", "watch")):
+                plan.append(
+                    {
+                        "tool": "mcp_call",
+                        "args": {
+                            "catalog_id": "agent_reach",
+                            "tool_name": "youtube_transcript",
+                            "arguments": {"url": url},
+                        },
+                    }
+                )
+        elif "github.com" in host and any(
+            k in lowered for k in ("github", "repo", "repository", "issue", "readme", "stars")
+        ):
+            repo_path = re.sub(r"^https?://github\.com/", "", url).strip("/").split("/")
+            if len(repo_path) >= 2:
+                plan.append(
+                    {
+                        "tool": "mcp_call",
+                        "args": {
+                            "catalog_id": "agent_reach",
+                            "tool_name": "github_repo",
+                            "arguments": {"repo": f"{repo_path[0]}/{repo_path[1]}"},
+                        },
+                    }
+                )
+        elif any(k in lowered for k in (".xml", "rss", "atom", "feed")) or "/feed" in url.lower():
+            plan.append(
+                {
+                    "tool": "mcp_call",
+                    "args": {
+                        "catalog_id": "agent_reach",
+                        "tool_name": "rss_read",
+                        "arguments": {"url": url},
+                    },
+                }
+            )
+        elif any(
+            k in lowered
+            for k in ("read this", "read page", "summarize this", "what does this", "article", "blog post", "web page")
+        ):
+            plan.append(
+                {
+                    "tool": "mcp_call",
+                    "args": {
+                        "catalog_id": "agent_reach",
+                        "tool_name": "fetch_web",
+                        "arguments": {"url": url},
+                    },
+                }
+            )
 
     if any(k in lowered for k in ("git status", "what changed", "uncommitted")):
         plan.append({"tool": "git_status", "args": {}})

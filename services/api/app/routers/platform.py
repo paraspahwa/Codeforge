@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from ..auth import AuthUser, get_current_user_optional
+from ..agent_reach_service import probe_channel_status
 from ..deploy_readiness import (
     collect_deploy_readiness,
     probe_billing_webhook,
@@ -42,6 +43,14 @@ def platform_stack_status(user: AuthUser | None = Depends(get_current_user_optio
             "backend": generation_client.backend,
         },
     }
+
+
+@router.get("/api/v1/platform/agent-reach/status")
+async def platform_agent_reach_status(
+    user: AuthUser | None = Depends(get_current_user_optional),
+) -> dict[str, object]:
+    _ = user
+    return await probe_channel_status()
 
 
 @router.post("/api/v1/platform/queue-ping")

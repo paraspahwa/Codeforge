@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 def target_vector_size() -> int:

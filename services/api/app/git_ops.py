@@ -16,6 +16,12 @@ def _repo_root(project_path: str) -> Path:
     return root
 
 
+def _is_git_repo(project_path: str) -> bool:
+    root = _repo_root(project_path)
+    git_path = root / ".git"
+    return git_path.exists()
+
+
 def _run_git(project_path: str, *args: str) -> str:
     root = _repo_root(project_path)
 
@@ -66,6 +72,15 @@ def _normalize_paths(project_path: str, paths: list[str]) -> list[str]:
 
 
 def git_status(project_path: str) -> dict[str, Any]:
+    if not _is_git_repo(project_path):
+        return {
+            "branch": "(no repository)",
+            "clean": True,
+            "changed_files": [],
+            "untracked_files": [],
+            "summary": "Not a git repository",
+        }
+
     output = _run_git(project_path, "status", "--short", "--branch")
     lines = [line for line in output.splitlines() if line.strip()]
     branch = lines[0].removeprefix("## ") if lines else "unknown"

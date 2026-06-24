@@ -240,8 +240,33 @@ export function useCodeWorkspace() {
     if (!activeToken || !activeSessionId) {
       return;
     }
-    const status = await getGitStatus(activeToken, activeSessionId);
-    setGitStatus(status);
+    try {
+      const status = await getGitStatus(activeToken, activeSessionId);
+      setGitStatus(status);
+    } catch {
+      setGitStatus(null);
+    }
+  }
+
+  async function openInitialWorkspaceFile(activeToken, activeSessionId, files) {
+    if (!activeToken || !activeSessionId || !files?.length) {
+      return;
+    }
+    const preferred =
+      files.find((file) => file === "README.md") ||
+      files.find((file) => file.endsWith(".md")) ||
+      files.find((file) => !file.endsWith("/")) ||
+      files[0];
+    if (!preferred) {
+      return;
+    }
+    try {
+      const contentPayload = await getFileContent(activeToken, activeSessionId, preferred);
+      setTabs([emptyTab(preferred, contentPayload.content || "")]);
+      setActivePath(preferred);
+    } catch {
+      // Explorer still lists files; user can open manually.
+    }
   }
 
   useEffect(() => {
@@ -280,7 +305,11 @@ export function useCodeWorkspace() {
         const stored = await listMessages(match.session_id, token);
         setSessionId(match.session_id);
         setMessages(stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })));
-        await Promise.all([refreshGit(token, match.session_id), refreshWorkspaceFiles(token, match.session_id)]);
+        const fileResult = await listWorkspaceFiles(token, match.session_id);
+        const files = fileResult.files || [];
+        setWorkspaceFiles(files);
+        await openInitialWorkspaceFile(token, match.session_id, files);
+        await refreshGit(token, match.session_id);
         return;
       }
 
@@ -290,7 +319,11 @@ export function useCodeWorkspace() {
       setMessages([]);
       const list = await listSessions(token);
       setSessions(list);
-      await Promise.all([refreshGit(token, created.session_id), refreshWorkspaceFiles(token, created.session_id)]);
+      const fileResult = await listWorkspaceFiles(token, created.session_id);
+      const files = fileResult.files || [];
+      setWorkspaceFiles(files);
+      await openInitialWorkspaceFile(token, created.session_id, files);
+      await refreshGit(token, created.session_id);
     }
 
     bootstrapWorkspace().catch((error) => {
@@ -534,7 +567,9 @@ export function useCodeWorkspace() {
     try {
       await applyFile(token, sessionId, { path: secondaryPath, content: secondaryContent });
       syncActiveTab(secondaryPath, { dirty: false });
-      await Promise.all([refreshGit(), refreshWorkspaceFiles(), refreshDiagnostics(secondaryPath)]);
+      await refreshWorkspaceFiles();
+      await refreshDiagnostics(secondaryPath);
+      await refreshGit();
       toast.push(`Saved ${secondaryPath}`, "success");
     } catch (error) {
       toast.push(error.message);
@@ -562,7 +597,11 @@ export function useCodeWorkspace() {
       setProblems([]);
       const list = await listSessions(token);
       setSessions(list);
-      await Promise.all([refreshGit(token, created.session_id), refreshWorkspaceFiles(token, created.session_id)]);
+      const fileResult = await listWorkspaceFiles(token, created.session_id);
+      const files = fileResult.files || [];
+      setWorkspaceFiles(files);
+      await openInitialWorkspaceFile(token, created.session_id, files);
+      await refreshGit(token, created.session_id);
       toast.push("New session created", "success");
     } catch (error) {
       toast.push(error.message);
@@ -587,7 +626,11 @@ export function useCodeWorkspace() {
       setSplitMode("none");
       setSecondaryPath("");
       setProblems([]);
-      await Promise.all([refreshGit(token, nextSessionId), refreshWorkspaceFiles(token, nextSessionId)]);
+      const fileResult = await listWorkspaceFiles(token, nextSessionId);
+      const files = fileResult.files || [];
+      setWorkspaceFiles(files);
+      await openInitialWorkspaceFile(token, nextSessionId, files);
+      await refreshGit(token, nextSessionId);
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -610,7 +653,10 @@ export function useCodeWorkspace() {
     try {
       await applyFile(token, sessionId, { path: activePath, content: fileEditorContent });
       syncActiveTab(activePath, { dirty: false });
-      await Promise.all([refreshGit(), refreshWorkspaceFiles(), loadGitDiff(activePath), refreshDiagnostics(activePath)]);
+      await refreshWorkspaceFiles();
+      await loadGitDiff(activePath);
+      await refreshDiagnostics(activePath);
+      await refreshGit();
       toast.push(`Saved ${activePath}`, "success");
     } catch (error) {
       toast.push(error.message);
@@ -634,7 +680,8 @@ export function useCodeWorkspace() {
         await applyFile(token, sessionId, { path: tab.path, content: tab.content });
         syncActiveTab(tab.path, { dirty: false });
       }
-      await Promise.all([refreshGit(), refreshWorkspaceFiles()]);
+      await refreshWorkspaceFiles();
+      await refreshGit();
       toast.push(`Saved ${dirtyTabs.length} file(s)`, "success");
     } catch (error) {
       toast.push(error.message);
@@ -818,7 +865,8 @@ export function useCodeWorkspace() {
           syncActiveTab(target, { content: contentPayload.content || "", dirty: false });
         }
       }
-      await Promise.all([refreshGit(), refreshWorkspaceFiles()]);
+      await refreshWorkspaceFiles();
+      await refreshGit();
       toast.push(`Proposal ${action}d`, "success");
     } catch (error) {
       toast.push(error.message);

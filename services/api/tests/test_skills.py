@@ -20,6 +20,15 @@ def test_list_bundled_skills() -> None:
     assert "pr-conventions" in names
     for skill_name in ANTHROPIC_BUNDLED_SKILLS:
         assert skill_name in names
+    assert "agent-reach" in names
+
+
+def test_agent_reach_skill_attribution() -> None:
+    skill = skills_service.load_skill("agent-reach")
+    assert skill is not None
+    assert "Agent-Reach" in skill.get("source", "")
+    assert skill.get("license") == "MIT"
+    assert "mcp_call" in skill["body"]
 
 
 def test_anthropic_skills_have_attribution() -> None:

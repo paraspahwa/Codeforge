@@ -241,6 +241,14 @@ Expected healthy backends:
 - `vector_store.backend` = `qdrant`
 - `task_queue.backend` = `celery`
 
+**3b. Agent Reach server channels** (optional — web, YouTube, RSS, GitHub)
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/v1/platform/agent-reach/status | python3 -m json.tool
+```
+
+Enable the **Agent Reach (server)** connector in the web MCP catalog and the `agent-reach` skill in Settings. See [docs/AGENT_REACH.md](docs/AGENT_REACH.md).
+
 **4. Worker queue ping**
 
 ```bash

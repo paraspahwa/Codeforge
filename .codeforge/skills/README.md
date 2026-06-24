@@ -13,6 +13,7 @@ Project-scoped playbooks that shape how the agent communicates and works.
   mcp-builder/SKILL.md
   skill-creator/SKILL.md
   doc-coauthoring/SKILL.md
+  agent-reach/SKILL.md       # internet research (MIT, adapted from Agent-Reach)
   <your-skill>/SKILL.md      # project-specific; overrides bundled names
 ```
 

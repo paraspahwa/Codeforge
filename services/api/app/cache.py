@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 from threading import Lock
 from time import monotonic
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class RedisSessionStore:
@@ -19,7 +22,13 @@ class RedisSessionStore:
         try:
             import redis  # type: ignore
 
-            self._client = redis.Redis.from_url(self._url, decode_responses=True)
+            self._client = redis.Redis.from_url(
+                self._url,
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+            self._client.ping()
             self._backend = "redis"
         except ImportError:
             self._client = None

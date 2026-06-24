@@ -294,7 +294,13 @@ class ContextMcpService:
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         self._ensure_user_loaded(user_id)
-        connector = self._connectors.get(connector_id)
+        resolved_id = connector_id
+        connector = self._connectors.get(resolved_id)
+        if connector is None or connector["owner_id"] != user_id:
+            catalog_match = self._connector_for_catalog(user_id=user_id, server_id=connector_id)
+            if catalog_match is not None:
+                resolved_id = str(catalog_match["connector_id"])
+                connector = catalog_match
         if connector is None or connector["owner_id"] != user_id:
             raise ContextMcpError("MCP connector not found")
         if not connector["enabled"]:
@@ -328,7 +334,7 @@ class ContextMcpService:
         connector["updated_at"] = utc_now_iso()
         self._persist_connector(connector)
         return {
-            "connector_id": connector_id,
+            "connector_id": resolved_id,
             "tool_name": tool_name,
             "result": result_payload,
             "invoked_at": utc_now_iso(),
@@ -501,28 +507,54 @@ class ContextMcpService:
             "connectors": connectors,
         }
 
-    def compose_mcp_tools_context(self, *, user_id: str) -> str:
+    def compose_mcp_tools_context(
+        self,
+        *,
+        user_id: str,
+        enabled_skills: list[str] | None = None,
+    ) -> str:
         self._ensure_user_loaded(user_id)
         enabled = [
             item for item in self._connectors.values()
             if item["owner_id"] == user_id and item.get("enabled")
         ]
-        if not enabled:
-            return ""
 
-        lines = [
-            "Enabled MCP connectors (use mcp_call with connector_id, tool_name, arguments):",
-        ]
-        for connector in sorted(enabled, key=lambda row: row["name"]):
-            tools = ", ".join(connector.get("tools", [])[:8])
-            integration = connector.get("integration") or connector.get("transport", "http")
-            note = connector.get("setup_note", "")
+        lines: list[str] = []
+        agent_reach_connector = self._connector_for_catalog(user_id=user_id, server_id="agent_reach")
+        show_agent_reach_hints = bool(
+            agent_reach_connector and agent_reach_connector.get("enabled")
+        ) or (enabled_skills and "agent-reach" in enabled_skills)
+
+        if enabled:
             lines.append(
-                f"- {connector['name']} [{connector['connector_id']}] ({integration}): {tools}"
+                "Enabled MCP connectors (use mcp_call with connector_id or catalog_id, tool_name, arguments):",
             )
-            if note and integration != "native":
-                lines.append(f"  Setup: {note}")
-        return "\n".join(lines)
+            for connector in sorted(enabled, key=lambda row: row["name"]):
+                tools = ", ".join(connector.get("tools", [])[:8])
+                integration = connector.get("integration") or connector.get("transport", "http")
+                note = connector.get("setup_note", "")
+                catalog_id = connector.get("catalog_id") or ""
+                catalog_hint = f" catalog_id={catalog_id}" if catalog_id else ""
+                lines.append(
+                    f"- {connector['name']} [{connector['connector_id']}]{catalog_hint} ({integration}): {tools}"
+                )
+                if note and integration != "native":
+                    lines.append(f"  Setup: {note}")
+
+        if show_agent_reach_hints:
+            lines.extend(
+                [
+                    "",
+                    "Agent Reach server tools (catalog_id=agent_reach when connector is enabled):",
+                    "- fetch_web: readable article text via Jina Reader — arguments: {url}",
+                    "- youtube_transcript: subtitle text — arguments: {url}",
+                    "- rss_read: feed entries — arguments: {url, limit?}",
+                    "- github_repo: public repo metadata — arguments: {repo: owner/name}",
+                    "Social platforms (Twitter, Reddit, XHS) require local Agent Reach CLI — see agent-reach skill.",
+                ]
+            )
+
+        return "\n".join(lines).strip()
 
 
 context_mcp_service = ContextMcpService()

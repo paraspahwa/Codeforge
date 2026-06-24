@@ -133,7 +133,7 @@ def _synthesize_loop_message(
         lines.append(intro)
 
     for result in tool_results:
-        if result.tool in {"web_search", "run_shell", "git_status", "search_symbols"}:
+        if result.tool in {"web_search", "run_shell", "git_status", "search_symbols", "mcp_call"}:
             lines.append(f"- **{result.tool}**: {result.message[:200]}")
 
     if not lines:

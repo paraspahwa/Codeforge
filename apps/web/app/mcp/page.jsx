@@ -148,6 +148,8 @@ export default function McpPage() {
 
   const categories = catalog?.categories || [];
   const servers = catalog?.servers || [];
+  const agentReachServer = servers.find((server) => server.id === "agent_reach");
+  const agentReachEnabled = Boolean(agentReachServer?.enabled || agentReachServer?.installed);
 
   return (
     <div className="mcp-page agents-page">
@@ -184,6 +186,30 @@ export default function McpPage() {
         ) : null}
         {message ? <p className="small mcp-flash">{message}</p> : null}
       </header>
+
+      {agentReachServer ? (
+        <section className="panel mcp-featured-card cf-animate-in">
+          <h2>Agent Reach (recommended)</h2>
+          <p className="small">
+            Server-safe internet research: readable web pages, YouTube transcripts, RSS feeds, and public GitHub repos.
+            Pair with the <Link href="/settings">agent-reach skill</Link> for Twitter/Reddit/XHS on your local machine.
+          </p>
+          <div className="mcp-hero-actions">
+            <CatalogItemActions
+              itemId="agent_reach"
+              enabled={agentReachEnabled}
+              updateAvailable={Boolean(agentReachServer?.update_available)}
+              busyId={busyId}
+              onEnable={handleEnable}
+              onDisable={handleDisable}
+              onUpdate={handleUpdate}
+            />
+          </div>
+          <p className="small muted">
+            Full setup: enable the agent-reach skill in Settings and see <code>docs/AGENT_REACH.md</code> in the repo.
+          </p>
+        </section>
+      ) : null}
 
       {loading ? <p className="small">Loading catalog…</p> : null}
 

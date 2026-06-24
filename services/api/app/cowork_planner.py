@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .cowork_file_ops import build_organize_moves, build_rename_operations, preview_organize_by_date, preview_rename_pattern
+
+
+def _first_url(text: str) -> str | None:
+    match = re.search(r"https?://[^\s<>\"']+", text)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,);]")
 
 
 def _detect_folder(goal: str, default: str = ".") -> str:
@@ -71,7 +79,72 @@ def plan_from_goal(goal: str, *, project_path: str, session_id: str) -> dict[str
         )
         preview_lines.append(f"Extract structured text from `{folder}`")
 
-    if any(token in lowered for token in ("scrape", "fetch url", "crawl", "http")):
+    url = _first_url(cleaned)
+    if url and any(
+        token in lowered
+        for token in ("youtube", "youtu.be", "video", "transcript", "subtitle")
+    ):
+        steps.append(
+            {
+                "step_id": f"step_{len(steps) + 1}",
+                "task_type": "connector",
+                "title": "Fetch YouTube transcript",
+                "connector_id": "agent_reach",
+                "tool_name": "youtube_transcript",
+                "connector_arguments": {"url": url},
+                "requires_approval": False,
+            }
+        )
+        preview_lines.append(f"Extract YouTube transcript from {url}")
+
+    if url and any(token in lowered for token in ("rss", "atom feed", "feed reader")):
+        steps.append(
+            {
+                "step_id": f"step_{len(steps) + 1}",
+                "task_type": "connector",
+                "title": "Read RSS feed",
+                "connector_id": "agent_reach",
+                "tool_name": "rss_read",
+                "connector_arguments": {"url": url},
+                "requires_approval": False,
+            }
+        )
+        preview_lines.append(f"Read RSS entries from {url}")
+
+    if url and any(token in lowered for token in ("scrape", "fetch url", "crawl", "http", "read page", "article")):
+        host = urlparse(url).netloc.lower()
+        if "github.com" in host:
+            repo_path = re.sub(r"^https?://github\.com/", "", url).strip("/").split("/")
+            if len(repo_path) >= 2:
+                steps.append(
+                    {
+                        "step_id": f"step_{len(steps) + 1}",
+                        "task_type": "connector",
+                        "title": "Load GitHub repository metadata",
+                        "connector_id": "agent_reach",
+                        "tool_name": "github_repo",
+                        "connector_arguments": {"repo": f"{repo_path[0]}/{repo_path[1]}"},
+                        "requires_approval": False,
+                    }
+                )
+                preview_lines.append(f"Load GitHub metadata for {repo_path[0]}/{repo_path[1]}")
+        elif not any(step.get("task_type") == "scrape" for step in steps):
+            steps.append(
+                {
+                    "step_id": f"step_{len(steps) + 1}",
+                    "task_type": "connector",
+                    "title": "Fetch readable web page",
+                    "connector_id": "agent_reach",
+                    "tool_name": "fetch_web",
+                    "connector_arguments": {"url": url},
+                    "requires_approval": False,
+                }
+            )
+            preview_lines.append(f"Fetch readable content from {url}")
+
+    if any(token in lowered for token in ("scrape", "fetch url", "crawl", "http")) and not any(
+        step.get("task_type") in {"connector", "scrape"} for step in steps
+    ):
         url_match = re.search(r"https?://[^\s]+", cleaned)
         steps.append(
             {

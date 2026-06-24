@@ -3514,7 +3514,10 @@ async def stream_session(
             )
             if style_instructions:
                 composed_prompt = f"{style_instructions}\n\n{composed_prompt}"
-            mcp_context = context_mcp_service.compose_mcp_tools_context(user_id=user.user_id)
+            mcp_context = context_mcp_service.compose_mcp_tools_context(
+                user_id=user.user_id,
+                enabled_skills=skills_meta.get("active_skills") or [],
+            )
             if mcp_context:
                 composed_prompt = f"{mcp_context}\n\n{composed_prompt}"
             project_path_for_hooks = resolved_project_path(session) if session else None

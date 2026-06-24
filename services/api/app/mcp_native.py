@@ -33,6 +33,8 @@ def invoke_native_tool(*, server_id: str, tool_name: str, arguments: dict[str, A
         return _invoke_web_search(tool_name, arguments)
     if server_id == "open_library":
         return _invoke_open_library(tool_name, arguments)
+    if server_id == "agent_reach":
+        return _invoke_agent_reach(tool_name, arguments)
     raise ContextMcpError(f"Native MCP server '{server_id}' is not implemented")
 
 
@@ -235,3 +237,54 @@ def _invoke_open_library(tool_name: str, arguments: dict[str, Any]) -> dict[str,
             body = response.json()
         return {"ok": True, "key": key, "details": body}
     raise ContextMcpError(f"Unknown open library tool: {tool_name}")
+
+
+async def _invoke_agent_reach_async(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    from .agent_reach_service import (
+        AgentReachError,
+        fetch_web,
+        github_repo,
+        rss_read,
+        youtube_transcript,
+    )
+
+    try:
+        if tool_name == "fetch_web":
+            url = str(arguments.get("url", "")).strip()
+            if not url:
+                raise ContextMcpError("url is required")
+            return await fetch_web(url)
+        if tool_name == "youtube_transcript":
+            url = str(arguments.get("url", "")).strip()
+            if not url:
+                raise ContextMcpError("url is required")
+            lang = str(arguments.get("lang", arguments.get("language", "en"))).strip() or "en"
+            return youtube_transcript(url, lang=lang)
+        if tool_name == "rss_read":
+            url = str(arguments.get("url", "")).strip()
+            if not url:
+                raise ContextMcpError("url is required")
+            limit = int(arguments.get("limit", 15))
+            return rss_read(url, limit=limit)
+        if tool_name == "github_repo":
+            repo = str(arguments.get("repo", arguments.get("repository", ""))).strip()
+            if not repo:
+                raise ContextMcpError("repo is required (owner/name or GitHub URL)")
+            return await github_repo(repo)
+    except AgentReachError as exc:
+        raise ContextMcpError(str(exc)) from exc
+    raise ContextMcpError(f"Unknown agent_reach tool: {tool_name}")
+
+
+def _invoke_agent_reach(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    import asyncio
+    import concurrent.futures
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_invoke_agent_reach_async(tool_name, arguments))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, _invoke_agent_reach_async(tool_name, arguments))
+        return future.result(timeout=150)
