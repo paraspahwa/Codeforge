@@ -191,7 +191,7 @@ export default function McpPage() {
         <section className="panel mcp-featured-card cf-animate-in">
           <h2>Agent Reach (recommended)</h2>
           <p className="small">
-            Server-safe internet research: readable web pages, YouTube transcripts, RSS feeds, and public GitHub repos.
+            Server-safe internet research: web, YouTube, RSS, GitHub, Exa, Bilibili, and Firecrawl.
             Pair with the <Link href="/settings">agent-reach skill</Link> for Twitter/Reddit/XHS on your local machine.
           </p>
           <div className="mcp-hero-actions">

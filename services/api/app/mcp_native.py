@@ -242,7 +242,11 @@ def _invoke_open_library(tool_name: str, arguments: dict[str, Any]) -> dict[str,
 async def _invoke_agent_reach_async(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     from .agent_reach_service import (
         AgentReachError,
+        bilibili_search,
+        exa_search,
         fetch_web,
+        firecrawl_scrape,
+        firecrawl_search,
         github_repo,
         rss_read,
         youtube_transcript,
@@ -271,6 +275,30 @@ async def _invoke_agent_reach_async(tool_name: str, arguments: dict[str, Any]) -
             if not repo:
                 raise ContextMcpError("repo is required (owner/name or GitHub URL)")
             return await github_repo(repo)
+        if tool_name == "exa_search":
+            query = str(arguments.get("query", "")).strip()
+            if not query:
+                raise ContextMcpError("query is required")
+            limit = int(arguments.get("limit", 8))
+            search_type = str(arguments.get("type", arguments.get("search_type", "auto")))
+            return await exa_search(query, limit=limit, search_type=search_type)
+        if tool_name == "bilibili_search":
+            keyword = str(arguments.get("keyword", arguments.get("query", ""))).strip()
+            if not keyword:
+                raise ContextMcpError("keyword is required")
+            limit = int(arguments.get("limit", 10))
+            return await bilibili_search(keyword, limit=limit)
+        if tool_name == "firecrawl_scrape":
+            url = str(arguments.get("url", "")).strip()
+            if not url:
+                raise ContextMcpError("url is required")
+            return await firecrawl_scrape(url)
+        if tool_name == "firecrawl_search":
+            query = str(arguments.get("query", "")).strip()
+            if not query:
+                raise ContextMcpError("query is required")
+            limit = int(arguments.get("limit", 5))
+            return await firecrawl_search(query, limit=limit)
     except AgentReachError as exc:
         raise ContextMcpError(str(exc)) from exc
     raise ContextMcpError(f"Unknown agent_reach tool: {tool_name}")

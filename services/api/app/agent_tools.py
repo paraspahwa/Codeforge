@@ -401,6 +401,18 @@ def infer_tool_plan(prompt: str, current_file: str | None = None) -> list[dict[s
                         },
                     }
                 )
+        elif "bilibili.com" in host or "b23.tv" in host:
+            if any(k in lowered for k in ("bilibili", "b站", "video", "summarize", "summary", "subtitle")):
+                plan.append(
+                    {
+                        "tool": "mcp_call",
+                        "args": {
+                            "catalog_id": "agent_reach",
+                            "tool_name": "fetch_web",
+                            "arguments": {"url": url},
+                        },
+                    }
+                )
         elif any(k in lowered for k in (".xml", "rss", "atom", "feed")) or "/feed" in url.lower():
             plan.append(
                 {
@@ -427,6 +439,42 @@ def infer_tool_plan(prompt: str, current_file: str | None = None) -> list[dict[s
                 }
             )
 
+    if not plan and any(
+        k in lowered
+        for k in (
+            "research",
+            "competitive analysis",
+            "market research",
+            "find articles",
+            "semantic search",
+            "search the internet",
+            "search the web for",
+            "look up online",
+        )
+    ):
+        plan.append(
+            {
+                "tool": "mcp_call",
+                "args": {
+                    "catalog_id": "agent_reach",
+                    "tool_name": "exa_search",
+                    "arguments": {"query": prompt[:200]},
+                },
+            }
+        )
+    if not plan and any(k in lowered for k in ("bilibili", "b站", "b站搜", "搜b站")):
+        query = re.sub(r"(?i)(search|find|on|bilibili|b站|for)\s*", "", prompt).strip() or prompt[:120]
+        plan.append(
+            {
+                "tool": "mcp_call",
+                "args": {
+                    "catalog_id": "agent_reach",
+                    "tool_name": "bilibili_search",
+                    "arguments": {"keyword": query},
+                },
+            }
+        )
+
     if any(k in lowered for k in ("git status", "what changed", "uncommitted")):
         plan.append({"tool": "git_status", "args": {}})
     if any(k in lowered for k in ("git diff", "show diff")):
@@ -439,7 +487,11 @@ def infer_tool_plan(prompt: str, current_file: str | None = None) -> list[dict[s
         if not any(item["tool"] == "run_shell" for item in plan):
             plan.append({"tool": "run_shell", "args": {"command": "pytest -q"}})
     if any(k in lowered for k in ("search web", "look up", "documentation", "how to", "syntax error", "import error")):
-        plan.append({"tool": "web_search", "args": {"query": prompt[:160]}})
+        if not any(
+            item.get("tool") == "mcp_call" and item.get("args", {}).get("tool_name") == "exa_search"
+            for item in plan
+        ):
+            plan.append({"tool": "web_search", "args": {"query": prompt[:160]}})
     if any(k in lowered for k in ("find symbol", "find references", "go to definition", "where is ")):
         query = prompt.split()[-1].strip("?.")
         plan.append({"tool": "search_symbols", "args": {"query": query}})

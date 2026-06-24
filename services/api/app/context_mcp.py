@@ -550,6 +550,10 @@ class ContextMcpService:
                     "- youtube_transcript: subtitle text — arguments: {url}",
                     "- rss_read: feed entries — arguments: {url, limit?}",
                     "- github_repo: public repo metadata — arguments: {repo: owner/name}",
+                    "- exa_search: semantic web research — arguments: {query, limit?} (needs EXA_API_KEY)",
+                    "- bilibili_search: B站 video search — arguments: {keyword, limit?}",
+                    "- firecrawl_scrape: JS-heavy page to markdown — arguments: {url} (needs FIRECRAWL_API_KEY)",
+                    "- firecrawl_search: search + extract — arguments: {query, limit?} (needs FIRECRAWL_API_KEY)",
                     "Social platforms (Twitter, Reddit, XHS) require local Agent Reach CLI — see agent-reach skill.",
                 ]
             )

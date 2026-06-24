@@ -150,3 +150,68 @@ def test_platform_agent_reach_status_route(client) -> None:
     body = response.json()
     assert "channels" in body
     assert "web" in body["channels"]
+    assert "exa" in body["channels"]
+    assert "bilibili" in body["channels"]
+
+
+@pytest.mark.asyncio
+async def test_exa_search_success() -> None:
+    from app.agent_reach_service import exa_search
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = ""
+    mock_response.json.return_value = {
+        "results": [
+            {"title": "Example", "url": "https://example.com", "text": "Body", "score": 0.9}
+        ]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    with patch("app.agent_reach_service.httpx.AsyncClient", return_value=mock_client):
+        with patch("app.agent_reach_service.channel_exa_enabled", return_value=True):
+            with patch("app.agent_reach_service._exa_api_key", return_value="test-key"):
+                payload = await exa_search("agent frameworks")
+
+    assert payload["ok"] is True
+    assert payload["result_count"] == 1
+    assert payload["results"][0]["title"] == "Example"
+
+
+@pytest.mark.asyncio
+async def test_bilibili_search_api_fallback() -> None:
+    from app.agent_reach_service import bilibili_search
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "code": 0,
+        "data": {
+            "result": [
+                {
+                    "title": "Rust <em class=\"keyword\">tutorial</em>",
+                    "bvid": "BV123",
+                    "author": "dev",
+                    "description": "intro",
+                }
+            ]
+        },
+    }
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+
+    with patch("app.agent_reach_service.shutil.which", return_value=None):
+        with patch("app.agent_reach_service.httpx.AsyncClient", return_value=mock_client):
+            with patch("app.agent_reach_service.channel_bilibili_enabled", return_value=True):
+                payload = await bilibili_search("rust tutorial")
+
+    assert payload["ok"] is True
+    assert payload["source"] == "bilibili_api"
+    assert payload["videos"][0]["bvid"] == "BV123"

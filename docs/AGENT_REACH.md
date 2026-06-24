@@ -6,21 +6,28 @@ CodeForge integrates [Agent Reach](https://github.com/Panniantong/Agent-Reach) a
 
 | Capability | Where it runs |
 |------------|----------------|
-| Read web pages (Jina Reader) | API / worker (`fetch_web`) |
-| YouTube subtitles | API / worker (`youtube_transcript`) |
-| RSS / Atom feeds | API / worker (`rss_read`) |
-| Public GitHub repo metadata | API / worker (`github_repo`) |
-| Twitter, Reddit, XHS, Bilibili login, Exa | **Local machine** via Agent Reach CLI + skill |
+| Read web pages (Jina Reader) | API (`fetch_web`) |
+| YouTube subtitles | API (`youtube_transcript`) |
+| RSS / Atom feeds | API (`rss_read`) |
+| Public GitHub repo metadata | API (`github_repo`) |
+| Semantic web research | API (`exa_search`) — needs `EXA_API_KEY` |
+| Bilibili video search | API (`bilibili_search`) |
+| JS-heavy scrape / search | API (`firecrawl_scrape`, `firecrawl_search`) — needs `FIRECRAWL_API_KEY` |
+| Twitter, Reddit, XHS (login) | **Local machine** via Agent Reach CLI + skill |
 
 ## Quick start (web app)
 
 1. **Settings → Skills** — enable `agent-reach` (or install **Internet research** extension).
 2. **MCP** — enable **Agent Reach (server)** connector.
-3. Ask in chat, for example:
+3. **Settings → Deploy** — review Agent Reach doctor status.
+4. Add API keys to `.env.local` (optional but recommended):
+   - `EXA_API_KEY` from [exa.ai](https://exa.ai)
+   - `FIRECRAWL_API_KEY` from [firecrawl.dev](https://firecrawl.dev)
+5. Ask in chat, for example:
+   - “Research competing LLM agent frameworks”
+   - “Search Bilibili for Rust tutorials”
    - “Summarize https://www.youtube.com/watch?v=…”
-   - “Read this article: https://…”
-   - “What’s in this RSS feed: https://…”
-   - “Describe the GitHub repo Panniantong/Agent-Reach”
+   - “Scrape this JS-heavy docs page: https://…”
 
 ## Quick start (local Cursor / dev laptop)
 
@@ -36,7 +43,7 @@ See [`.codeforge/skills/agent-reach/SKILL.md`](../.codeforge/skills/agent-reach/
 
 ## Environment variables (server)
 
-All default to `true` when unset.
+Channel toggles default to `true` when unset. Exa and Firecrawl also require API keys.
 
 | Variable | Channel |
 |----------|---------|
@@ -44,6 +51,9 @@ All default to `true` when unset.
 | `CODEFORGE_AGENT_REACH_YOUTUBE` | yt-dlp subtitles |
 | `CODEFORGE_AGENT_REACH_RSS` | feedparser |
 | `CODEFORGE_AGENT_REACH_GITHUB` | GitHub REST API |
+| `CODEFORGE_AGENT_REACH_EXA` + `EXA_API_KEY` | Exa semantic search |
+| `CODEFORGE_AGENT_REACH_BILIBILI` | Bilibili search API / bili-cli |
+| `CODEFORGE_AGENT_REACH_FIRECRAWL` + `FIRECRAWL_API_KEY` | Firecrawl scrape/search |
 
 ## Health check
 
@@ -51,15 +61,15 @@ All default to `true` when unset.
 curl http://localhost:8000/api/v1/platform/agent-reach/status
 ```
 
-Returns per-channel status (similar to `agent-reach doctor` for server tools only).
+Also visible in **Settings → Deploy → Agent Reach (server channels)**.
 
 ## Architecture
 
-- **Skill** — prompt playbook at `.codeforge/skills/agent-reach/SKILL.md`
+- **Skill** — `.codeforge/skills/agent-reach/SKILL.md`
 - **MCP** — native connector `agent_reach` in [`mcp_catalog.py`](../services/api/app/mcp_catalog.py)
 - **Service** — [`agent_reach_service.py`](../services/api/app/agent_reach_service.py)
-- **Agent routing** — URL heuristics in `infer_tool_plan` → `mcp_call` with `catalog_id: agent_reach`
-- **Cowork** — planner prefers connector tasks over generic scrape for YouTube/RSS/GitHub URLs
+- **Agent routing** — URL + intent heuristics in `infer_tool_plan`
+- **Cowork** — connector tasks for YouTube, RSS, GitHub, Exa, Bilibili
 
 ## Security
 

@@ -25,8 +25,11 @@ Adapted from [Agent-Reach](https://github.com/Panniantong/Agent-Reach) (MIT). Ag
 | YouTube transcript | Server | `mcp_call` → `agent_reach` / `youtube_transcript` |
 | RSS / Atom | Server | `mcp_call` → `agent_reach` / `rss_read` |
 | Public GitHub repo | Server | `mcp_call` → `agent_reach` / `github_repo` |
-| Twitter, Reddit, XHS, LinkedIn, Bilibili login | **Local only** | Install Agent Reach CLI + OpenCLI / cookies |
-| Semantic Exa search | Local (mcporter) | `agent-reach install` on dev machine |
+| Semantic web search | Server | `mcp_call` → `agent_reach` / `exa_search` (needs `EXA_API_KEY`) |
+| Bilibili video search | Server | `mcp_call` → `agent_reach` / `bilibili_search` |
+| JS-heavy pages | Server | `mcp_call` → `agent_reach` / `firecrawl_scrape` (needs `FIRECRAWL_API_KEY`) |
+| Twitter, Reddit, XHS, LinkedIn (login) | **Local only** | Agent Reach CLI + OpenCLI / cookies |
+| Exa via mcporter (local alt) | Local | `agent-reach install` on dev machine |
 
 Enable the **Agent Reach (server)** connector in Settings → MCP before using server tools.
 
@@ -48,7 +51,19 @@ Enable the **Agent Reach (server)** connector in Settings → MCP before using s
 {"catalog_id": "agent_reach", "tool_name": "github_repo", "arguments": {"repo": "owner/name"}}
 ```
 
-Use `catalog_id: agent_reach` when the connector UUID is unknown — CodeForge resolves the installed connector.
+```json
+{"catalog_id": "agent_reach", "tool_name": "exa_search", "arguments": {"query": "LLM agent frameworks 2026", "limit": 8}}
+```
+
+```json
+{"catalog_id": "agent_reach", "tool_name": "bilibili_search", "arguments": {"keyword": "AI 教程"}}
+```
+
+```json
+{"catalog_id": "agent_reach", "tool_name": "firecrawl_scrape", "arguments": {"url": "https://docs.example.com"}}
+```
+
+Check channel health: Settings → Deploy tab, or `GET /api/v1/platform/agent-reach/status`.
 
 ## Local install (Cursor / dev laptop)
 
@@ -88,4 +103,5 @@ Run `agent-reach doctor` to see which backends are active.
 
 - **Cowork browser task** — multi-step login, form submit, or authenticated web UI
 - **Built-in `web_search`** — quick Stack Overflow / Wikipedia / DuckDuckGo lookup (no URL needed)
-- **ScrapeGraphAI `scrape` Cowork task** — complex JS-heavy pages when Jina `fetch_web` is insufficient
+- **Firecrawl `firecrawl_scrape`** — JS-heavy sites when Jina `fetch_web` is insufficient (server, needs API key)
+- **ScrapeGraphAI `scrape` Cowork task** — LLM-guided extraction with approval

@@ -347,6 +347,15 @@ export async function getDeployReadiness(probeDiscovery = false) {
   return response.json();
 }
 
+export async function getAgentReachStatus() {
+  const base = API_BASE.replace(/\/+$/, "");
+  const response = await fetch(`${base}/api/v1/platform/agent-reach/status`);
+  if (!response.ok) {
+    throw new Error(`Agent Reach status failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function getTasteRules(token) {
   return shared.getTasteRules(API_BASE, token);
 }

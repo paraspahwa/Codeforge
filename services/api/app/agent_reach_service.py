@@ -1,7 +1,8 @@
-"""Server-safe Agent Reach channels — web, YouTube, RSS, GitHub (public API)."""
+"""Server-safe Agent Reach channels — web, YouTube, RSS, GitHub, Exa, Bilibili, Firecrawl."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -15,7 +16,14 @@ import httpx
 
 _JINA_BASE = "https://r.jina.ai/"
 _GITHUB_API = "https://api.github.com"
+_EXA_API = "https://api.exa.ai/search"
+_BILIBILI_SEARCH_API = "https://api.bilibili.com/x/web-interface/search/type"
+_FIRECRAWL_API = "https://api.firecrawl.dev/v1"
 _USER_AGENT = "CodeForge-AgentReach/1.0"
+_BILI_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 class AgentReachError(RuntimeError):
@@ -40,6 +48,32 @@ def channel_rss_enabled() -> bool:
 
 def channel_github_enabled() -> bool:
     return _env_enabled("CODEFORGE_AGENT_REACH_GITHUB")
+
+
+def channel_exa_enabled() -> bool:
+    return _env_enabled("CODEFORGE_AGENT_REACH_EXA") and bool(os.getenv("EXA_API_KEY", "").strip())
+
+
+def channel_bilibili_enabled() -> bool:
+    return _env_enabled("CODEFORGE_AGENT_REACH_BILIBILI")
+
+
+def channel_firecrawl_enabled() -> bool:
+    return _env_enabled("CODEFORGE_AGENT_REACH_FIRECRAWL") and bool(os.getenv("FIRECRAWL_API_KEY", "").strip())
+
+
+def _exa_api_key() -> str:
+    key = os.getenv("EXA_API_KEY", "").strip()
+    if not key:
+        raise AgentReachError("EXA_API_KEY is not configured")
+    return key
+
+
+def _firecrawl_api_key() -> str:
+    key = os.getenv("FIRECRAWL_API_KEY", "").strip()
+    if not key:
+        raise AgentReachError("FIRECRAWL_API_KEY is not configured")
+    return key
 
 
 def _validate_http_url(url: str) -> str:
@@ -193,6 +227,216 @@ def _parse_github_repo(repo: str) -> tuple[str, str]:
     return owner.strip(), name.strip().removesuffix(".git")
 
 
+async def exa_search(
+    query: str,
+    *,
+    limit: int = 8,
+    search_type: str = "auto",
+) -> dict[str, Any]:
+    if not channel_exa_enabled():
+        raise AgentReachError(
+            "Exa search is disabled — set EXA_API_KEY and CODEFORGE_AGENT_REACH_EXA=true"
+        )
+    cleaned = query.strip()
+    if not cleaned:
+        raise AgentReachError("query is required")
+    payload = {
+        "query": cleaned,
+        "numResults": max(1, min(limit, 20)),
+        "type": search_type if search_type in {"auto", "neural", "keyword"} else "auto",
+        "contents": {"text": {"maxCharacters": 1200}},
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            _EXA_API,
+            headers={"x-api-key": _exa_api_key(), "Content-Type": "application/json"},
+            json=payload,
+        )
+    if response.status_code >= 400:
+        detail = response.text[:300]
+        raise AgentReachError(f"Exa API error {response.status_code}: {detail}")
+    body = response.json()
+    results: list[dict[str, Any]] = []
+    for item in body.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        results.append(
+            {
+                "title": item.get("title") or "",
+                "url": item.get("url") or "",
+                "published": item.get("publishedDate") or "",
+                "author": item.get("author") or "",
+                "score": item.get("score"),
+                "text": _truncate(str(item.get("text") or ""), 1200),
+            }
+        )
+    return {
+        "ok": True,
+        "query": cleaned,
+        "source": "exa",
+        "result_count": len(results),
+        "results": results,
+    }
+
+
+async def bilibili_search(keyword: str, *, limit: int = 10) -> dict[str, Any]:
+    if not channel_bilibili_enabled():
+        raise AgentReachError("Bilibili channel is disabled (CODEFORGE_AGENT_REACH_BILIBILI)")
+    cleaned = keyword.strip()
+    if not cleaned:
+        raise AgentReachError("keyword is required")
+
+    bili_cli = shutil.which("bili")
+    if bili_cli:
+        try:
+            result = subprocess.run(
+                [bili_cli, "search", cleaned, "--type", "video", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                payload = json.loads(result.stdout)
+                items = payload if isinstance(payload, list) else payload.get("results") or payload.get("items") or []
+                videos = []
+                for item in items[: max(1, min(limit, 20))]:
+                    if not isinstance(item, dict):
+                        continue
+                    videos.append(
+                        {
+                            "title": item.get("title") or item.get("name") or "",
+                            "bvid": item.get("bvid") or item.get("id") or "",
+                            "author": item.get("author") or item.get("up_name") or "",
+                            "url": item.get("url")
+                            or (
+                                f"https://www.bilibili.com/video/{item.get('bvid')}"
+                                if item.get("bvid")
+                                else ""
+                            ),
+                            "description": _truncate(str(item.get("description") or item.get("desc") or ""), 300),
+                        }
+                    )
+                return {
+                    "ok": True,
+                    "keyword": cleaned,
+                    "source": "bili-cli",
+                    "result_count": len(videos),
+                    "videos": videos,
+                }
+        except (json.JSONDecodeError, subprocess.TimeoutExpired):
+            pass
+
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        response = await client.get(
+            _BILIBILI_SEARCH_API,
+            params={"search_type": "video", "keyword": cleaned, "page": "1"},
+            headers={
+                "User-Agent": _BILI_USER_AGENT,
+                "Referer": "https://www.bilibili.com",
+            },
+        )
+    if response.status_code >= 400:
+        raise AgentReachError(f"Bilibili search failed with status {response.status_code}")
+    body = response.json()
+    if body.get("code") not in {0, None}:
+        raise AgentReachError(str(body.get("message") or "Bilibili search failed"))
+    raw_items = ((body.get("data") or {}).get("result") or [])[: max(1, min(limit, 20))]
+    videos: list[dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        bvid = item.get("bvid") or ""
+        videos.append(
+            {
+                "title": str(item.get("title") or "").replace("<em class=\"keyword\">", "").replace("</em>", ""),
+                "bvid": bvid,
+                "author": item.get("author") or "",
+                "url": f"https://www.bilibili.com/video/{bvid}" if bvid else "",
+                "description": _truncate(str(item.get("description") or ""), 300),
+                "play": item.get("play"),
+            }
+        )
+    return {
+        "ok": True,
+        "keyword": cleaned,
+        "source": "bilibili_api",
+        "result_count": len(videos),
+        "videos": videos,
+    }
+
+
+async def firecrawl_scrape(url: str) -> dict[str, Any]:
+    if not channel_firecrawl_enabled():
+        raise AgentReachError(
+            "Firecrawl is disabled — set FIRECRAWL_API_KEY and CODEFORGE_AGENT_REACH_FIRECRAWL=true"
+        )
+    target = _validate_http_url(url)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{_FIRECRAWL_API}/scrape",
+            headers={
+                "Authorization": f"Bearer {_firecrawl_api_key()}",
+                "Content-Type": "application/json",
+            },
+            json={"url": target, "formats": ["markdown"]},
+        )
+    if response.status_code >= 400:
+        raise AgentReachError(f"Firecrawl scrape error {response.status_code}: {response.text[:300]}")
+    body = response.json()
+    data = body.get("data") if isinstance(body.get("data"), dict) else {}
+    markdown = str(data.get("markdown") or data.get("content") or "")
+    return {
+        "ok": True,
+        "url": target,
+        "source": "firecrawl",
+        "title": data.get("metadata", {}).get("title") if isinstance(data.get("metadata"), dict) else "",
+        "markdown": _truncate(markdown, 20000),
+        "length": len(markdown),
+    }
+
+
+async def firecrawl_search(query: str, *, limit: int = 5) -> dict[str, Any]:
+    if not channel_firecrawl_enabled():
+        raise AgentReachError(
+            "Firecrawl is disabled — set FIRECRAWL_API_KEY and CODEFORGE_AGENT_REACH_FIRECRAWL=true"
+        )
+    cleaned = query.strip()
+    if not cleaned:
+        raise AgentReachError("query is required")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{_FIRECRAWL_API}/search",
+            headers={
+                "Authorization": f"Bearer {_firecrawl_api_key()}",
+                "Content-Type": "application/json",
+            },
+            json={"query": cleaned, "limit": max(1, min(limit, 10))},
+        )
+    if response.status_code >= 400:
+        raise AgentReachError(f"Firecrawl search error {response.status_code}: {response.text[:300]}")
+    body = response.json()
+    raw = body.get("data") if isinstance(body.get("data"), list) else []
+    results: list[dict[str, Any]] = []
+    for item in raw[:limit]:
+        if not isinstance(item, dict):
+            continue
+        results.append(
+            {
+                "title": item.get("title") or "",
+                "url": item.get("url") or "",
+                "markdown": _truncate(str(item.get("markdown") or ""), 1200),
+            }
+        )
+    return {
+        "ok": True,
+        "query": cleaned,
+        "source": "firecrawl",
+        "result_count": len(results),
+        "results": results,
+    }
+
+
 async def github_repo(repo: str) -> dict[str, Any]:
     if not channel_github_enabled():
         raise AgentReachError("GitHub channel is disabled (CODEFORGE_AGENT_REACH_GITHUB)")
@@ -280,6 +524,30 @@ async def probe_channel_status() -> dict[str, Any]:
             channels["github"] = {"ok": False, "backend": "github_api", "error": str(exc)[:200]}
     else:
         channels["github"] = {"ok": False, "disabled": True}
+
+    if channel_exa_enabled():
+        channels["exa"] = {"ok": True, "backend": "exa_api", "configured": True}
+    elif _env_enabled("CODEFORGE_AGENT_REACH_EXA") and not os.getenv("EXA_API_KEY", "").strip():
+        channels["exa"] = {"ok": False, "backend": "exa_api", "error": "EXA_API_KEY missing"}
+    else:
+        channels["exa"] = {"ok": False, "disabled": True}
+
+    if channel_bilibili_enabled():
+        bili_cli = shutil.which("bili")
+        channels["bilibili"] = {
+            "ok": True,
+            "backend": "bili-cli" if bili_cli else "bilibili_api",
+            "cli_installed": bool(bili_cli),
+        }
+    else:
+        channels["bilibili"] = {"ok": False, "disabled": True}
+
+    if channel_firecrawl_enabled():
+        channels["firecrawl"] = {"ok": True, "backend": "firecrawl_api", "configured": True}
+    elif _env_enabled("CODEFORGE_AGENT_REACH_FIRECRAWL") and not os.getenv("FIRECRAWL_API_KEY", "").strip():
+        channels["firecrawl"] = {"ok": False, "backend": "firecrawl_api", "error": "FIRECRAWL_API_KEY missing"}
+    else:
+        channels["firecrawl"] = {"ok": False, "disabled": True}
 
     ok_count = sum(1 for row in channels.values() if row.get("ok"))
     return {

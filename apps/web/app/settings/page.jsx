@@ -10,6 +10,7 @@ import {
   exportMemory,
   getAgentPreferences,
   getDeployReadiness,
+  getAgentReachStatus,
   getHermesStatus,
   getOidcConfig,
   getRtkStatus,
@@ -81,6 +82,7 @@ export default function SettingsPage() {
   const [connectorTransport, setConnectorTransport] = useState("http");
   const [connectorTools, setConnectorTools] = useState("");
   const [deployReadiness, setDeployReadiness] = useState(null);
+  const [agentReachStatus, setAgentReachStatus] = useState(null);
   const [tasteStats, setTasteStats] = useState(null);
   const [tasteRules, setTasteRules] = useState([]);
   const [tasteMd, setTasteMd] = useState("");
@@ -119,6 +121,9 @@ export default function SettingsPage() {
     getDeployReadiness(true)
       .then(setDeployReadiness)
       .catch(() => setDeployReadiness(null));
+    getAgentReachStatus()
+      .then(setAgentReachStatus)
+      .catch(() => setAgentReachStatus(null));
     getOidcConfig()
       .then(setOidcConfig)
       .catch(() => setOidcConfig(null));
@@ -420,6 +425,31 @@ export default function SettingsPage() {
           </>
         ) : (
           <EmptyState title="Deploy readiness unavailable" description="Could not load runtime checks." />
+        )}
+        <h3 style={{ marginTop: "1.5rem" }}>Agent Reach (server channels)</h3>
+        <p className="small">
+          Doctor-style status for web, YouTube, RSS, GitHub, Exa, Bilibili, and Firecrawl. Enable the{" "}
+          <strong>agent-reach</strong> skill and MCP connector for full research flows.
+        </p>
+        {agentReachStatus ? (
+          <>
+            <p className="small">
+              Status: <strong>{agentReachStatus.status}</strong> · {agentReachStatus.healthy_count}/
+              {agentReachStatus.total_channels} channels healthy
+            </p>
+            <ul className="small">
+              {Object.entries(agentReachStatus.channels || {}).map(([name, row]) => (
+                <li key={name}>
+                  {row.ok ? "✓" : row.disabled ? "○" : "✗"} {name}
+                  {row.backend ? ` (${row.backend})` : ""}
+                  {row.error ? ` — ${row.error}` : ""}
+                  {row.version ? ` — v${row.version}` : ""}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="small muted">Agent Reach status unavailable.</p>
         )}
       </section>
   );

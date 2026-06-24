@@ -111,6 +111,38 @@ def plan_from_goal(goal: str, *, project_path: str, session_id: str) -> dict[str
         )
         preview_lines.append(f"Read RSS entries from {url}")
 
+    if any(token in lowered for token in ("bilibili", "b站", "b站搜")) and not url:
+        keyword = cleaned[:120]
+        steps.append(
+            {
+                "step_id": f"step_{len(steps) + 1}",
+                "task_type": "connector",
+                "title": "Search Bilibili videos",
+                "connector_id": "agent_reach",
+                "tool_name": "bilibili_search",
+                "connector_arguments": {"keyword": keyword},
+                "requires_approval": False,
+            }
+        )
+        preview_lines.append(f"Search Bilibili for: {keyword[:80]}")
+
+    if any(
+        token in lowered
+        for token in ("research", "competitive", "market analysis", "semantic search", "find articles")
+    ) and not url:
+        steps.append(
+            {
+                "step_id": f"step_{len(steps) + 1}",
+                "task_type": "connector",
+                "title": "Semantic web research (Exa)",
+                "connector_id": "agent_reach",
+                "tool_name": "exa_search",
+                "connector_arguments": {"query": cleaned[:200]},
+                "requires_approval": False,
+            }
+        )
+        preview_lines.append("Run semantic web research via Exa")
+
     if url and any(token in lowered for token in ("scrape", "fetch url", "crawl", "http", "read page", "article")):
         host = urlparse(url).netloc.lower()
         if "github.com" in host:
