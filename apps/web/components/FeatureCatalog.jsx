@@ -14,7 +14,7 @@ export default function FeatureCatalog({ variant = "page", onStartGoal }) {
       return;
     }
     queueChatGoal({ prompt: feature.starterPrompt, planMode: feature.planMode });
-    router.push("/");
+    router.push("/app");
   }
 
   return (

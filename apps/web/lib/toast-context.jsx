@@ -23,7 +23,7 @@ export function ToastProvider({ children }) {
   );
 
   return (
-    <ToastContext.Provider value={{ push }}>
+    <ToastContext.Provider value={{ push, pushNetworkError: (message) => push(`${message} — retry or run npm run stack:up`, "error") }}>
       {children}
       <div className="toast-stack" role="status" aria-live="polite">
         {toasts.map((toast) => (

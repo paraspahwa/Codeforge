@@ -9,6 +9,25 @@ from urllib.parse import urlparse
 from .auth import dev_auth_enabled, dev_login_override_enabled, dev_login_secret_configured, oidc_auth_enabled
 
 
+def supabase_auth_configured() -> bool:
+    return bool(os.getenv("SUPABASE_JWT_SECRET", "").strip())
+
+
+def oidc_credentials_complete() -> bool:
+    if not oidc_auth_enabled():
+        return False
+    issuer = os.getenv("CODEFORGE_OIDC_ISSUER", "").strip()
+    client_id = os.getenv("CODEFORGE_OIDC_CLIENT_ID", "").strip()
+    client_secret = os.getenv("CODEFORGE_OIDC_CLIENT_SECRET", "").strip()
+    redirect_uri = os.getenv("CODEFORGE_OIDC_REDIRECT_URI", "").strip()
+    jwks_uri = os.getenv("CODEFORGE_OIDC_JWKS_URI", "").strip()
+    return bool(issuer and client_id and client_secret and redirect_uri and (jwks_uri or issuer))
+
+
+def dual_auth_mode() -> bool:
+    return oidc_auth_enabled() and supabase_auth_configured()
+
+
 def is_production_environment() -> bool:
     return os.getenv("CODEFORGE_ENV", "development").strip().lower() == "production"
 
@@ -86,6 +105,24 @@ def collect_deploy_readiness() -> dict[str, Any]:
             ok=not dev_auth_enabled(),
             detail="Dev-login must be disabled when OIDC is enabled",
         )
+        if dual_auth_mode():
+            _add_check(
+                checks,
+                name="supabase_jwt_secret",
+                ok=supabase_auth_configured(),
+                detail="SUPABASE_JWT_SECRET is required when dual OIDC + Supabase auth is enabled",
+            )
+        if is_production_environment():
+            if dual_auth_mode():
+                auth_ok = oidc_credentials_complete() and supabase_auth_configured()
+            else:
+                auth_ok = oidc_credentials_complete()
+            _add_check(
+                checks,
+                name="auth_provider_configured",
+                ok=auth_ok,
+                detail="Configure complete OIDC credentials (and SUPABASE_JWT_SECRET when dual auth is enabled)",
+            )
     else:
         _add_check(
             checks,
@@ -112,9 +149,16 @@ def collect_deploy_readiness() -> dict[str, Any]:
             _add_check(
                 checks,
                 name="supabase_jwt_secret",
-                ok=bool(os.getenv("SUPABASE_JWT_SECRET", "").strip()),
+                ok=supabase_auth_configured(),
                 detail="SUPABASE_JWT_SECRET is required when OIDC is disabled in production",
             )
+            if is_production_environment():
+                _add_check(
+                    checks,
+                    name="auth_provider_configured",
+                    ok=supabase_auth_configured(),
+                    detail="SUPABASE_JWT_SECRET must be set for Supabase Auth in production",
+                )
 
     razorpay_key_id = os.getenv("RAZORPAY_KEY_ID", "").strip()
     razorpay_key_secret = os.getenv("RAZORPAY_KEY_SECRET", "").strip()

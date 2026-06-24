@@ -48,7 +48,7 @@ export default function FeaturesPage() {
         variant="page"
         onStartGoal={(feature) => {
           queueChatGoal({ prompt: feature.starterPrompt, planMode: feature.planMode });
-          router.push("/");
+          router.push("/app");
         }}
       />
     </div>

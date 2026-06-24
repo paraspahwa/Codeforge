@@ -2,55 +2,61 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
-import { Badge } from "@codeforge/ui";
+import { Badge, Icon, NavItem } from "@codeforge/ui";
 
 import { useAuth } from "../lib/auth-context";
 import { useShellBar } from "../lib/shell-context";
+import { getBuildJourneyState, JOURNEY_STEPS } from "../lib/build-journey";
+import SessionChrome from "./SessionChrome";
 
 const NAV_SECTIONS = [
   {
     title: "Build",
     items: [
-      { href: "/", label: "AI partner", icon: "💬", hint: "Describe your app idea" },
-      { href: "/agents", label: "Agents", icon: "🤖", hint: "30+ agent patterns" },
-      { href: "/features", label: "Features", icon: "✨", hint: "All tools" },
-      { href: "/extensions", label: "Extensions", icon: "🔌", hint: "LSP & plugins" },
-      { href: "/mcp", label: "MCP servers", icon: "🌐", hint: "Model Context Protocol" },
+      { href: "/app", label: "AI partner", icon: "MessageSquare", hint: "Describe your app idea" },
+      { href: "/agents", label: "Agents", icon: "Bot", hint: "30+ agent patterns" },
+      { href: "/features", label: "Features", icon: "Sparkles", hint: "All tools" },
+      { href: "/extensions", label: "Extensions", icon: "Plug", hint: "LSP & plugins" },
+      { href: "/mcp", label: "MCP servers", icon: "Globe", hint: "Model Context Protocol" },
     ],
   },
   {
     title: "Work",
     items: [
-      { href: "/cowork", label: "Automations", icon: "🤝", hint: "Files & workflows" },
-      { href: "/sessions", label: "My chats", icon: "🗂️", hint: "Past conversations" },
-      { href: "/code", label: "Code editor", icon: "⌨️", hint: "Full IDE editing" },
+      { href: "/cowork", label: "Automations", icon: "Handshake", hint: "Files & workflows" },
+      { href: "/sessions", label: "My chats", icon: "FolderOpen", hint: "Past conversations" },
+      { href: "/code", label: "Code editor", icon: "Keyboard", hint: "Full IDE editing" },
     ],
   },
   {
     title: "Team & account",
     items: [
-      { href: "/team", label: "Team", icon: "👥", hint: "Collaborate" },
-      { href: "/analytics", label: "Usage", icon: "📊", hint: "Activity" },
-      { href: "/billing", label: "Billing", icon: "💳", hint: "Plans" },
-      { href: "/settings", label: "Settings", icon: "⚙️", hint: "Preferences" },
+      { href: "/team", label: "Team", icon: "Users", hint: "Collaborate" },
+      { href: "/analytics", label: "Usage", icon: "BarChart3", hint: "Activity" },
+      { href: "/billing", label: "Billing", icon: "CreditCard", hint: "Plans" },
+      { href: "/settings", label: "Settings", icon: "Settings", hint: "Preferences" },
     ],
   },
 ];
 
-const PROTECTED_PREFIXES = ["/", "/agents", "/features", "/extensions", "/mcp", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
+const PROTECTED_PREFIXES = ["/app", "/agents", "/features", "/extensions", "/mcp", "/code", "/sessions", "/cowork", "/team", "/analytics", "/settings"];
 
 function isProtectedRoute(pathname) {
   if (pathname === "/billing") {
     return false;
   }
-  return PROTECTED_PREFIXES.some((prefix) => {
-    if (prefix === "/") {
-      return pathname === "/";
-    }
-    return pathname === prefix || pathname.startsWith(`${prefix}/`);
-  });
+  return PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function isNavActive(pathname, href) {
+  if (href === "/app") {
+    return pathname === "/app" || pathname.startsWith("/app/");
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export default function AppShell({ children }) {
@@ -59,6 +65,7 @@ export default function AppShell({ children }) {
   const { userId, token, ready, logout } = useAuth();
   const { usage, sessionGrant } = useShellBar();
   const [navOpen, setNavOpen] = useState(false);
+  const [journeyDone, setJourneyDone] = useState(0);
 
   useEffect(() => {
     if (!ready) {
@@ -74,51 +81,63 @@ export default function AppShell({ children }) {
     setNavOpen(false);
   }, [pathname]);
 
+  useEffect(() => {
+    const state = getBuildJourneyState();
+    setJourneyDone(state.completed?.length ?? 0);
+  }, [pathname]);
+
   const sidebar = (
     <aside className={`sidebar ${navOpen ? "sidebar-open" : ""}`}>
       <div className="brand cf-animate-in">
         <span className="brand-mark cf-bounce-gentle">CF</span>
         <span>CodeForge</span>
       </div>
-      <nav className="sidebar-nav-full">
+      {journeyDone > 0 ? (
+        <div className="sidebar-journey small" aria-label="Build journey progress">
+          <span>
+            Journey {journeyDone}/{JOURNEY_STEPS.length}
+          </span>
+          <div className="sidebar-journey-bar" role="progressbar" aria-valuenow={journeyDone} aria-valuemin={0} aria-valuemax={JOURNEY_STEPS.length}>
+            <span style={{ width: `${(journeyDone / JOURNEY_STEPS.length) * 100}%` }} />
+          </div>
+        </div>
+      ) : null}
+      <nav className="sidebar-nav-full" aria-label="Main">
         {NAV_SECTIONS.map((section, sectionIndex) => (
           <div key={section.title} className="nav-section cf-animate-in" style={{ animationDelay: `${sectionIndex * 60}ms` }}>
             <p className="nav-section-label small">{section.title}</p>
             {section.items.map((item) => (
-              <Link
+              <NavItem
                 key={item.href}
+                Component={Link}
                 href={item.href}
-                className={`nav-link nav-link-feature ${pathname === item.href ? "nav-link-active" : ""}`}
-                aria-current={pathname === item.href ? "page" : undefined}
-                title={item.hint}
-              >
-                <span className="nav-link-icon cf-wiggle-hover" aria-hidden>
-                  {item.icon}
-                </span>
-                <span className="nav-link-text">
-                  <span className="nav-link-label">{item.label}</span>
-                  <span className="nav-link-hint small">{item.hint}</span>
-                </span>
-              </Link>
+                label={item.label}
+                hint={item.hint}
+                icon={item.icon}
+                active={isNavActive(pathname, item.href)}
+              />
             ))}
           </div>
         ))}
       </nav>
       <div className="sidebar-footer small cf-animate-in" style={{ animationDelay: "200ms" }}>
-        <span className="cf-sparkle-inline" aria-hidden>✦</span> Your AI product partner
+        Your AI product partner
       </div>
     </aside>
   );
 
+  const isIdeRoute = pathname === "/code" || pathname.startsWith("/code/");
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isIdeRoute ? "app-shell-ide" : ""}`}>
       <button
         type="button"
         className="nav-toggle"
         aria-label="Toggle navigation"
+        aria-expanded={navOpen}
         onClick={() => setNavOpen((open) => !open)}
       >
-        ☰
+        <Icon name="Menu" size={22} />
       </button>
       {navOpen ? (
         <button type="button" className="nav-overlay" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
@@ -126,6 +145,9 @@ export default function AppShell({ children }) {
       {sidebar}
       <div className="content-area">
         <header className="topbar">
+          <Suspense fallback={null}>
+            <SessionChrome />
+          </Suspense>
           {token ? (
             <div className="topbar-session">
               {usage ? (
@@ -148,7 +170,7 @@ export default function AppShell({ children }) {
             </Link>
           )}
         </header>
-        <main id="main-content" className="page">
+        <main id="main-content" className={`page ${isIdeRoute ? "page-ide" : ""}`}>
           {children}
         </main>
       </div>

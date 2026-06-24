@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "../../../lib/auth-context";
+import { getSupabaseClient } from "../../../lib/supabase-client";
 import { useToast } from "../../../lib/toast-context";
 
 export default function OidcCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { completeOidcLogin } = useAuth();
+  const { completeOidcLogin, completeSupabaseCallback } = useAuth();
   const toast = useToast();
   const [message, setMessage] = useState("Completing sign-in…");
   const [failed, setFailed] = useState(false);
@@ -22,6 +23,7 @@ export default function OidcCallbackPage() {
     }
     started.current = true;
 
+    const provider = searchParams.get("provider");
     const code = searchParams.get("code");
     const state = searchParams.get("state");
     const error = searchParams.get("error");
@@ -31,7 +33,32 @@ export default function OidcCallbackPage() {
       const detail = errorDescription ? `${error}: ${errorDescription}` : error;
       setFailed(true);
       setMessage(`Sign-in failed: ${detail}`);
-      toast.push(`OIDC sign-in failed: ${detail}`);
+      toast.push(`Sign-in failed: ${detail}`);
+      return;
+    }
+
+    async function finishSupabase() {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        throw new Error("Supabase Auth is not configured");
+      }
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          throw new Error(exchangeError.message);
+        }
+      }
+      await completeSupabaseCallback();
+      toast.push("Signed in", "success");
+      router.replace("/app");
+    }
+
+    if (provider === "supabase") {
+      finishSupabase().catch((callbackError) => {
+        setFailed(true);
+        setMessage(callbackError.message);
+        toast.push(callbackError.message);
+      });
       return;
     }
 
@@ -44,14 +71,14 @@ export default function OidcCallbackPage() {
     completeOidcLogin(code, state)
       .then(() => {
         toast.push("Signed in with SSO", "success");
-        router.replace("/");
+        router.replace("/app");
       })
       .catch((callbackError) => {
         setFailed(true);
         setMessage(callbackError.message);
         toast.push(callbackError.message);
       });
-  }, [completeOidcLogin, router, searchParams, toast]);
+  }, [completeOidcLogin, completeSupabaseCallback, router, searchParams, toast]);
 
   return (
     <div className="login-page">

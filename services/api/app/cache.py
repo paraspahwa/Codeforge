@@ -76,6 +76,17 @@ class RedisSessionStore:
         with self._lock:
             self._memory[key] = value
 
+    def delete(self, key: str) -> None:
+        if self._client is not None:
+            try:
+                self._client.delete(key)
+                return
+            except Exception as exc:
+                logger.warning("redis delete(%r) failed: %s", key, exc)
+
+        with self._lock:
+            self._memory.pop(key, None)
+
     def incrbyfloat(self, key: str, amount: float) -> float:
         if self._client is not None:
             try:

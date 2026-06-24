@@ -232,11 +232,12 @@ Without provider keys, the API returns **deterministic fallback** text (good for
 - [ ] Set `CODEFORGE_COWORK_SCHEDULER_ENABLED=false` on API only
 - [ ] Mount workspace volume: `CODEFORGE_HOST_WORKSPACES`
 
-### Phase 4 — Web (Vercel)
+### Phase 4 — Web (Vercel or VPS)
 
 - [ ] Import repo; root directory `apps/web` or monorepo build per Vercel docs
 - [ ] Build env: `NEXT_PUBLIC_API_BASE=https://api.yourdomain.com`
-- [ ] Deploy; confirm chat calls API without CORS errors
+- [ ] Optional Supabase Auth: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- [ ] Deploy; confirm `/` shows landing, `/app` requires login, chat calls API without CORS errors
 
 ### Phase 5 — Billing (optional)
 
@@ -248,8 +249,10 @@ Without provider keys, the API returns **deterministic fallback** text (good for
 ### Phase 6 — Auth hardening
 
 - [ ] Set `CODEFORGE_ALLOW_DEV_LOGIN=false`
-- [ ] Enable OIDC OR wire Supabase Auth + `SUPABASE_JWT_SECRET`
-- [ ] Register redirect URIs at IdP (web, desktop, terminal, VS Code — see DEPLOYMENT_RUNBOOK)
+- [ ] Enable OIDC and/or Supabase Auth (`SUPABASE_JWT_SECRET` + web `NEXT_PUBLIC_SUPABASE_*`)
+- [ ] For dual auth: set `CODEFORGE_OIDC_ENABLED=true` and `SUPABASE_JWT_SECRET` (deploy-readiness checks both)
+- [ ] Register redirect URIs at IdP: `https://app.yourdomain.com/auth/callback`
+- [ ] Supabase Auth redirect URLs: same callback with `?provider=supabase` for OAuth/magic links
 
 ### Phase 7 — Verify production
 

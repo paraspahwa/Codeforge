@@ -1,5 +1,8 @@
 # CodeForge Implementation Plan
 
+> **Product & GTM roadmap:** [product-roadmap.md](product-roadmap.md) — audiences, wedges, competitor positioning, north-star metrics.  
+> **Public summary:** `/roadmap` on the web app.
+
 ## Product Goal
 
 Build an India-first Claude Code alternative with four user modes on one shared backend:

@@ -1,0 +1,52 @@
+---
+alwaysApply: true
+description: CodeForge monorepo conventions — stacks, commands, UI, and shells
+---
+
+# CodeForge project map
+
+## Monorepo layout
+
+- `apps/web` — Next.js 14 app (marketing + product UI)
+- `services/api` — FastAPI backend
+- `packages/ui` — `@codeforge/ui` React primitives (use instead of ad-hoc buttons/panels)
+- `packages/design-tokens` — CSS tokens (`tokens.css`)
+- `packages/shared` — shared API client helpers
+
+## Canonical dev commands
+
+```bash
+npm run stack:up          # full Docker microservices (db, api, worker, web, gateway)
+npm run stack:up:backend  # API stack only; pair with npm run dev:web:fresh on host
+npm run dev:web:fresh     # clear .next + Next on :3000 (frees port first)
+npm run audit:web:ci      # wait for web/API then route audit
+```
+
+See `docs/microservices.md` for gateway (:8080) vs direct ports.
+
+## UI conventions
+
+- Product chrome (`AppShell`, nav, topbar): **Lucide icons via `@codeforge/ui` Icon/NavItem** — no emoji in navigation.
+- Shells: `marketing-shell` (landing), `app-shell` (product, including `/code`), `minimal-shell` (login, share, onboarding).
+- Session deep links: `?s=<session_id>` shared between `/app` and `/code`.
+- Design tokens: import `@codeforge/design-tokens/tokens.css`; avoid hardcoded colors in new CSS.
+
+## API / web integration
+
+- Default API: `http://localhost:8000` via `NEXT_PUBLIC_API_BASE`.
+- CORS allows `localhost:3000` and `127.0.0.1:3000`.
+- Readiness: `GET /ready` (postgres + redis); liveness: `GET /health`.
+- Optional BFF: set `NEXT_PUBLIC_API_DIRECT=false` to proxy via `/api/proxy/*`.
+
+## Backend conventions
+
+- Python 3.13, FastAPI, pytest in `services/api`.
+- Platform routes in `services/api/app/routers/platform.py`.
+- DB access via `app/db.py` (`ping_db()` for readiness).
+
+## Testing
+
+- API: `npm run api:test`
+- Web route audit: `npm run audit:web`
+- E2E: `npm run test:e2e` (Playwright)
+- A11y: `npm run test:a11y`

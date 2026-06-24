@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { languageForPath } from "../../lib/editor-language";
+import { registerTabCompletionProvider } from "../../lib/use-tab-completion";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -90,6 +91,7 @@ export default function CodeEditor({
   onInlineEdit,
   onGoToDefinition,
   onFindReferences,
+  onRequestCompletion,
   readOnly = false,
   loading = false,
   wordWrap = "on",
@@ -257,6 +259,15 @@ export default function CodeEditor({
     },
     [onSave, onEditorReady, onInlineEdit, onGoToDefinition, onFindReferences, readOnly, reportCursor, reportSelection],
   );
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco || !onRequestCompletion || readOnly) {
+      return undefined;
+    }
+    return registerTabCompletionProvider(monaco, editor, onRequestCompletion);
+  }, [path, onRequestCompletion, readOnly]);
 
   useEffect(() => {
     const handler = (event) => {

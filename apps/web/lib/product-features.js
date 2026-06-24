@@ -74,6 +74,28 @@ export const FEATURE_CATEGORIES = [
         starterPrompt:
           "Based on my app idea, create an implementation plan with phases (discovery, design, build, test, launch). Explain each phase in simple terms and what you will do for me.",
       },
+      {
+        id: "india-marketplace",
+        title: "India marketplace MVP",
+        description: "Starter for a local marketplace with INR pricing and Razorpay checkout.",
+        icon: "🛒",
+        href: "/",
+        action: "goal",
+        planMode: true,
+        starterPrompt:
+          "I want to build a marketplace for Indian sellers and buyers. Use templates/india-marketplace-mvp as the scaffold. Help me draft a PRD, then a phased plan with Supabase auth, Razorpay payments in INR, and a deploy checklist.",
+      },
+      {
+        id: "india-saas",
+        title: "India SaaS starter",
+        description: "Subscription app scaffold with auth, billing, and admin basics.",
+        icon: "₹",
+        href: "/",
+        action: "goal",
+        planMode: true,
+        starterPrompt:
+          "Help me build a B2B SaaS for the Indian market using templates/india-saas-starter. Start with a PRD, then plan Supabase auth, Razorpay subscription billing in INR, and an admin dashboard.",
+      },
     ],
   },
   {
@@ -105,6 +127,17 @@ export const FEATURE_CATEGORIES = [
         description: "See and edit files directly — for hands-on control.",
         icon: "⌨️",
         href: "/code",
+      },
+      {
+        id: "figma",
+        title: "Figma → code",
+        description: "Paste a Figma file URL and generate React components from your design.",
+        icon: "🎨",
+        href: "/",
+        action: "goal",
+        planMode: true,
+        starterPrompt:
+          "I have a Figma design URL. Help me import the layout and generate React + Tailwind components. Ask for the Figma link and which frame to implement first.",
       },
       {
         id: "publish",

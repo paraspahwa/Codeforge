@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 import { canWriteSession, formatSessionListLabel, viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
@@ -22,6 +22,7 @@ import {
   toggleCoworkJob,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import { ensureNotificationPermission, notifyCoworkJobComplete } from "../../lib/web-notifications";
 import { useToast } from "../../lib/toast-context";
 
 export default function CoworkPage() {
@@ -67,6 +68,7 @@ export default function CoworkPage() {
   const [goalPreview, setGoalPreview] = useState(null);
   const [goalApproved, setGoalApproved] = useState(false);
   const [goalResult, setGoalResult] = useState(null);
+  const prevJobStatusRef = useRef({});
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.session_id === sessionId) || null,
@@ -91,6 +93,20 @@ export default function CoworkPage() {
     setJobs(nextJobs.jobs || []);
     setExtractions(nextExtractions.extractions || []);
     setReliability(nextReliability);
+
+    const nextJobList = nextJobs.jobs || [];
+    for (const job of nextJobList) {
+      const prev = prevJobStatusRef.current[job.job_id];
+      const lastRun = job.last_run_status || job.status;
+      if (prev && prev !== "completed" && lastRun === "completed") {
+        notifyCoworkJobComplete({
+          title: `Cowork: ${job.title || job.job_id}`,
+          body: "Scheduled job finished successfully.",
+          tag: job.job_id,
+        });
+      }
+      prevJobStatusRef.current[job.job_id] = lastRun;
+    }
   }
 
   useEffect(() => {
@@ -116,6 +132,7 @@ export default function CoworkPage() {
     if (!token) {
       return;
     }
+    ensureNotificationPermission().catch(() => undefined);
     const intervalId = window.setInterval(() => {
       refreshCoworkData(token).catch(() => undefined);
     }, 8000);

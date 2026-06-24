@@ -109,6 +109,14 @@ def _fetchall(statement: str, params: tuple[Any, ...] = ()) -> list[dict[str, An
         conn.close()
 
 
+def ping_db() -> bool:
+    try:
+        row = _fetchone("SELECT 1 AS ok")
+        return row is not None
+    except Exception:
+        return False
+
+
 def init_db() -> None:
     if _is_postgres():
         with _pg_connection() as conn:

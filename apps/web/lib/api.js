@@ -2,6 +2,38 @@ import * as shared from "@codeforge/shared/api";
 import { createSessionStream } from "@codeforge/shared/agent";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const USE_API_PROXY = process.env.NEXT_PUBLIC_API_DIRECT === "false";
+
+export async function fetchWithRetry(url, options = {}, retries = 2) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+function resolveApiUrl(path) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (USE_API_PROXY) {
+    return `/api/proxy${normalized}`;
+  }
+  return `${API_BASE}${normalized}`;
+}
+
+export async function getStackStatus() {
+  const response = await fetchWithRetry(resolveApiUrl("/api/v1/platform/stack-status"));
+  if (!response.ok) {
+    throw new Error("Failed to load stack status");
+  }
+  return response.json();
+}
 
 export async function devLogin(userId) {
   const response = await fetch("/api/auth/dev-login", {
@@ -347,6 +379,15 @@ export async function getDeployReadiness(probeDiscovery = false) {
   return response.json();
 }
 
+export async function getQualitySummary(suite = "swe-fixtures") {
+  const base = API_BASE.replace(/\/+$/, "");
+  const response = await fetch(`${base}/api/v1/platform/quality-summary?suite=${encodeURIComponent(suite)}`);
+  if (!response.ok) {
+    throw new Error(`Quality summary failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function getAgentReachStatus() {
   const base = API_BASE.replace(/\/+$/, "");
   const response = await fetch(`${base}/api/v1/platform/agent-reach/status`);
@@ -520,6 +561,22 @@ export async function getFilePreview(token, sessionId, path) {
 
 export async function getFileContent(token, sessionId, path) {
   return shared.getFileContent(API_BASE, token, sessionId, path);
+}
+
+export async function requestCodeCompletion(token, sessionId, payload) {
+  const response = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/code/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.detail || `Completion failed (${response.status})`);
+  }
+  return response.json();
 }
 
 export async function applyFile(token, sessionId, payload) {

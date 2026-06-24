@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
 import ChatAttachments from "./ChatAttachments";
+import VoiceInputButton from "./VoiceInputButton";
 import { useSessionAccess } from "../../lib/session-context";
+import { getLocale, t } from "../../lib/locale-copy";
 
 export default function Composer({
   prompt,
@@ -22,6 +24,16 @@ export default function Composer({
 }) {
   const { currentSession, sessionWritable } = useSessionAccess();
   const textareaRef = useRef(null);
+  const [locale, setLocaleState] = useState("en");
+
+  useEffect(() => {
+    setLocaleState(getLocale());
+    function onLocaleChange() {
+      setLocaleState(getLocale());
+    }
+    window.addEventListener("codeforge:locale-change", onLocaleChange);
+    return () => window.removeEventListener("codeforge:locale-change", onLocaleChange);
+  }, []);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -31,6 +43,11 @@ export default function Composer({
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
   }, [prompt]);
+
+  function handleVoiceTranscript(text) {
+    const next = prompt ? `${prompt.trimEnd()} ${text}` : text;
+    onPromptChange(next);
+  }
 
   return (
     <form onSubmit={onSubmit} className="agent-composer">
@@ -54,11 +71,15 @@ export default function Composer({
         />
       ) : null}
       <div className="agent-composer-row">
+        <VoiceInputButton
+          disabled={!sessionId || loading || !sessionWritable}
+          onTranscript={handleVoiceTranscript}
+        />
         <textarea
           ref={textareaRef}
           rows={1}
           className="agent-composer-input"
-          placeholder="Describe your app idea, a bug, or what you want to build…"
+          placeholder={t("composerPlaceholder", locale)}
           value={prompt}
           onChange={(event) => onPromptChange(event.target.value)}
           onKeyDown={(event) => {
@@ -75,9 +96,7 @@ export default function Composer({
           {loading ? "…" : "↑"}
         </button>
       </div>
-      <p className="small agent-composer-foot">
-        Enter to send · Shift+Enter for new line · 📎 attach PDF, images, Markdown
-      </p>
+      <p className="small agent-composer-foot">{t("composerHint", locale)}</p>
     </form>
   );
 }

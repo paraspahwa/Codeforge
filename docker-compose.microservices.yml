@@ -1,0 +1,80 @@
+# CodeForge microservices stack
+#
+# Services:
+#   gateway  — nginx edge (single entry :8080)
+#   web      — Next.js UI (marketing + app routes)
+#   api      — FastAPI platform API
+#   worker   — Celery background jobs
+#   db       — Postgres
+#   redis    — sessions + Celery broker
+#   qdrant   — vector store
+#
+# Usage:
+#   docker compose -f docker-compose.microservices.yml up -d --build
+#   open http://localhost:8080
+#
+# Requires root .env (copy from .env.example).
+
+include:
+  - docker-compose.prod.yml
+
+services:
+  gateway:
+    build:
+      context: ./infra/gateway
+      dockerfile: Dockerfile
+    container_name: codeforge-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  api:
+    environment:
+      CODEFORGE_ENV: development
+      CODEFORGE_ALLOW_DEV_LOGIN: "true"
+      CODEFORGE_DEV_LOGIN_SECRET: ${CODEFORGE_DEV_LOGIN_SECRET:-local-dev-login-secret}
+      CODEFORGE_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080
+      CODEFORGE_WEB_BASE_URL: ${CODEFORGE_WEB_BASE_URL:-http://localhost:8080}
+      CODEFORGE_PUBLIC_API_BASE: http://localhost:8080
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:8080
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8080
+      CODEFORGE_DEV_LOGIN_SECRET: ${CODEFORGE_DEV_LOGIN_SECRET:-local-dev-login-secret}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    ports:
+      - "3000:3000"
+
+  worker:
+    environment:
+      CODEFORGE_ENV: development

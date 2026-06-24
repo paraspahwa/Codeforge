@@ -236,3 +236,13 @@ def test_deploy_readiness_vector_probe_fails_without_qdrant_url(client, monkeypa
     assert body["ready"] is False
 
 
+def test_public_quality_summary(client) -> None:
+    init_db()
+    response = client.get("/api/v1/platform/quality-summary?suite=swe-fixtures")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suite"] == "swe-fixtures"
+    assert body["total_cases"] == 3
+    assert body["latest_pass_rate_pct"] == 100.0
+    assert "description" in body
+

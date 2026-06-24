@@ -6,6 +6,11 @@ on:
     branches:
       - main
 
+env:
+  POSTGRES_PASSWORD: ci-test-password
+  SUPABASE_JWT_SECRET: ci-test-jwt-secret
+  CODEFORGE_DEV_LOGIN_SECRET: ci-dev-login-secret
+
 jobs:
   api-tests:
     runs-on: ubuntu-latest
@@ -29,3 +34,102 @@ jobs:
 
       - name: Run pytest
         run: pytest -q
+
+      - name: Run local smoke (TestClient)
+        working-directory: ${{ github.workspace }}
+        run: python scripts/run_local_smoke.py
+
+  web-audit:
+    runs-on: ubuntu-latest
+    needs: api-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Start backend stack
+        run: |
+          docker compose -f docker-compose.dev.yml up -d db redis qdrant api worker
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
+              echo "API health OK"
+              break
+            fi
+            sleep 3
+          done
+          curl -fsS http://localhost:8000/health
+
+      - name: Install and build web
+        run: |
+          npm ci
+          echo "NEXT_PUBLIC_API_BASE=http://localhost:8000" >> apps/web/.env.local
+          npm run build:web
+
+      - name: Start web server
+        run: |
+          npm run start:web &
+          echo $! > /tmp/web.pid
+
+      - name: Audit web routes
+        env:
+          AUDIT_WAIT_MS: 180000
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: npm run audit:web:ci
+
+      - name: Stop web server
+        if: always()
+        run: |
+          if [ -f /tmp/web.pid ]; then kill "$(cat /tmp/web.pid)" || true; fi
+          docker compose -f docker-compose.dev.yml down -v
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    needs: web-audit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Build web
+        run: |
+          echo "NEXT_PUBLIC_API_BASE=http://localhost:8000" >> apps/web/.env.local
+          npm run build:web
+
+      - name: Start stack and web
+        run: |
+          docker compose -f docker-compose.dev.yml up -d db redis qdrant api worker
+          npm run start:web &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break
+            sleep 3
+          done
+
+      - name: Run Playwright smoke
+        env:
+          WEB_BASE: http://localhost:3000
+        run: |
+          npm run test:e2e
+          npm run test:a11y
+
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v

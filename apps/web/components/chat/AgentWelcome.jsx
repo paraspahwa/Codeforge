@@ -1,11 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { BUILD_JOURNEY } from "../../lib/product-features";
+import { t, getLocale } from "../../lib/locale-copy";
+import BuildJourneyProgress from "./BuildJourneyProgress";
 
 const QUICK_STARTS = [
   {
     id: "idea",
     label: "I have an app idea",
+    labelHinglish: "Mere paas app idea hai",
     icon: "💡",
     prompt:
       "I have an app idea. Ask me questions to understand it, then tell me what we should do first.",
@@ -14,29 +19,46 @@ const QUICK_STARTS = [
   {
     id: "prd",
     label: "Write a PRD",
+    labelHinglish: "PRD likho",
     icon: "📋",
     prompt:
       "Help me write a PRD for my app idea. Ask me 4-5 clarifying questions first — do NOT write the PRD yet.",
     color: "#8b5cf6",
   },
   {
+    id: "saas",
+    label: "India SaaS starter",
+    labelHinglish: "India SaaS starter",
+    icon: "₹",
+    prompt:
+      "Use templates/india-saas-starter as the base. Help me customize a B2B SaaS with Supabase auth and Razorpay INR billing.",
+    planMode: true,
+    color: "#10b981",
+  },
+  {
     id: "bug",
     label: "Fix a bug",
+    labelHinglish: "Bug fix karo",
     icon: "🐛",
     prompt: "Something is broken. I'll describe the problem — help me fix it step by step.",
     color: "#ef4444",
   },
-  {
-    id: "security",
-    label: "Security check",
-    icon: "🛡️",
-    prompt: "Review my project for security issues and explain any risks in plain language.",
-    planMode: true,
-    color: "#06b6d4",
-  },
 ];
 
 export default function AgentWelcome({ loading, onStartSession, onStartGoal, onExploreFeatures }) {
+  const [locale, setLocaleState] = useState("en");
+
+  useEffect(() => {
+    setLocaleState(getLocale());
+    function onLocaleChange() {
+      setLocaleState(getLocale());
+    }
+    window.addEventListener("codeforge:locale-change", onLocaleChange);
+    return () => window.removeEventListener("codeforge:locale-change", onLocaleChange);
+  }, []);
+
+  const hinglish = locale === "hinglish";
+
   return (
     <div className="agent-welcome agent-welcome-fun">
       <div className="agent-welcome-hero cf-animate-in">
@@ -45,11 +67,11 @@ export default function AgentWelcome({ loading, onStartSession, onStartGoal, onE
           CodeForge
           <span className="cf-sparkle-inline cf-sparkle-delay" aria-hidden>✦</span>
         </p>
-        <h2>What should we build today?</h2>
-        <p className="agent-welcome-sub">
-          No coding experience needed. Describe your idea and the AI guides you from PRD → plan → build → ship.
-        </p>
+        <h2>{t("welcomeTitle", locale)}</h2>
+        <p className="agent-welcome-sub">{t("welcomeSub", locale)}</p>
       </div>
+
+      <BuildJourneyProgress />
 
       <div className="journey-track cf-animate-in" style={{ animationDelay: "100ms" }}>
         {BUILD_JOURNEY.map((step, index) => (
@@ -70,7 +92,7 @@ export default function AgentWelcome({ loading, onStartSession, onStartGoal, onE
       </div>
 
       <div className="quick-start-grid cf-animate-in" style={{ animationDelay: "200ms" }}>
-        <p className="quick-start-label">Quick start</p>
+        <p className="quick-start-label">{t("quickStartLabel", locale)}</p>
         <div className="quick-start-buttons">
           {QUICK_STARTS.map((item, index) => (
             <button
@@ -84,7 +106,7 @@ export default function AgentWelcome({ loading, onStartSession, onStartGoal, onE
               <span className="quick-start-icon" aria-hidden>
                 {item.icon}
               </span>
-              {item.label}
+              {hinglish && item.labelHinglish ? item.labelHinglish : item.label}
             </button>
           ))}
         </div>
@@ -97,10 +119,10 @@ export default function AgentWelcome({ loading, onStartSession, onStartGoal, onE
           onClick={onStartSession}
           disabled={loading}
         >
-          {loading ? "Starting…" : "Start a new chat"}
+          {loading ? "Starting…" : t("startChat", locale)}
         </button>
         <button type="button" className="agent-welcome-secondary" onClick={onExploreFeatures} disabled={loading}>
-          Explore all features →
+          {t("exploreFeatures", locale)}
         </button>
       </div>
     </div>

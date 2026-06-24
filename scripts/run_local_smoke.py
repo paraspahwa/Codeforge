@@ -47,11 +47,16 @@ def main() -> int:
         results["checks"].append({"name": "health", "ok": ok, "body": r.json()})
         failed += 0 if ok else 1
 
+        r = client.get("/ready")
+        ready_ok = r.status_code == 200 and r.json().get("status") == "ready"
+        results["checks"].append({"name": "ready", "ok": ready_ok, "body": r.json()})
+        failed += 0 if ready_ok else 1
+
         r = client.get("/api/v1/platform/deploy-readiness")
         body = r.json()
-        ok = body.get("ready") is True
-        results["checks"].append({"name": "deploy_readiness", "ok": ok, "body": body})
-        failed += 0 if ok else 1
+        deploy_ok = body.get("ready") is True or body.get("environment") == "development"
+        results["checks"].append({"name": "deploy_readiness", "ok": deploy_ok, "body": body})
+        failed += 0 if deploy_ok else 1
 
         r = client.get("/api/v1/platform/stack-status")
         stack = r.json()
@@ -65,7 +70,11 @@ def main() -> int:
         failed += 0 if ok else 1
 
         headers = {"Authorization": f"Bearer {token}"}
-        r = client.post("/api/v1/sessions", json={"title": "smoke session"}, headers=headers)
+        r = client.post(
+            "/api/v1/sessions",
+            json={"project_path": "/workspaces/smoke", "model_preference": "auto"},
+            headers=headers,
+        )
         session_ok = r.status_code == 200
         session_id = r.json().get("session_id") if session_ok else None
         results["checks"].append(

@@ -138,11 +138,11 @@ export default function ExtensionsPage() {
       <header className="features-hero cf-animate-in">
         <p className="features-hero-kicker">
           <span className="cf-sparkle-inline" aria-hidden>🔌</span>
-          Extension surface
+          Plugin marketplace
         </p>
-        <h1>Extensions — LSP &amp; plugins</h1>
+        <h1>Extensions marketplace</h1>
         <p className="features-hero-sub">
-          LSP code intelligence, workflow plugins, and native rules/skills/hooks. Enable, disable, or update each item from the catalog.
+          Curated LSP plugins, workflow extensions, and native rules — enable, disable, or update from one catalog. Third-party publishing coming next.
         </p>
         <div className="mcp-hero-actions">
           <button type="button" className="cf-hover-lift" onClick={handleInstallAllLsp} disabled={busyId === "lsp-all" || loading}>

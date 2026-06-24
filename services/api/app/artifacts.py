@@ -9,7 +9,7 @@ from . import artifact_store
 
 
 _ARTIFACT_FENCE_RE = re.compile(
-    r"```(html|markdown|md|mermaid|svg)\s*\n(.*?)```",
+    r"```(html|markdown|md|mermaid|svg|jsx|tsx|react)\s*\n(.*?)```",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -33,6 +33,8 @@ def extract_artifacts_from_text(
     for index, match in enumerate(_ARTIFACT_FENCE_RE.finditer(text), start=1):
         raw_kind = match.group(1).lower()
         kind = "markdown" if raw_kind == "md" else raw_kind
+        if kind == "react":
+            kind = "jsx"
         content = match.group(2).strip()
         if not content:
             continue
@@ -67,6 +69,34 @@ def render_artifact_preview(artifact: dict[str, Any]) -> str:
 
     if kind == "html":
         return content
+
+    if kind in {"jsx", "tsx"}:
+        escaped = content.replace("</script>", "<\\/script>")
+        return f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{title}</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+    <style>body {{ font-family: system-ui, sans-serif; margin: 1rem; }}</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+{escaped}
+    </script>
+  </body>
+</html>"""
+
+    if kind == "svg":
+        if content.strip().startswith("<svg"):
+            return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><title>{title}</title></head>
+<body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0b1220">
+{content}
+</body></html>"""
 
     if kind == "mermaid":
         return f"""<!DOCTYPE html>

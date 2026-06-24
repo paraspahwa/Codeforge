@@ -11,6 +11,15 @@ def test_health_endpoint(client) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_ready_endpoint(client) -> None:
+    response = client.get("/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["database"]["healthy"] is True
+    assert body["redis"]["healthy"] is True
+
+
 def test_dev_login_session_and_usage_summary(client, tmp_path: Path) -> None:
     init_db()
     project = tmp_path / "demo"

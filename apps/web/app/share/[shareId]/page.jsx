@@ -44,7 +44,7 @@ export default function SharePage() {
     if (!share?.session_id) {
       return;
     }
-    router.push("/");
+    router.push("/app");
   }
 
   if (ready && !token) {

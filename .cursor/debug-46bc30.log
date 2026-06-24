@@ -1,0 +1,2 @@
+{"sessionId":"46bc30","runId":"post-fix","hypothesisId":"B","location":"free-web-port.mjs","message":"port in use before kill","data":{"port":3000,"pids":[15788]},"timestamp":1782289681049}
+{"sessionId":"46bc30","runId":"post-fix","hypothesisId":"B","location":"free-web-port.mjs","message":"port after kill","data":{"port":3000,"stillInUse":false,"pids":[15788]},"timestamp":1782289682011}

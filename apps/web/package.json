@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
+    "dev:fresh": "node ../../scripts/free-web-port.mjs && npx --yes rimraf@5 .next && next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint"
@@ -13,6 +14,7 @@
     "@codeforge/shared": "*",
     "@codeforge/ui": "*",
     "@monaco-editor/react": "^4.7.0",
+    "@supabase/supabase-js": "^2.108.2",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "next": "14.2.33",

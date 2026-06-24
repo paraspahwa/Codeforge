@@ -2,11 +2,11 @@
   "name": "CodeForge",
   "short_name": "CodeForge",
   "description": "India-first AI coding assistant — chat, code, cowork, and team workflows.",
-  "start_url": "/",
+  "start_url": "/mobile",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#6366f1",
-  "orientation": "any",
+  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icon.svg",

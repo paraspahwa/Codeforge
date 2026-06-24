@@ -37,6 +37,7 @@ export default function SplitEditorLayout({ ws, editorProps }) {
           onInlineEdit={ws.handleOpenInlineEdit}
           onGoToDefinition={ws.handleGoToDefinition}
           onFindReferences={ws.handleFindReferences}
+          onRequestCompletion={ws.handleRequestCompletion}
           readOnly={!ws.sessionWritable}
           loading={ws.loading}
           wordWrap={ws.wordWrap}

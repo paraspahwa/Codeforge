@@ -27,6 +27,8 @@ import {
   updateAgentPreferences,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import { getLocale, setLocale, LOCALES } from "../../lib/locale-copy";
+import { audienceHomePath, getAudiencePreference, setAudiencePreference } from "../../lib/audience-preference";
 import { useToast } from "../../lib/toast-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -72,6 +74,8 @@ export default function SettingsPage() {
   const [packs, setPacks] = useState([]);
   const [connectors, setConnectors] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uiLocale, setUiLocale] = useState("en");
+  const [audience, setAudience] = useState("founder");
 
   const [packTitle, setPackTitle] = useState("");
   const [packSummary, setPackSummary] = useState("");
@@ -103,6 +107,11 @@ export default function SettingsPage() {
   const [memorySaveText, setMemorySaveText] = useState("");
   const [supermemoryStatus, setSupermemoryStatus] = useState(null);
   const [oidcConfig, setOidcConfig] = useState(null);
+
+  useEffect(() => {
+    setUiLocale(getLocale());
+    setAudience(getAudiencePreference() || "founder");
+  }, []);
 
   useEffect(() => {
     setProjectPath(localStorage.getItem("codeforge_project_path") || "");
@@ -337,6 +346,44 @@ export default function SettingsPage() {
         <h2>Profile</h2>
         <p className="small">User: {userId || "not logged in"}</p>
         <p className="small">API base: {API_BASE}</p>
+        <h3 className="mt-8">Onboarding language</h3>
+        <p className="small">Hinglish copy on chat welcome and composer — English + Hindi mix for Indian founders.</p>
+        <label className="small" htmlFor="ui-locale">
+          UI locale
+        </label>
+        <select
+          id="ui-locale"
+          value={uiLocale}
+          onChange={(event) => {
+            const next = setLocale(event.target.value);
+            setUiLocale(next);
+            toast.push(next === "hinglish" ? "Hinglish onboarding enabled" : "English onboarding enabled", "success");
+          }}
+        >
+          {Object.values(LOCALES).map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+        <h3 className="mt-8">Default workspace</h3>
+        <p className="small">Where to land after sign-in — chat for founders, IDE for developers.</p>
+        <label className="small" htmlFor="audience-pref">
+          Audience
+        </label>
+        <select
+          id="audience-pref"
+          value={audience}
+          onChange={(event) => {
+            const next = event.target.value === "developer" ? "developer" : "founder";
+            setAudiencePreference(next);
+            setAudience(next);
+            toast.push(`Default home: ${audienceHomePath(next)}`, "success");
+          }}
+        >
+          <option value="founder">Founder (AI partner /app)</option>
+          <option value="developer">Developer (IDE /code)</option>
+        </select>
       </section>
   );
 

@@ -218,6 +218,8 @@ from .models import (
     WorkspaceSearchResponse,
     CheckpointListResponse,
     CheckpointItem,
+    CodeCompleteRequest,
+    CodeCompleteResponse,
     RewindRequest,
     RewindResponse,
     GitPushRequest,
@@ -470,7 +472,7 @@ _cors_origins = [
     origin.strip()
     for origin in os.getenv(
         "CODEFORGE_CORS_ORIGINS",
-        "http://localhost:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost",
     ).split(",")
     if origin.strip()
 ]
@@ -1297,6 +1299,28 @@ def session_file_content(
         path=relative_path,
         exists=True,
         content=read_file_content(project_path, relative_path),
+    )
+
+
+@app.post("/api/v1/sessions/{session_id}/code/complete", response_model=CodeCompleteResponse)
+async def session_code_complete(
+    session_id: str,
+    payload: CodeCompleteRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> CodeCompleteResponse:
+    _session_project_path(session_id, user)
+    from .code_completion import suggest_code_completion
+
+    result = await suggest_code_completion(
+        relative_path=payload.path,
+        content=payload.content,
+        line_number=payload.line_number,
+        column=payload.column,
+    )
+    return CodeCompleteResponse(
+        completion=str(result.get("completion", "")),
+        source=str(result.get("source", "none")),
+        backend=str(result.get("backend", "deterministic")),
     )
 
 

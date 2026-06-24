@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { canWriteSession, isViewOnlySession } from "@codeforge/shared/sessions";
 
@@ -18,6 +19,7 @@ import {
   fetchSessionArtifactPreviewHtml,
   forkSession,
   getAgentPreferences,
+  getDeployReadiness,
   getGitDiff,
   getGitStatus,
   gitPush,
@@ -46,7 +48,9 @@ import {
 import { useAuth } from "./auth-context";
 import { consumePendingAgentSelection, DEFAULT_AGENT_TYPE } from "./agent-catalog";
 import { consumePendingChatGoal } from "./product-features";
+import { advanceBuildJourney, detectJourneyStepFromText } from "./build-journey";
 import { runSlashCommand } from "./slash-commands";
+import { readSessionIdFromUrl, syncSessionIdInUrl } from "./session-route";
 import { useToast } from "./toast-context";
 
 const DEFAULT_PROJECT_PATH = "/workspaces/demo";
@@ -54,6 +58,8 @@ const DEFAULT_PROJECT_PATH = "/workspaces/demo";
 export function useChatPage() {
   const { token, ready } = useAuth();
   const toast = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
   const { setUsage: setShellUsage, setSessionGrant } = useShellBar();
 
   const [projectPath, setProjectPath] = useState(DEFAULT_PROJECT_PATH);
@@ -84,6 +90,11 @@ export function useChatPage() {
   const [artifacts, setArtifacts] = useState([]);
   const [selectedArtifactId, setSelectedArtifactId] = useState("");
   const [artifactPreviewHtml, setArtifactPreviewHtml] = useState("");
+  const [showPostRunPanels, setShowPostRunPanels] = useState(false);
+  const [parallelSessions, setParallelSessions] = useState([]);
+  const [deployReadiness, setDeployReadiness] = useState(null);
+  const [deployReadinessLoading, setDeployReadinessLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [templateName, setTemplateName] = useState("Code reviewer");
@@ -210,12 +221,24 @@ export function useChatPage() {
     if (!ready || !token || sessionId || loading) {
       return;
     }
+    const fromUrl = readSessionIdFromUrl();
+    if (fromUrl && sessionHistory.some((entry) => entry.session_id === fromUrl)) {
+      void handleSelectSession(fromUrl);
+      return;
+    }
     if (sessionHistory.length > 0) {
       handleSelectSession(sessionHistory[0].session_id);
     }
     // Resume the most recent chat once after login.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, token, sessionHistory, sessionId, loading]);
+
+  useEffect(() => {
+    if (!sessionId || !pathname?.startsWith("/app")) {
+      return;
+    }
+    syncSessionIdInUrl(router, pathname, sessionId);
+  }, [sessionId, pathname, router]);
 
   useEffect(() => {
     if (!token || !sessionId) {
@@ -479,9 +502,7 @@ export function useChatPage() {
         }
         source.close();
         getUsageSummary(token).then(setUsage).catch(() => undefined);
-        listSessionArtifacts(activeSessionId, token)
-          .then((result) => setArtifacts(result.artifacts || []))
-          .catch(() => undefined);
+        void refreshPostRunPanels(activeSessionId);
         setStreamingMessageId(null);
         setLoading(false);
       }
@@ -500,6 +521,10 @@ export function useChatPage() {
     const text = String(starterPrompt || "").trim();
     if (!text || !token) {
       return;
+    }
+    const journeyStep = detectJourneyStepFromText(text);
+    if (journeyStep) {
+      advanceBuildJourney(journeyStep);
     }
     if (agentType) {
       setSelectedAgent(agentType);
@@ -548,6 +573,10 @@ export function useChatPage() {
     const userText = prompt.trim();
     setPrompt("");
     setLoading(true);
+    const journeyStep = detectJourneyStepFromText(userText);
+    if (journeyStep) {
+      advanceBuildJourney(journeyStep);
+    }
 
     if (userText.startsWith("/")) {
       try {
@@ -792,7 +821,7 @@ export function useChatPage() {
     if (!sessionId || !token || !artifactId) {
       return;
     }
-    setLoading(true);
+    setPreviewLoading(true);
     try {
       const html = await fetchSessionArtifactPreviewHtml(sessionId, artifactId, token);
       setSelectedArtifactId(artifactId);
@@ -800,9 +829,53 @@ export function useChatPage() {
     } catch (error) {
       toast.push(error.message);
     } finally {
-      setLoading(false);
+      setPreviewLoading(false);
     }
   }
+
+  async function refreshPostRunPanels(activeSessionId) {
+    setShowPostRunPanels(true);
+    setDeployReadinessLoading(true);
+    getDeployReadiness(false)
+      .then(setDeployReadiness)
+      .catch(() => setDeployReadiness(null))
+      .finally(() => setDeployReadinessLoading(false));
+
+    try {
+      const result = await listSessionArtifacts(activeSessionId, token);
+      const nextArtifacts = result.artifacts || [];
+      setArtifacts(nextArtifacts);
+      const previewable = nextArtifacts.find(
+        (item) => item.kind === "html" || item.kind === "jsx" || item.kind === "tsx" || item.title?.toLowerCase().includes("html"),
+      );
+      const first = previewable || nextArtifacts[0];
+      if (first?.artifact_id) {
+        await handlePreviewArtifact(first.artifact_id);
+      }
+    } catch {
+      setArtifacts([]);
+    }
+  }
+
+  function dismissPostRunPanels() {
+    setShowPostRunPanels(false);
+  }
+
+  const sessionDeployChecks = useMemo(() => {
+    if (!sessionId) {
+      return [];
+    }
+    return [
+      { id: "session", label: "Agent run completed", ok: true },
+      { id: "files", label: "Workspace has project files", ok: workspaceFiles.length > 0 },
+      { id: "artifacts", label: "Preview artifact generated", ok: artifacts.length > 0 },
+      {
+        id: "changes",
+        label: "Code changes applied or proposed",
+        ok: Boolean(pendingProposal?.auto_applied || pendingProposal?.status === "approved"),
+      },
+    ];
+  }, [sessionId, workspaceFiles.length, artifacts.length, pendingProposal]);
 
   async function handleRunTemplate(templateId) {
     setSelectedTemplateId(templateId);
@@ -838,12 +911,46 @@ export function useChatPage() {
     }
     setLoading(true);
     try {
-      const forked = await forkSession(sessionId, token);
+      const parentId = sessionId;
+      const forked = await forkSession(parentId, token);
+      setParallelSessions((prev) => {
+        const base =
+          prev.length > 0
+            ? [...prev]
+            : [{ sessionId: parentId, label: "Main" }];
+        if (!base.some((item) => item.sessionId === parentId)) {
+          base.unshift({ sessionId: parentId, label: "Main" });
+        }
+        if (!base.some((item) => item.sessionId === forked.session_id)) {
+          base.push({ sessionId: forked.session_id, label: `Fork ${base.length}` });
+        }
+        return base;
+      });
       setSessionId(forked.session_id);
       setMessages([]);
       setPendingProposal(null);
       await refreshSessions();
+      const history = await listMessages(forked.session_id, token);
+      setMessages(history.messages || []);
       toast.push(`Forked parallel session ${forked.session_id}`, "success");
+    } catch (error) {
+      toast.push(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSelectParallelSession(nextSessionId) {
+    if (!nextSessionId || nextSessionId === sessionId || !token) {
+      return;
+    }
+    setLoading(true);
+    try {
+      setSessionId(nextSessionId);
+      const history = await listMessages(nextSessionId, token);
+      setMessages(history.messages || []);
+      setPendingProposal(null);
+      setAgentEvents([]);
     } catch (error) {
       toast.push(error.message);
     } finally {
@@ -1249,6 +1356,14 @@ export function useChatPage() {
     handleRunTemplate,
     handleCreateTemplate,
     handleForkSession,
+    handleSelectParallelSession,
+    parallelSessions,
+    showPostRunPanels,
+    dismissPostRunPanels,
+    deployReadiness,
+    deployReadinessLoading,
+    previewLoading,
+    sessionDeployChecks,
     handleApplyConflictAssist,
     handleRefreshGit,
     handleGitStatus,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { canWriteSession } from "@codeforge/shared/sessions";
 
@@ -24,6 +25,7 @@ import {
   lspReferences,
   queryProjectKnowledge,
   renameWorkspaceFile,
+  requestCodeCompletion,
   runAgentLoop,
   searchSymbols,
   searchWorkspace,
@@ -36,6 +38,7 @@ import {
 } from "./api";
 import { useAuth } from "./auth-context";
 import { runSlashCommand } from "./slash-commands";
+import { readSessionIdFromUrl, syncSessionIdInUrl } from "./session-route";
 import { useToast } from "./toast-context";
 
 function emptyTab(path, content = "") {
@@ -47,6 +50,8 @@ const DEFAULT_PROJECT_PATH = "/workspaces/demo";
 export function useCodeWorkspace() {
   const { token, ready } = useAuth();
   const toast = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [projectPath, setProjectPath] = useState("");
   const [sessions, setSessions] = useState([]);
@@ -295,6 +300,22 @@ export function useCodeWorkspace() {
         setSessions(available);
       }
 
+      const fromUrl = readSessionIdFromUrl();
+      if (fromUrl) {
+        const urlMatch = available.find((session) => session.session_id === fromUrl);
+        if (urlMatch) {
+          const stored = await listMessages(urlMatch.session_id, token);
+          setSessionId(urlMatch.session_id);
+          setMessages(stored.map((msg) => ({ id: msg.message_id, role: msg.role, content: msg.content })));
+          const fileResult = await listWorkspaceFiles(token, urlMatch.session_id);
+          const files = fileResult.files || [];
+          setWorkspaceFiles(files);
+          await openInitialWorkspaceFile(token, urlMatch.session_id, files);
+          await refreshGit(token, urlMatch.session_id);
+          return;
+        }
+      }
+
       const normalizedPath = path.replace(/\/$/, "");
       const match =
         available.find((session) => (session.project_path || "").replace(/\/$/, "") === normalizedPath) ||
@@ -331,6 +352,13 @@ export function useCodeWorkspace() {
       toast.push(error.message);
     });
   }, [ready, token, sessions, sessionId, projectPath, toast]);
+
+  useEffect(() => {
+    if (!sessionId || !pathname?.startsWith("/code")) {
+      return;
+    }
+    syncSessionIdInUrl(router, pathname, sessionId);
+  }, [sessionId, pathname, router]);
 
   useEffect(() => {
     if (!token || !sessionId) {
@@ -916,6 +944,21 @@ export function useCodeWorkspace() {
     setInlineEditLoading(false);
   }
 
+  const handleRequestCompletion = useCallback(
+    async ({ path: filePath, content, lineNumber, column }) => {
+      if (!token || !sessionId) {
+        return { completion: "" };
+      }
+      return requestCodeCompletion(token, sessionId, {
+        path: filePath,
+        content,
+        line_number: lineNumber,
+        column,
+      });
+    },
+    [token, sessionId],
+  );
+
   async function handleSubmitInlineEdit(instruction) {
     if (!token || !sessionId || !activePath || !instruction.trim() || !sessionWritable) {
       return;
@@ -1403,6 +1446,7 @@ export function useCodeWorkspace() {
     inlineEditPreview,
     handleOpenInlineEdit,
     handleCloseInlineEdit,
+    handleRequestCompletion,
     handleSubmitInlineEdit,
     handleCreateFile,
     handleDeleteFile,

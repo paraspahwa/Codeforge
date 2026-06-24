@@ -311,6 +311,19 @@ class FileContentResponse(BaseModel):
     content: str
 
 
+class CodeCompleteRequest(BaseModel):
+    path: str = Field(min_length=1)
+    content: str = ""
+    line_number: int = Field(ge=1, default=1)
+    column: int = Field(ge=1, default=1)
+
+
+class CodeCompleteResponse(BaseModel):
+    completion: str = ""
+    source: str = "none"
+    backend: str = "deterministic"
+
+
 class FileApplyRequest(BaseModel):
     path: str
     content: str = Field(min_length=0)

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "highlight.js": "^11.11.1",
+    "lucide-react": "^0.511.0",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0"
   },

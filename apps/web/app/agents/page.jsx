@@ -43,7 +43,7 @@ export default function AgentsPage() {
   function startWithAgent(agent) {
     queueAgentSelection(agent.id);
     queueChatGoal({ prompt: agent.starter_prompt, planMode: agent.id === "hitl" || agent.id === "planning" });
-    router.push("/");
+    router.push("/app");
   }
 
   return (

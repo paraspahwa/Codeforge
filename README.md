@@ -18,7 +18,13 @@ This repository includes a working multi-surface coding assistant platform:
 - VS Code extension: backend-backed panel with loop, compact, ultrareview, fork, auto mode
 - Shared client package for API, SSE, team, cowork, context packs, and MCP helpers
 
-Current implementation focus: surface parity (team/cowork/confidence on all clients), ECS worker deploy, and SWE-bench-style quality evals.
+Current implementation focus: surface parity (team/cowork/confidence on all clients), ECS worker deploy, SWE-bench-style quality evals, and the [product roadmap](docs/product-roadmap.md) (founder + developer wedges for India).
+
+## Product roadmap
+
+See **[docs/product-roadmap.md](docs/product-roadmap.md)** for GTM phases, competitor positioning, and north-star metrics. Public summary on the web app at `/roadmap`.
+
+Engineering phases: [docs/implementation-plan.md](docs/implementation-plan.md).
 
 ## Repository Layout
 
@@ -88,7 +94,59 @@ npm install
 npm run dev:web
 ```
 
-### Desktop App
+Clear a corrupted `.next` cache before starting (fixes missing CSS/static 404s):
+
+```bash
+npm run dev:web:fresh
+```
+
+### Full local stack (Docker microservices)
+
+Requires Docker Desktop and root `.env` (copy from `.env.example`).
+
+```bash
+# All services: db, redis, qdrant, api, worker, web, gateway
+npm run stack:up
+
+# Single entry (UI + API):
+#   http://localhost:8080
+# Direct access:
+#   http://localhost:3000  — web
+#   http://localhost:8000  — api
+
+# Backend in Docker + hot-reload web on host
+npm run stack:up:backend
+npm run dev:web:fresh
+```
+
+See [docs/microservices.md](docs/microservices.md) for the service map.
+
+### Host-only web dev (legacy)
+
+Verify routes and API:
+
+```bash
+# Requires Next.js on :3000 (npm run dev:web:fresh or npm run dev:all)
+npm run audit:web
+
+# CI-style: waits up to 120s for web + API, then audits
+npm run audit:web:ci
+
+curl http://localhost:8000/ready
+curl http://localhost:8000/api/v1/platform/quality-summary?suite=swe-fixtures
+npm run smoke:api
+```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `audit:web` connection refused | Start web: `npm run dev:web:fresh` or `npm run dev:all` |
+| Port 3000 in use (`EADDRINUSE`) | Stop other Next instances; on Windows: `netstat -ano \| findstr :3000` |
+| Unstyled pages / CSS 404 | `npm run dev:web:fresh` (clears `.next`) |
+| API fetch failed from browser | `npm run stack:up`; use `http://localhost:3000` (not only `127.0.0.1` unless CORS is set) |
+| `create_session` / login issues | Check `curl http://localhost:8000/ready` and root `.env` |
+
 
 ```bash
 npm run dev:desktop

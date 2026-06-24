@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev:web": "npm --workspace apps/web run dev",
+    "dev:web:fresh": "npm --workspace apps/web run dev:fresh",
     "build:web": "npm --workspace apps/web run build",
     "start:web": "npm --workspace apps/web run start",
     "lint:web": "npm --workspace apps/web run lint",
@@ -20,6 +21,24 @@
     "api:dev": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir services/api",
     "api:run": "uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir services/api",
     "api:test": "cd services/api && pytest -q",
-    "api:migrate": "cd services/api && alembic upgrade head"
+    "api:migrate": "cd services/api && alembic upgrade head",
+    "stack:up": "docker compose -f docker-compose.dev.yml up -d --build db redis qdrant api worker web gateway",
+    "stack:up:backend": "docker compose -f docker-compose.dev.yml up -d db redis qdrant api worker",
+    "stack:up:ms": "docker compose -f docker-compose.microservices.yml up -d --build",
+    "stack:down": "docker compose -f docker-compose.dev.yml down",
+    "stack:logs": "docker compose -f docker-compose.dev.yml logs -f api",
+    "dev:all": "npm run stack:up:backend && npm run dev:web:fresh",
+    "dev:docker": "npm run stack:up",
+    "preaudit:web": "node scripts/preaudit-web.mjs",
+    "audit:web": "node scripts/preaudit-web.mjs && node scripts/audit-web-routes.mjs",
+    "audit:web:ci": "node scripts/wait-for-services.mjs && node scripts/audit-web-routes.mjs",
+    "smoke:api": "python scripts/run_local_smoke.py",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "test:a11y": "playwright test e2e/a11y.spec.js"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.52.0"
   }
 }

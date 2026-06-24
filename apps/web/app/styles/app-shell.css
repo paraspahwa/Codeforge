@@ -1,0 +1,238 @@
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.25rem 1rem;
+  background: rgba(15, 23, 42, 0.85);
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--primary);
+  font-size: 0.85rem;
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nav-link {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+}
+
+.nav-link:hover {
+  background: var(--cf-primary-soft);
+  color: var(--text);
+}
+
+.nav-link-active {
+  background: var(--cf-primary-soft);
+  color: var(--text);
+  font-weight: 600;
+  border-left: 3px solid var(--cf-accent);
+  box-shadow: var(--cf-shadow-glow);
+}
+
+.sidebar-nav-full {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.nav-link-feature {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.nav-link-icon {
+  font-size: 1.1rem;
+  width: 1.5rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.nav-link-label {
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.nav-link-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.topbar-login {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.topbar-login input {
+  width: 200px;
+}
+
+.topbar-session {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.page {
+  flex: 1;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 960px) {
+  .two-col {
+    grid-template-columns: 1fr 1.5fr;
+  }
+}
+
+.cowork-session-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.stack-status-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-radius: 0;
+}
+
+.sidebar-journey {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0 0.25rem;
+}
+
+.sidebar-journey-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.sidebar-journey-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--cf-primary);
+  border-radius: inherit;
+}
+
+.session-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.session-chrome-label {
+  color: var(--muted);
+}
+
+.topbar {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.app-shell-ide .sidebar {
+  width: 220px;
+}
+
+.page-ide {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+
+.onboarding-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+
+.onboarding-card {
+  max-width: 520px;
+  width: 100%;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+

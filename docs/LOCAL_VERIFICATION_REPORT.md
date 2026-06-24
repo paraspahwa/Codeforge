@@ -31,7 +31,7 @@ Dependencies installed during this run:
 Core product code is in place per [README.md](../README.md) and [docs/tickets/README.md](tickets/README.md):
 
 - FastAPI backend: auth, sessions, SSE, billing, cowork, team, routing, memory, skills, scrape, Hermes adapter
-- Web: `/`, `/code`, `/settings`, `/cowork`, `/team`, billing, analytics, PWA
+- Web: `/app` (chat), `/` (landing), `/pricing`, `/privacy`, `/terms`, `/code`, `/settings`, `/cowork`, `/team`, billing, analytics, PWA
 - Desktop, terminal, VS Code clients
 - CI: pytest + `docker-compose.prod.yml` smoke in `.github/workflows/deploy-ecs.yml`
 
@@ -248,3 +248,45 @@ npm run dev:web
 docker compose -f docker-compose.prod.yml up -d --build
 curl.exe http://127.0.0.1:8000/health
 ```
+
+---
+
+## 10. Production go-live implementation (2026-06-10)
+
+Implemented per production go-live plan:
+
+### Web — public site & routing
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Public marketing landing |
+| `/pricing`, `/privacy`, `/terms`, `/about` | Public pages |
+| `/app` | Authenticated chat (moved from `/`) |
+| `/login`, `/auth/callback` | Auth flows |
+
+### Web — auth hardening
+
+- `@supabase/supabase-js` client (`apps/web/lib/supabase-client.js`)
+- Login: SSO (OIDC) + Supabase email/password, magic link, Google OAuth
+- `middleware.js` redirects unauthenticated users on protected routes
+- httpOnly session cookie via `/api/auth/session` and `/api/auth/logout`
+
+### API
+
+- `deploy_readiness.py`: `auth_provider_configured` + dual OIDC+Supabase checks
+- `oidc_state.py`: Redis-backed OIDC CSRF state when `REDIS_URL` is available
+
+### Verification run
+
+| Check | Result |
+|-------|--------|
+| `npm run build:web` | **PASS** (26 routes, middleware 26.7 kB) |
+| `pytest tests/test_deploy_readiness.py` | **PASS** (8/8) |
+
+### Operator next steps
+
+1. Copy `.env.production.template` → `.env` on VPS; fill domains, Supabase, OIDC, Razorpay, Qdrant, Redis.
+2. Set `apps/web` build env: `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+3. Register Razorpay webhook: `https://api.yourdomain.com/api/v1/billing/webhook`.
+4. Register IdP redirect: `https://app.yourdomain.com/auth/callback`.
+5. `curl https://api.yourdomain.com/api/v1/platform/deploy-readiness` → `"ready": true`.
