@@ -1,8 +1,42 @@
 "use client";
 
-export default function ParallelSessionsBar({ sessions, activeSessionId, onSelect, onFork, loading, disabled }) {
+export default function ParallelSessionsBar({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onFork,
+  loading,
+  disabled,
+  compact = false,
+}) {
   if (!sessions?.length) {
     return null;
+  }
+
+  if (compact) {
+    return (
+      <div className="parallel-sessions-inline" aria-label="Parallel agent sessions">
+        {sessions.map((item) => (
+          <button
+            key={item.sessionId}
+            type="button"
+            className={`cf-status-pill cf-status-pill-subtle ${item.sessionId === activeSessionId ? "is-active" : ""}`}
+            onClick={() => onSelect(item.sessionId)}
+            disabled={loading}
+          >
+            {item.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="cf-status-pill cf-status-pill-subtle"
+          onClick={onFork}
+          disabled={disabled || loading}
+        >
+          + Fork
+        </button>
+      </div>
+    );
   }
 
   return (

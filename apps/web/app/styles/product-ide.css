@@ -1,0 +1,339 @@
+/* Immersive IDE — edge-to-edge Cursor-style layout */
+
+.app-shell-ide {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell-ide .content-area-ide {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell-immersive .page-ide {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell-immersive .ide-shell,
+.app-shell-immersive .ide-shell.ide-shell-immersive {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  background: var(--cf-shell-bg);
+  color: var(--cf-text);
+}
+
+/* Title bar */
+
+.ide-shell-immersive .ide-title-bar {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 var(--cf-space-4);
+  background: transparent;
+  border-bottom: 1px solid rgba(161, 161, 170, 0.12);
+  font-size: var(--cf-text-xs);
+}
+
+.ide-shell-immersive .ide-title-center {
+  max-width: 36rem;
+}
+
+.ide-title-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--cf-space-2);
+  width: 100%;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-md);
+  background: transparent;
+  transition: border-color var(--cf-transition-base), box-shadow var(--cf-transition-base);
+}
+
+.ide-title-search-wrap:focus-within {
+  border-color: var(--cf-border-strong);
+  box-shadow: 0 0 0 3px var(--cf-accent-soft);
+}
+
+.ide-title-search-icon {
+  color: var(--cf-muted);
+  flex-shrink: 0;
+}
+
+.ide-shell-immersive .ide-title-search {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: var(--cf-text-xs);
+}
+
+.ide-shell-immersive .ide-title-search:focus {
+  outline: none;
+}
+
+.ide-title-remote {
+  background: transparent;
+  border: 1px solid var(--cf-border);
+  color: var(--cf-muted);
+}
+
+.ide-title-usage {
+  font-size: var(--cf-text-xs);
+  color: var(--cf-muted);
+}
+
+.ide-title-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--cf-radius-md);
+  color: var(--cf-muted);
+  transition: all var(--cf-transition-base);
+}
+
+.ide-title-icon-link:hover {
+  color: var(--cf-text);
+  background: var(--cf-surface);
+}
+
+/* Menu bar — slim, unobtrusive */
+
+.ide-shell-immersive .ide-menu-bar {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 var(--cf-space-3);
+  background: transparent;
+  border-bottom: 1px solid rgba(161, 161, 170, 0.08);
+}
+
+/* Activity + workbench tri-pane */
+
+.ide-shell-immersive .ide-shell-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.ide-shell-immersive .ide-activity-bar {
+  width: 48px;
+  background: transparent;
+  border-right: 1px solid rgba(161, 161, 170, 0.12);
+  padding: var(--cf-space-2) 0;
+}
+
+.ide-shell-immersive .ide-activity-btn {
+  width: 36px;
+  height: 36px;
+  color: var(--cf-muted);
+  border-radius: var(--cf-radius-md);
+  transition: all var(--cf-transition-base);
+}
+
+.ide-shell-immersive .ide-activity-btn:hover,
+.ide-shell-immersive .ide-activity-btn-active {
+  color: var(--cf-text);
+  background: var(--cf-surface);
+}
+
+.ide-shell-immersive .ide-activity-btn-active {
+  box-shadow: inset 2px 0 0 var(--cf-accent);
+}
+
+.ide-shell-immersive .ide-primary-sidebar {
+  width: 260px;
+  min-width: 240px;
+  max-width: 300px;
+  padding: var(--cf-space-4);
+  background: transparent;
+  border-right: 1px solid rgba(161, 161, 170, 0.12);
+}
+
+.ide-shell-immersive .ide-sidebar-full {
+  padding: 0;
+  background: transparent;
+}
+
+.ide-shell-immersive .ide-main-column {
+  background: var(--cf-shell-bg);
+}
+
+.ide-shell-immersive .ide-breadcrumbs {
+  background: transparent;
+  padding: var(--cf-space-2) var(--cf-space-4);
+  border-bottom: 1px solid rgba(161, 161, 170, 0.08);
+}
+
+.ide-shell-immersive .ide-bottom-wrap {
+  border-top: 1px solid rgba(161, 161, 170, 0.12);
+}
+
+/* Composer panel (right pane) */
+
+.ide-shell-immersive .ide-workbench > .ide-composer-panel {
+  width: min(380px, 32vw);
+  min-width: 300px;
+  max-width: 420px;
+}
+
+.ide-shell-immersive .ide-composer-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  background: var(--cf-bg-elevated);
+  border-left: 1px solid rgba(161, 161, 170, 0.12);
+  overflow: hidden;
+}
+
+.ide-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cf-space-3);
+  flex-shrink: 0;
+  padding: var(--cf-space-3) var(--cf-space-4);
+  border-bottom: 1px solid rgba(161, 161, 170, 0.12);
+}
+
+.ide-composer-bar-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cf-space-2);
+  min-width: 0;
+}
+
+.ide-composer-bar-title {
+  font-size: var(--cf-text-sm);
+  font-weight: 500;
+  color: var(--cf-muted);
+}
+
+.ide-composer-select {
+  font-size: var(--cf-text-xs);
+  max-width: 96px;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-sm);
+  background: transparent;
+  color: var(--cf-text);
+}
+
+.ide-composer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--cf-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-3);
+}
+
+.ide-composer-messages {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+.ide-composer-messages .chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-4);
+}
+
+.ide-composer-messages .msg {
+  padding: var(--cf-space-4);
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-lg);
+  background: transparent;
+}
+
+.ide-composer-messages .msg.user {
+  background: var(--cf-surface);
+}
+
+.ide-composer-messages .msg strong {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+}
+
+.ide-selection-pill {
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--cf-border);
+  font-size: var(--cf-text-xs);
+  color: var(--cf-muted);
+  align-self: flex-start;
+}
+
+.ide-composer-footer {
+  flex-shrink: 0;
+  padding: var(--cf-space-4);
+  background: linear-gradient(
+    180deg,
+    rgba(9, 9, 11, 0) 0%,
+    rgba(9, 9, 11, 0.65) 24%,
+    var(--cf-bg-elevated) 48%
+  );
+}
+
+.ide-composer-input-bar.cf-composer-bar {
+  max-width: none;
+  margin: 0;
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 1px rgba(9, 9, 11, 0.4),
+    0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.ide-composer-textarea.cf-composer-input {
+  font-size: var(--cf-text-sm);
+}
+
+.ide-composer-foot {
+  margin: var(--cf-space-2) 0 0;
+  text-align: center;
+}
+
+.ide-composer-proposal-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--cf-space-2);
+  margin-top: var(--cf-space-3);
+}
+
+/* Sign-in loading state */
+
+.ide-signin-panel {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 40vh;
+  border: none;
+  background: transparent;
+}
+
+@media (max-width: 960px) {
+  .ide-shell-immersive .ide-workbench > .ide-composer-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+}

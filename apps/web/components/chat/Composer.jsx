@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Icon } from "@codeforge/ui";
 import { viewOnlySessionMessage } from "@codeforge/shared/sessions";
 
-import ChatAttachments from "./ChatAttachments";
+import ChatAttachments, { ComposerAttachmentChips } from "./ChatAttachments";
 import VoiceInputButton from "./VoiceInputButton";
 import { useSessionAccess } from "../../lib/session-context";
 import { getLocale, t } from "../../lib/locale-copy";
@@ -41,7 +42,7 @@ export default function Composer({
       return;
     }
     node.style.height = "auto";
-    node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
+    node.style.height = `${Math.min(node.scrollHeight, 200)}px`;
   }, [prompt]);
 
   function handleVoiceTranscript(text) {
@@ -49,54 +50,78 @@ export default function Composer({
     onPromptChange(next);
   }
 
+  const showBar = Boolean(sessionId);
+
   return (
-    <form onSubmit={onSubmit} className="agent-composer">
+    <div className="cf-composer-dock agent-composer">
       {!sessionWritable && currentSession ? (
-        <p className="small agent-composer-hint">{viewOnlySessionMessage(currentSession)}</p>
+        <p className="cf-composer-notice">{viewOnlySessionMessage(currentSession)}</p>
       ) : null}
       {!sessionId ? (
-        <p className="small agent-composer-hint">
-          Pick a quick-start above or click <strong>Start a new chat</strong> to begin.
-        </p>
+        <p className="cf-composer-notice">Start a chat from the sidebar to begin.</p>
       ) : null}
-      {sessionId ? (
-        <ChatAttachments
-          attachedFiles={attachedFiles}
-          onRemove={onRemoveAttachment}
-          onAttachWorkspaceFile={onAttachWorkspaceFile}
-          onUploadFiles={onUploadAttachments}
-          workspaceFiles={workspaceFiles}
-          loading={loading}
-          disabled={!sessionWritable}
-        />
+
+      {showBar ? (
+        <form className="cf-composer-bar" onSubmit={onSubmit}>
+          <ComposerAttachmentChips
+            attachedFiles={attachedFiles}
+            onRemove={onRemoveAttachment}
+            loading={loading}
+          />
+          <div className="cf-composer-row">
+            <ChatAttachments
+              inline
+              attachedFiles={attachedFiles}
+              onRemove={onRemoveAttachment}
+              onAttachWorkspaceFile={onAttachWorkspaceFile}
+              onUploadFiles={onUploadAttachments}
+              workspaceFiles={workspaceFiles}
+              loading={loading}
+              disabled={!sessionWritable}
+            />
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              className="cf-composer-input agent-composer-input"
+              placeholder={t("composerPlaceholder", locale)}
+              value={prompt}
+              onChange={(event) => onPromptChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (canSend) {
+                    onSubmit(event);
+                  }
+                }
+              }}
+              disabled={loading || !sessionWritable}
+            />
+            <div className="cf-composer-trailing">
+              <VoiceInputButton
+                disabled={loading || !sessionWritable}
+                onTranscript={handleVoiceTranscript}
+              />
+              <button
+                type="submit"
+                className="cf-composer-send"
+                disabled={!canSend}
+                aria-label="Send message"
+                title="Send (Enter)"
+              >
+                {loading ? (
+                  <span className="cf-composer-send-loading" aria-hidden />
+                ) : (
+                  <Icon name="ArrowUp" size={18} />
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
       ) : null}
-      <div className="agent-composer-row">
-        <VoiceInputButton
-          disabled={!sessionId || loading || !sessionWritable}
-          onTranscript={handleVoiceTranscript}
-        />
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          className="agent-composer-input"
-          placeholder={t("composerPlaceholder", locale)}
-          value={prompt}
-          onChange={(event) => onPromptChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              if (canSend) {
-                onSubmit(event);
-              }
-            }
-          }}
-          disabled={!sessionId || loading || !sessionWritable}
-        />
-        <button type="submit" className="agent-send-btn cf-shimmer-btn" disabled={!canSend} aria-label="Send message">
-          {loading ? "…" : "↑"}
-        </button>
-      </div>
-      <p className="small agent-composer-foot">{t("composerHint", locale)}</p>
-    </form>
+
+      {showBar ? (
+        <p className="cf-composer-foot">{t("composerHint", locale)}</p>
+      ) : null}
+    </div>
   );
 }

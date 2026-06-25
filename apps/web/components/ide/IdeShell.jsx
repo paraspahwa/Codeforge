@@ -22,7 +22,9 @@ export default function IdeShell({ ws }) {
       : process.env.NEXT_PUBLIC_API_BASE?.replace(/^https?:\/\//, "").split(":")[0];
 
   return (
-    <div className={`ide-shell ${ws.zenMode ? "ide-shell-zen" : ""} ${ws.editorTheme === "light" ? "ide-shell-theme-light" : ""}`}>
+    <div
+      className={`ide-shell ide-shell-immersive ${ws.zenMode ? "ide-shell-zen" : ""} ${ws.editorTheme === "light" ? "ide-shell-theme-light" : ""}`}
+    >
       <TitleBar
         workspaceName={workspaceName}
         remoteLabel={remoteLabel}
@@ -31,6 +33,7 @@ export default function IdeShell({ ws }) {
         onOpenQuickOpen={() => ws.setQuickOpenOpen(true)}
         usage={ws.usage}
         onRun={ws.localMode ? ws.handleRunCode : undefined}
+        sessionId={ws.sessionId}
       />
       <MenuBar onRunCommand={ws.executeIdeCommand} />
 

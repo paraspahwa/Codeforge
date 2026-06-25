@@ -27,6 +27,7 @@ export default function DeployChecklistPanel({
   deployReadiness,
   sessionChecks = [],
   loading = false,
+  embedded = false,
 }) {
   if (!visible) {
     return null;
@@ -36,17 +37,24 @@ export default function DeployChecklistPanel({
   const requiredFailed = platformChecks.filter((check) => check.required && !check.ok);
   const ready = deployReadiness?.ready ?? false;
 
-  return (
-    <section className="chat-post-run-panel deploy-checklist-panel landing-glass" aria-label="Deploy checklist">
-      <header className="chat-post-run-header">
-        <div>
+  const content = (
+    <>
+      {!embedded ? (
+        <header className="chat-post-run-header">
+          <div>
+            <h3>Deploy checklist</h3>
+            <p className="small">Review before shipping to production.</p>
+          </div>
+          <button type="button" className="ghost-btn small" onClick={onDismiss}>
+            Dismiss
+          </button>
+        </header>
+      ) : (
+        <header className="cf-context-section-header">
           <h3>Deploy checklist</h3>
           <p className="small">Review before shipping to production.</p>
-        </div>
-        <button type="button" className="ghost-btn small" onClick={onDismiss}>
-          Dismiss
-        </button>
-      </header>
+        </header>
+      )}
 
       {sessionChecks.length > 0 ? (
         <div className="deploy-checklist-section">
@@ -101,6 +109,20 @@ export default function DeployChecklistPanel({
           Open deploy settings
         </Link>
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="deploy-checklist-panel deploy-checklist-panel-embedded" aria-label="Deploy checklist">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <section className="chat-post-run-panel deploy-checklist-panel landing-glass" aria-label="Deploy checklist">
+      {content}
     </section>
   );
 }

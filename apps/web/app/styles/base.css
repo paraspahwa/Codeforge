@@ -13,15 +13,34 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--cf-gradient-bg);
+  background: var(--cf-shell-bg);
   color: var(--text);
-  font-family: var(--cf-font-sans);
+  font-family: var(--font-inter, var(--cf-font-sans));
+  font-size: var(--cf-text-sm);
+  line-height: var(--cf-leading-normal);
   min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-main:not(.marketing-main) {
+code,
+pre,
+.agent-input,
+.agent-input-mono {
+  font-family: var(--font-mono, var(--cf-font-mono));
+}
+
+main:not(.marketing-main):not(.page-chat):not(.page-ide) {
   max-width: 1080px;
   margin: 0 auto;
   padding: 2rem 1rem;
+}
+
+html:has(.app-shell-immersive),
+html:has(.app-shell-immersive) body,
+html:has(.app-shell-ide),
+html:has(.app-shell-ide) body {
+  height: 100%;
+  overflow: hidden;
 }
 

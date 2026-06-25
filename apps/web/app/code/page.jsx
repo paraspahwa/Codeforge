@@ -14,7 +14,7 @@ export default function CodeWorkspacePage() {
 
   if (!apiWs.ready) {
     return (
-      <section className="panel ide-signin-panel">
+      <section className="ide-signin-panel">
         <p className="small muted">Loading workspace…</p>
       </section>
     );

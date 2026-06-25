@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(/\/+$/, "");
+const API_BASE = (
+  process.env.CODEFORGE_PUBLIC_API_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:8000"
+).replace(/\/+$/, "");
 
 async function proxyRequest(request, { params }) {
   const path = (params.path || []).join("/");

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Icon } from "@codeforge/ui";
+
 export default function VoiceInputButton({ disabled, onTranscript }) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -52,13 +54,13 @@ export default function VoiceInputButton({ disabled, onTranscript }) {
   return (
     <button
       type="button"
-      className={`ghost-btn agent-voice-btn ${listening ? "agent-voice-btn-active" : ""}`}
+      className={`cf-icon-btn cf-composer-voice ${listening ? "is-active" : ""}`}
       onClick={toggleListen}
       disabled={disabled}
       aria-label={listening ? "Stop voice input" : "Start voice input"}
-      title="Voice input (English / Hinglish)"
+      title="Voice input"
     >
-      {listening ? "◼" : "🎤"}
+      <Icon name="Mic" size={16} />
     </button>
   );
 }

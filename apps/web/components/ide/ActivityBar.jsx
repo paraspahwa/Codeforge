@@ -1,12 +1,16 @@
 "use client";
 
+import Link from "next/link";
+
+import { Icon } from "@codeforge/ui";
+
 const VIEWS = [
-  { id: "explorer", label: "Explorer", icon: "📁" },
-  { id: "search", label: "Search", icon: "🔍" },
-  { id: "scm", label: "Source Control", icon: "⎇" },
-  { id: "run", label: "Run", icon: "▶" },
-  { id: "extensions", label: "Extensions", icon: "🧩" },
-  { id: "settings", label: "Settings", icon: "⚙" },
+  { id: "explorer", label: "Explorer", icon: "FolderOpen" },
+  { id: "search", label: "Search", icon: "Search" },
+  { id: "scm", label: "Source Control", icon: "GitBranch" },
+  { id: "run", label: "Run", icon: "Zap" },
+  { id: "extensions", label: "Extensions", icon: "Plug" },
+  { id: "settings", label: "Settings", icon: "Settings" },
 ];
 
 export default function ActivityBar({ activeView, onChange, onToggleComposer, composerOpen }) {
@@ -22,7 +26,7 @@ export default function ActivityBar({ activeView, onChange, onToggleComposer, co
           aria-pressed={activeView === view.id}
           onClick={() => onChange(view.id)}
         >
-          <span aria-hidden="true">{view.icon}</span>
+          <Icon name={view.icon} size={18} />
         </button>
       ))}
       <div className="ide-activity-spacer" />
@@ -33,7 +37,7 @@ export default function ActivityBar({ activeView, onChange, onToggleComposer, co
         aria-label="Toggle Composer"
         onClick={onToggleComposer}
       >
-        <span aria-hidden="true">✨</span>
+        <Icon name="Sparkles" size={18} />
       </button>
     </nav>
   );

@@ -66,6 +66,31 @@ export default function AppShell({ children }) {
   const { usage, sessionGrant } = useShellBar();
   const [navOpen, setNavOpen] = useState(false);
   const [journeyDone, setJourneyDone] = useState(0);
+  const [navPinned, setNavPinned] = useState(false);
+
+  const isChatRoute = pathname === "/app" || pathname?.startsWith("/app/");
+  const isIdeRoute = pathname === "/code" || pathname?.startsWith("/code/");
+  const isImmersiveRoute = isChatRoute || isIdeRoute;
+
+  useEffect(() => {
+    try {
+      setNavPinned(window.localStorage.getItem("codeforge_nav_pinned") === "true");
+    } catch {
+      setNavPinned(false);
+    }
+  }, []);
+
+  function toggleNavPinned() {
+    setNavPinned((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("codeforge_nav_pinned", String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!ready) {
@@ -121,47 +146,73 @@ export default function AppShell({ children }) {
         ))}
       </nav>
       <div className="sidebar-footer small cf-animate-in" style={{ animationDelay: "200ms" }}>
-        Your AI product partner
+        {isChatRoute ? (
+          <button
+            type="button"
+            className="sidebar-pin-btn"
+            onClick={toggleNavPinned}
+            title={navPinned ? "Collapse navigation" : "Expand navigation"}
+            aria-label={navPinned ? "Collapse navigation" : "Expand navigation"}
+          >
+            <Icon name={navPinned ? "PinOff" : "Pin"} size={18} />
+            <span className="sidebar-pin-label">{navPinned ? "Collapse nav" : "Pin nav"}</span>
+          </button>
+        ) : (
+          "Your AI product partner"
+        )}
       </div>
     </aside>
   );
 
-  const isIdeRoute = pathname === "/code" || pathname.startsWith("/code/");
+  const shellClass = [
+    "app-shell",
+    isIdeRoute ? "app-shell-ide" : "",
+    isChatRoute ? "app-shell-chat" : "",
+    isChatRoute && navPinned ? "app-shell-chat-pinned" : "",
+    isImmersiveRoute ? "app-shell-immersive" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <div className={`app-shell ${isIdeRoute ? "app-shell-ide" : ""}`}>
-      <button
-        type="button"
-        className="nav-toggle"
-        aria-label="Toggle navigation"
-        aria-expanded={navOpen}
-        onClick={() => setNavOpen((open) => !open)}
-      >
-        <Icon name="Menu" size={22} />
-      </button>
-      {navOpen ? (
-        <button type="button" className="nav-overlay" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
+    <div className={shellClass}>
+      {!isIdeRoute ? (
+        <>
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label="Toggle navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <Icon name="Menu" size={22} />
+          </button>
+          {navOpen ? (
+            <button type="button" className="nav-overlay" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
+          ) : null}
+          {sidebar}
+        </>
       ) : null}
-      {sidebar}
-      <div className="content-area">
-        <header className="topbar">
+      <div className={`content-area ${isIdeRoute ? "content-area-ide" : ""}`}>
+        {!isIdeRoute ? (
+        <header className={`topbar ${isImmersiveRoute ? "topbar-immersive" : ""}`}>
           <Suspense fallback={null}>
             <SessionChrome />
           </Suspense>
           {token ? (
             <div className="topbar-session">
               {usage ? (
-                <span className="usage-pill small cf-pulse-soft">
-                  {usage.requests_remaining ?? 0} requests left
+                <span className="usage-pill" title="Requests remaining this month">
+                  {usage.requests_remaining ?? 0} left
                 </span>
               ) : null}
-              {sessionGrant?.viewOnly ? <Badge variant="warning">View-only session</Badge> : null}
-              <Badge variant="primary">Signed in</Badge>
-              <span className="small topbar-username">
-                <strong>{username || userId}</strong>
+              {sessionGrant?.viewOnly ? <Badge variant="warning">View-only</Badge> : null}
+              <span className="small topbar-username" title={username || userId}>
+                {username || userId}
               </span>
-              <button type="button" className="ghost-btn inline-btn" onClick={logout}>
-                Logout
+              <button type="button" className="cf-icon-btn cf-icon-btn-ghost" onClick={logout} title="Sign out">
+                <Icon name="LogOut" size={14} />
+                Sign out
               </button>
             </div>
           ) : (
@@ -170,7 +221,8 @@ export default function AppShell({ children }) {
             </Link>
           )}
         </header>
-        <main id="main-content" className={`page ${isIdeRoute ? "page-ide" : ""}`}>
+        ) : null}
+        <main id="main-content" className={`page ${isIdeRoute ? "page-ide" : ""} ${isChatRoute ? "page-chat" : ""}`}>
           {children}
         </main>
       </div>

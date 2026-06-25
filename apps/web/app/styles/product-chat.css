@@ -1,0 +1,649 @@
+/* Premium chat — composer, messages, markdown, micro-interactions */
+
+/* ── Immersive chat column ───────────────────────────────────── */
+
+.agent-chat-immersive {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.agent-chat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cf-space-4);
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: var(--cf-space-3) var(--cf-space-6);
+  border-bottom: 1px solid rgba(161, 161, 170, 0.12);
+  background: transparent;
+}
+
+.agent-chat-bar-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cf-space-3);
+  min-width: 0;
+}
+
+.agent-chat-bar-title {
+  font-size: var(--cf-text-sm);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--cf-muted);
+}
+
+.agent-chat-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--cf-space-2);
+  flex-shrink: 0;
+}
+
+.agent-chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.agent-chat-immersive .agent-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--cf-space-6) var(--cf-space-6) var(--cf-space-8);
+  scroll-padding-bottom: 8rem;
+}
+
+.agent-chat-immersive .agent-chat-log-inner {
+  max-width: 54rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.agent-chat-footer {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 12;
+  padding: 0 var(--cf-space-6) var(--cf-space-5);
+  background: linear-gradient(
+    180deg,
+    rgba(9, 9, 11, 0) 0%,
+    rgba(9, 9, 11, 0.72) 28%,
+    var(--cf-shell-bg) 52%
+  );
+}
+
+.agent-chat-immersive .agent-inline-activity {
+  position: absolute;
+  left: var(--cf-space-6);
+  right: var(--cf-space-6);
+  bottom: 7.5rem;
+  z-index: 11;
+  max-width: 54rem;
+  margin: 0 auto;
+  border: 1px solid var(--cf-border);
+  border-radius: var(--cf-radius-lg);
+  background: var(--cf-bg-elevated);
+  padding: var(--cf-space-3) var(--cf-space-4);
+}
+
+.agent-tools-panel-embedded {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.agent-tools-panel-embedded .agent-tools-body-expanded {
+  max-height: none;
+  margin-top: 0;
+  padding-top: var(--cf-space-3);
+  border-top: 1px solid rgba(161, 161, 170, 0.12);
+}
+
+.agent-tools-embedded-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-2);
+  padding-bottom: var(--cf-space-3);
+  border-bottom: 1px solid rgba(161, 161, 170, 0.12);
+}
+
+.deploy-checklist-panel-embedded,
+.founder-preview-panel-embedded {
+  padding: 0;
+  border: none;
+  background: transparent;
+  margin: 0;
+}
+
+/* ── Composer dock ───────────────────────────────────────────── */
+
+.cf-composer-dock.agent-composer {
+  border-top: none;
+  padding: 0;
+  background: transparent;
+}
+
+.cf-composer-notice {
+  margin: 0 auto var(--cf-space-3);
+  max-width: 54rem;
+  font-size: var(--cf-text-sm);
+  color: var(--cf-muted);
+  text-align: center;
+}
+
+.cf-composer-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-2);
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: var(--cf-space-3) var(--cf-space-4);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 16px;
+  background: var(--cf-surface);
+  box-shadow:
+    0 0 0 1px rgba(9, 9, 11, 0.4),
+    0 12px 40px rgba(0, 0, 0, 0.28);
+  transition:
+    border-color var(--cf-transition-base),
+    box-shadow var(--cf-transition-base);
+}
+
+.cf-composer-bar:focus-within {
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.12);
+}
+
+.cf-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--cf-space-2);
+  min-height: 2.5rem;
+}
+
+.cf-composer-input.agent-composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--cf-text);
+  padding: 0.65rem 0;
+  min-height: 2.5rem;
+  max-height: 200px;
+  line-height: var(--cf-leading-normal);
+  font-size: var(--cf-text-base);
+  font-family: var(--cf-font-sans);
+  outline: none;
+  transition: color var(--cf-transition-base);
+}
+
+.cf-composer-input::placeholder {
+  color: var(--cf-muted);
+  opacity: 0.85;
+}
+
+.cf-composer-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+  flex-shrink: 0;
+}
+
+.cf-composer-attach,
+.cf-composer-voice {
+  flex-shrink: 0;
+  color: var(--cf-muted);
+  transition: all var(--cf-transition-base);
+}
+
+.cf-composer-attach:hover,
+.cf-composer-voice:hover {
+  color: var(--cf-text);
+}
+
+.cf-composer-voice.is-active {
+  color: var(--cf-accent);
+  background: var(--cf-accent-soft);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.cf-composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: var(--cf-radius-md);
+  background: var(--cf-text);
+  color: var(--cf-bg);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--cf-transition-base);
+}
+
+.cf-composer-send:hover:not(:disabled) {
+  background: var(--cf-primary-hover);
+  transform: translateY(-1px);
+}
+
+.cf-composer-send:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.cf-composer-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cf-composer-send-loading {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(9, 9, 11, 0.25);
+  border-top-color: var(--cf-bg);
+  border-radius: 50%;
+  animation: cf-composer-spin 0.7s linear infinite;
+}
+
+@keyframes cf-composer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cf-composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cf-space-2);
+  padding-bottom: var(--cf-space-1);
+  border-bottom: 1px solid var(--cf-border);
+}
+
+.cf-composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 12rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--cf-border);
+  background: var(--cf-bg-elevated);
+  font-size: var(--cf-text-xs);
+  color: var(--cf-muted);
+  transition: all var(--cf-transition-base);
+}
+
+.cf-composer-chip:hover {
+  border-color: var(--cf-border-strong);
+  color: var(--cf-text);
+}
+
+.cf-composer-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-composer-chip-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity var(--cf-transition-fast);
+}
+
+.cf-composer-chip-remove:hover {
+  opacity: 1;
+}
+
+.cf-composer-workspace-details {
+  position: relative;
+}
+
+.cf-composer-workspace-details > summary {
+  list-style: none;
+}
+
+.cf-composer-workspace-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cf-composer-workspace-menu {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 20;
+  min-width: 10rem;
+  max-width: 16rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: var(--cf-space-2);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--cf-radius-md);
+  background: var(--cf-surface-elevated);
+  box-shadow: var(--cf-shadow-md);
+}
+
+.cf-composer-workspace-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--cf-text);
+  font-size: var(--cf-text-xs);
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--cf-radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--cf-transition-fast);
+}
+
+.cf-composer-workspace-item:hover:not(:disabled) {
+  background: var(--cf-primary-soft);
+}
+
+.cf-composer-workspace-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cf-composer-foot {
+  margin: var(--cf-space-2) auto 0;
+  max-width: 54rem;
+  font-size: var(--cf-text-xs);
+  color: var(--cf-muted);
+  text-align: center;
+  opacity: 0.75;
+}
+
+.chat-attach-input {
+  display: none;
+}
+
+/* ── Messages ────────────────────────────────────────────────── */
+
+.agent-chat-log .chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cf-space-6);
+}
+
+.agent-chat-log .msg {
+  padding: var(--cf-space-5) var(--cf-space-5);
+  border-radius: var(--cf-radius-lg);
+  border: 1px solid var(--cf-border);
+  background: transparent;
+  animation: cf-msg-in 0.25s ease-out both;
+  transition:
+    border-color var(--cf-transition-base),
+    background var(--cf-transition-base);
+}
+
+.agent-chat-log .msg:hover {
+  border-color: var(--cf-border-strong);
+}
+
+.agent-chat-log .msg.user {
+  background: var(--cf-surface);
+  border-color: var(--cf-border-strong);
+}
+
+.agent-chat-log .msg.assistant {
+  background: transparent;
+  border-color: var(--cf-border);
+}
+
+.agent-chat-immersive .msg strong {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+  margin-bottom: var(--cf-space-3);
+}
+
+.agent-chat-log .msg.user strong {
+  color: var(--cf-accent);
+  opacity: 0.85;
+}
+
+.agent-chat-log .msg-content {
+  font-size: var(--cf-text-base);
+  line-height: var(--cf-leading-relaxed);
+  color: var(--cf-text);
+}
+
+@keyframes cf-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-log .msg {
+    animation: none;
+  }
+
+  .cf-composer-send:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ── Markdown & code ─────────────────────────────────────────── */
+
+.agent-chat-log .cf-markdown-body {
+  font-size: var(--cf-text-base);
+  line-height: var(--cf-leading-relaxed);
+}
+
+.agent-chat-log .cf-markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.agent-chat-log .cf-markdown-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.agent-chat-log .cf-markdown-body p {
+  margin: 0.65em 0;
+}
+
+.agent-chat-log .cf-markdown-body h1,
+.agent-chat-log .cf-markdown-body h2,
+.agent-chat-log .cf-markdown-body h3 {
+  margin: 1.1em 0 0.5em;
+  font-weight: 600;
+  line-height: var(--cf-leading-tight);
+}
+
+.agent-chat-log .cf-markdown-body h1 {
+  font-size: var(--cf-text-xl);
+}
+
+.agent-chat-log .cf-markdown-body h2 {
+  font-size: var(--cf-text-lg);
+}
+
+.agent-chat-log .cf-markdown-body h3 {
+  font-size: var(--cf-text-base);
+}
+
+.agent-chat-log .cf-markdown-body ul,
+.agent-chat-log .cf-markdown-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.35em;
+}
+
+.agent-chat-log .cf-markdown-body li {
+  margin: 0.25em 0;
+}
+
+.agent-chat-log .cf-markdown-body blockquote {
+  margin: 0.75em 0;
+  padding: 0.5em 0.85em;
+  border-left: 3px solid var(--cf-border-strong);
+  color: var(--cf-muted);
+}
+
+.agent-chat-log .cf-markdown-body code:not(pre code) {
+  font-family: var(--cf-font-mono);
+  font-size: 0.9em;
+  padding: 0.12em 0.35em;
+  border-radius: var(--cf-radius-sm);
+  background: var(--cf-surface-soft);
+  border: 1px solid var(--cf-border);
+}
+
+.agent-chat-log .cf-markdown-body a {
+  color: var(--cf-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--cf-transition-fast);
+}
+
+.agent-chat-log .cf-markdown-body a:hover {
+  border-bottom-color: var(--cf-accent);
+}
+
+.agent-chat-log .cf-markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: var(--cf-text-sm);
+}
+
+.agent-chat-log .cf-markdown-body th,
+.agent-chat-log .cf-markdown-body td {
+  border: 1px solid var(--cf-border);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+
+.agent-chat-log .cf-markdown-body th {
+  background: var(--cf-surface);
+  font-weight: 600;
+}
+
+.agent-chat-log .cf-code-block-wrap {
+  margin: 0.85em 0;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--cf-radius-md);
+  overflow: hidden;
+  transition: border-color var(--cf-transition-base);
+}
+
+.agent-chat-log .cf-code-block-wrap:hover {
+  border-color: rgba(34, 211, 238, 0.25);
+}
+
+.agent-chat-log .cf-code-block-header {
+  background: var(--cf-surface);
+  border-bottom: 1px solid var(--cf-border);
+  padding: 0.35rem 0.65rem;
+}
+
+.agent-chat-log .cf-code-copy-btn {
+  transition: all var(--cf-transition-base);
+}
+
+.agent-chat-log .cf-code-copy-btn:hover {
+  border-color: var(--cf-accent);
+  color: var(--cf-accent);
+}
+
+.agent-chat-log .cf-hljs-block {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  background: var(--cf-bg);
+  font-family: var(--cf-font-mono);
+  font-size: var(--cf-text-sm);
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* highlight.js token colors (dark zinc) */
+.agent-chat-log .cf-hljs-block .hljs-comment,
+.agent-chat-log .cf-hljs-block .hljs-quote {
+  color: #71717a;
+  font-style: italic;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-keyword,
+.agent-chat-log .cf-hljs-block .hljs-selector-tag,
+.agent-chat-log .cf-hljs-block .hljs-built_in {
+  color: #c084fc;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-string,
+.agent-chat-log .cf-hljs-block .hljs-attr,
+.agent-chat-log .cf-hljs-block .hljs-symbol {
+  color: #86efac;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-number,
+.agent-chat-log .cf-hljs-block .hljs-literal {
+  color: #fcd34d;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-title,
+.agent-chat-log .cf-hljs-block .hljs-function,
+.agent-chat-log .cf-hljs-block .hljs-class {
+  color: #67e8f9;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-variable,
+.agent-chat-log .cf-hljs-block .hljs-params {
+  color: #e4e4e7;
+}
+
+.agent-chat-log .cf-hljs-block .hljs-meta,
+.agent-chat-log .cf-hljs-block .hljs-type {
+  color: #f472b6;
+}
+
+/* ── Agent tools micro-interactions ──────────────────────────── */
+
+.agent-tools-panel {
+  background: transparent;
+  transition: background var(--cf-transition-base);
+}
+
+.agent-tools-toggle,
+.agent-tools-tab {
+  transition: all var(--cf-transition-base);
+}
+
+.agent-tools-toggle:active,
+.agent-tools-tab:active {
+  transform: scale(0.97);
+}
+
+.agent-thinking-block {
+  margin-top: var(--cf-space-3);
+  padding-top: var(--cf-space-2);
+  border-top: 1px dashed var(--cf-border);
+  transition: border-color var(--cf-transition-base);
+}

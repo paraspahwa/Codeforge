@@ -1,17 +1,14 @@
 "use client";
 
-import Link from "next/link";
-
-import { Button } from "@codeforge/ui";
-
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
+import { Icon } from "@codeforge/ui";
 
 import AgentMascot from "./AgentMascot";
 import AgentPicker from "./AgentPicker";
 
 const WORKSPACE_PRESETS = [
-  { label: "Demo project", path: "/workspaces/demo" },
-  { label: "Main workspace", path: "/workspaces/main" },
+  { label: "Demo", path: "/workspaces/demo" },
+  { label: "Main", path: "/workspaces/main" },
 ];
 
 export default function SessionSidebar({
@@ -29,6 +26,8 @@ export default function SessionSidebar({
   selectedAgent,
   onSelectAgent,
 }) {
+  const isActiveChat = Boolean(sessionId);
+
   const filtered = sessionHistory.filter((entry) => {
     if (!sessionFilter.trim()) {
       return true;
@@ -42,93 +41,93 @@ export default function SessionSidebar({
   });
 
   return (
-    <aside className="agent-sidebar">
-      <AgentMascot state={mascotState} />
+    <aside className={`cf-session-rail agent-sidebar ${isActiveChat ? "agent-sidebar-compact" : ""}`}>
+      {!isActiveChat ? (
+        <>
+          <AgentMascot state={mascotState} />
+          <div className="cf-session-welcome">
+            <h2>Workspace</h2>
+            <p>Pick a folder, choose an agent, and start building.</p>
+          </div>
+        </>
+      ) : null}
 
-      <div className="agent-sidebar-header cf-animate-in">
-        <h2>Your project</h2>
-        <p className="small">Where your app files live — pick a preset or type a folder.</p>
+      <div className="cf-session-rail-toolbar">
+        <button
+          type="button"
+          className="cf-btn-primary"
+          onClick={onCreateSession}
+          disabled={loading || !projectPath.trim()}
+          title="Start a new chat"
+        >
+          <Icon name="Plus" size={14} />
+          {loading ? "Starting…" : "New chat"}
+        </button>
+        <details className="cf-project-popover">
+          <summary className="cf-icon-btn cf-project-summary" title="Project folder" aria-label="Project folder">
+            <Icon name="Folder" size={16} />
+          </summary>
+          <div className="cf-project-popover-panel">
+            <div className="workspace-presets">
+              {WORKSPACE_PRESETS.map((preset) => (
+                <button
+                  key={preset.path}
+                  type="button"
+                  className={`workspace-preset ${projectPath === preset.path ? "workspace-preset-active" : ""}`}
+                  onClick={() => onProjectPathChange(preset.path)}
+                  disabled={loading}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <label htmlFor="projectPath">Folder</label>
+            <input
+              id="projectPath"
+              className="agent-input"
+              value={projectPath}
+              placeholder="/workspaces/main"
+              onChange={(event) => onProjectPathChange(event.target.value)}
+              disabled={loading}
+            />
+          </div>
+        </details>
       </div>
-
-      <div className="workspace-presets">
-        {WORKSPACE_PRESETS.map((preset) => (
-          <button
-            key={preset.path}
-            type="button"
-            className={`workspace-preset cf-hover-lift ${projectPath === preset.path ? "workspace-preset-active" : ""}`}
-            onClick={() => onProjectPathChange(preset.path)}
-            disabled={loading}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-
-      <label className="small" htmlFor="projectPath">
-        Project folder
-      </label>
-      <input
-        id="projectPath"
-        className="agent-input"
-        value={projectPath}
-        placeholder="/workspaces/demo"
-        onChange={(event) => onProjectPathChange(event.target.value)}
-        disabled={loading}
-      />
-
-      <Button type="button" className="agent-primary-btn cf-shimmer-btn" onClick={onCreateSession} disabled={loading || !projectPath.trim()}>
-        {loading ? "Starting…" : sessionId ? "+ New chat" : "Start a new chat"}
-      </Button>
-
-      <Link href="/features" className="agent-features-link cf-hover-lift">
-        <span aria-hidden>✨</span> Explore all features
-      </Link>
 
       <AgentPicker
         agents={agents}
         selectedAgent={selectedAgent}
         onSelectAgent={onSelectAgent}
         loading={loading}
+        compact={isActiveChat}
       />
 
-      <Link href="/agents" className="agent-features-link cf-hover-lift">
-        <span aria-hidden>🤖</span> Browse AI agents
-      </Link>
-
-      {sessionId ? (
-        <p className="small agent-meta">Chat active — the AI handles the technical work.</p>
-      ) : (
-        <p className="small agent-meta">Start a chat and describe what you want to build.</p>
-      )}
-
-      <div className="agent-sidebar-divider" />
-
-      <div className="agent-sidebar-header">
-        <h3>Recent chats</h3>
-      </div>
-      <input
-        aria-label="Filter chats"
-        className="agent-input"
-        placeholder="Search chats…"
-        value={sessionFilter}
-        onChange={(event) => onSessionFilterChange(event.target.value)}
-        disabled={loading}
-      />
-      <div className="agent-session-list">
-        {filtered.length === 0 ? <p className="small">No chats yet — start one above!</p> : null}
-        {filtered.map((entry, index) => (
-          <button
-            key={entry.session_id}
-            className={`agent-session-item cf-animate-in cf-hover-lift ${entry.session_id === sessionId ? "agent-session-item-active" : ""}`}
-            style={{ animationDelay: `${index * 40}ms` }}
-            type="button"
-            onClick={() => onSelectSession(entry.session_id)}
+      <div className="cf-session-rail-section">
+        <p className="cf-session-rail-heading">Recent</p>
+        <div className="cf-search-field">
+          <Icon name="Search" size={14} />
+          <input
+            aria-label="Search chats"
+            placeholder="Search chats…"
+            value={sessionFilter}
+            onChange={(event) => onSessionFilterChange(event.target.value)}
             disabled={loading}
-          >
-            <span className="agent-session-title">{formatSessionListLabel(entry)}</span>
-            <span className="small">{new Date(entry.created_at).toLocaleString()}</span>
-          </button>
-        ))}
+          />
+        </div>
+        <div className="agent-session-list">
+          {filtered.length === 0 ? <p className="small" style={{ color: "var(--cf-muted)", padding: "0.5rem" }}>No chats yet</p> : null}
+          {filtered.map((entry) => (
+            <button
+              key={entry.session_id}
+              type="button"
+              className={`agent-session-item ${entry.session_id === sessionId ? "agent-session-item-active" : ""}`}
+              onClick={() => onSelectSession(entry.session_id)}
+              disabled={loading}
+            >
+              <span className="agent-session-title">{formatSessionListLabel(entry)}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </aside>
   );

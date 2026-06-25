@@ -2609,19 +2609,23 @@ main:has(.code-workspace-page) {
   align-items: stretch;
 }
 
+.product-workspace.agent-layout {
+  gap: 0;
+  min-height: calc(100vh - 52px);
+}
+
 .agent-layout-sidebar,
 .agent-layout-main {
   min-width: 0;
 }
 
+.cf-session-rail.agent-sidebar,
 .agent-sidebar {
-  background: rgba(15, 23, 42, 0.92);
-  border: 1px solid var(--cf-border);
-  border-radius: var(--cf-radius-lg);
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: var(--cf-space-4);
   height: 100%;
 }
 
@@ -2641,6 +2645,44 @@ main:has(.code-workspace-page) {
   margin: 0.35rem 0;
 }
 
+.agent-sidebar-compact {
+  gap: 0.5rem;
+}
+
+.agent-sidebar-compact .agent-session-list {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-project-disclosure {
+  margin: 0;
+}
+
+.agent-project-disclosure summary {
+  cursor: pointer;
+  color: var(--cf-muted);
+  list-style: none;
+}
+
+.agent-project-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-project-disclosure[open] summary {
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+
+.agent-picker-link {
+  color: var(--cf-muted);
+  text-decoration: none;
+}
+
+.agent-picker-link:hover {
+  color: var(--cf-accent);
+}
+
 .workspace-presets {
   display: flex;
   flex-wrap: wrap;
@@ -2650,11 +2692,12 @@ main:has(.code-workspace-page) {
 .workspace-preset {
   border: 1px solid var(--cf-border);
   background: transparent;
-  color: var(--muted);
+  color: var(--cf-muted);
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
-  font-size: 0.8rem;
+  font-size: var(--cf-text-xs);
   cursor: pointer;
+  transition: all var(--cf-transition-base);
 }
 
 .workspace-preset-active,
@@ -2667,12 +2710,19 @@ main:has(.code-workspace-page) {
 .agent-input {
   width: 100%;
   border: 1px solid var(--cf-border);
-  background: rgba(2, 6, 23, 0.55);
-  color: var(--text);
+  background: var(--cf-shell-bg);
+  color: var(--cf-text);
   border-radius: var(--cf-radius-md);
   padding: 0.55rem 0.65rem;
-  font-family: var(--cf-font-mono);
-  font-size: 0.82rem;
+  font-family: var(--font-mono, var(--cf-font-mono));
+  font-size: var(--cf-text-xs);
+  transition: border-color var(--cf-transition-base), box-shadow var(--cf-transition-base);
+}
+
+.agent-input:focus {
+  outline: none;
+  border-color: var(--cf-border-strong);
+  box-shadow: 0 0 0 3px var(--cf-accent-soft);
 }
 
 .agent-primary-btn {
@@ -2721,13 +2771,18 @@ main:has(.code-workspace-page) {
 }
 
 .agent-chat {
-  background: rgba(15, 23, 42, 0.88);
-  border: 1px solid var(--cf-border);
-  border-radius: var(--cf-radius-lg);
+  background: transparent;
+  border: none;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 7rem);
   overflow: hidden;
+}
+
+.product-workspace-main .agent-chat {
+  min-height: 100%;
+  flex: 1;
 }
 
 .agent-chat-header {
@@ -2735,8 +2790,14 @@ main:has(.code-workspace-page) {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  padding: 1rem 1.1rem 0.75rem;
+  padding: 0.75rem 1.1rem 0.6rem;
   border-bottom: 1px solid var(--cf-border);
+  flex-shrink: 0;
+}
+
+.agent-chat:has(.agent-tools-panel) .agent-chat-header {
+  padding-bottom: 0.5rem;
+  border-bottom: none;
 }
 
 .agent-chat-header h1 {
@@ -2751,8 +2812,15 @@ main:has(.code-workspace-page) {
 
 .agent-chat-log {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem 1.1rem;
+}
+
+.agent-chat-log-inner {
+  max-width: 48rem;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .agent-chat-log .chat-log {
@@ -3201,8 +3269,69 @@ main:has(.code-workspace-page) {
 
 .agent-tools-panel {
   border-bottom: 1px solid var(--cf-border);
-  padding: 0.85rem 1.1rem 0.65rem;
   background: rgba(2, 6, 23, 0.35);
+}
+
+.agent-tools-panel-collapsed {
+  padding: 0.45rem 1.1rem;
+}
+
+.agent-tools-panel-expanded {
+  padding: 0.45rem 1.1rem 0.65rem;
+}
+
+.agent-tools-collapsed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+  min-height: 2rem;
+}
+
+.agent-tools-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--cf-border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.agent-tools-toggle:hover {
+  border-color: var(--cf-accent);
+  background: var(--cf-primary-soft);
+}
+
+.agent-tools-inline-control {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.agent-tools-permission-select {
+  width: auto;
+  min-width: 10rem;
+  max-width: 14rem;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.agent-tools-editor-link {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+.agent-tools-body-expanded {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--cf-border);
 }
 
 .agent-tools-header h3 {
