@@ -22,7 +22,7 @@ export default function IdeShell({ ws }) {
       : process.env.NEXT_PUBLIC_API_BASE?.replace(/^https?:\/\//, "").split(":")[0];
 
   return (
-    <div className={`ide-shell ${ws.zenMode ? "ide-shell-zen" : ""}`}>
+    <div className={`ide-shell ${ws.zenMode ? "ide-shell-zen" : ""} ${ws.editorTheme === "light" ? "ide-shell-theme-light" : ""}`}>
       <TitleBar
         workspaceName={workspaceName}
         remoteLabel={remoteLabel}
@@ -30,6 +30,7 @@ export default function IdeShell({ ws }) {
         onGlobalSearchChange={ws.setGlobalSearch}
         onOpenQuickOpen={() => ws.setQuickOpenOpen(true)}
         usage={ws.usage}
+        onRun={ws.localMode ? ws.handleRunCode : undefined}
       />
       <MenuBar onRunCommand={ws.executeIdeCommand} />
 
@@ -87,13 +88,17 @@ export default function IdeShell({ ws }) {
                   sessionId={ws.sessionId}
                   token={ws.token}
                   projectPath={ws.projectPath}
-                  terminalDisabled={!ws.sessionId || !ws.token}
+                  terminalDisabled={!ws.localMode && (!ws.sessionId || !ws.token)}
                   gitDiff={ws.gitDiff}
                   activePath={ws.activePath}
                   fileContent={ws.fileEditorContent}
                   publicHost={publicHost}
                   problemCount={ws.problems.length}
                   onOpenAt={ws.openFileAt}
+                  localTerminal={ws.localTerminal}
+                  localFiles={ws.localFiles}
+                  onRunFile={ws.handleRunCode}
+                  onAppendOutput={ws.appendOutput}
                 />
               </div>
             ) : null}

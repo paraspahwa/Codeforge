@@ -82,6 +82,14 @@ export async function runAgentLoop(baseUrl, token, sessionId, payload) {
   });
 }
 
+export async function resolveLoopVerify(baseUrl, token, sessionId, payload = {}) {
+  return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/loop/resolve`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
 export async function forkSession(baseUrl, token, sessionId, payload = {}) {
   return requestJson(baseUrl, `/api/v1/sessions/${sessionId}/fork`, {
     method: "POST",

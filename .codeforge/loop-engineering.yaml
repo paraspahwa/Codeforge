@@ -1,0 +1,102 @@
+# Loop Engineering — verify/fix protocol for CodeForge agents
+# Consumed by Cursor (.cursor/rules/loop-engineering.mdc) and CodeForge API clients.
+# See also: services/api/app/agent_loop.py (run_verify_fix_loop)
+
+version: 1
+
+loop:
+  max_attempts: 5
+  auto_heal: true
+  # Do not wait for user approval between attempts (Cursor agents + API auto_apply)
+  autonomous: true
+  pause_on_limit: true
+
+# Ordered verify pipelines by glob (first match wins; "always" runs when any code changes)
+pipelines:
+  - id: api-python
+    globs:
+      - "services/api/**"
+    commands:
+      - id: pytest
+        command: "npm run api:test"
+        cwd: "."
+        required: true
+    description: FastAPI backend unit tests (pytest)
+
+  - id: web-next
+    globs:
+      - "apps/web/**"
+      - "packages/ui/**"
+      - "packages/shared/**"
+      - "packages/design-tokens/**"
+    commands:
+      - id: lint
+        command: "npm run lint:web"
+        cwd: "."
+        required: true
+      - id: build
+        command: "npm run build:web"
+        cwd: "."
+        required: true
+    description: Next.js lint + production build (no Jest in web workspace)
+
+  - id: vscode-ext
+    globs:
+      - "apps/vscode/**"
+    commands:
+      - id: syntax-check
+        command: "npm run check:vscode"
+        cwd: "."
+        required: true
+    description: Node syntax check on extension bundles
+
+  - id: desktop-tauri
+    globs:
+      - "apps/desktop/**"
+    commands:
+      - id: cargo-check
+        command: "cargo check"
+        cwd: "apps/desktop/src-tauri"
+        required: true
+    description: Rust compile check for Tauri shell
+
+  - id: terminal-app
+    globs:
+      - "apps/terminal/**"
+    commands:
+      - id: api-smoke
+        command: "npm run api:test"
+        cwd: "."
+        required: false
+    description: Terminal shares API; run API tests if terminal+api both touched
+
+  - id: e2e-playwright
+    globs:
+      - "e2e/**"
+      - "playwright.config.*"
+    commands:
+      - id: e2e
+        command: "npm run test:e2e"
+        cwd: "."
+        required: true
+        note: "Requires web+API running; use in CI or after stack:up"
+      - id: a11y
+        command: "npm run test:a11y"
+        cwd: "."
+        required: false
+    description: Playwright smoke + optional a11y
+
+# Fallback when no pipeline matches but code files changed
+default:
+  commands:
+    - id: api-test
+      command: "npm run api:test"
+      cwd: "."
+      required: true
+
+# CI parity reference (.github/workflows/ci.yml)
+ci_reference:
+  api: "cd services/api && pytest -q"
+  web_build: "npm run build:web"
+  web_audit: "npm run audit:web:ci"
+  e2e: "npm run test:e2e && npm run test:a11y"

@@ -71,6 +71,7 @@ import {
   queryProjectKnowledge,
   rebuildProjectKnowledge,
   runAgentLoop,
+  resolveLoopVerify,
   runCoworkPlan,
   toggleCoworkJob,
   sendMessage,
@@ -470,22 +471,43 @@ function App() {
 
   const runLoopWorkflow = async ({ verifyCommand, prompt, maxAttempts }) => {
     const sessionId = await ensureSession(token);
-    const verifyLabel = verifyCommand || "npm test";
     const fixedPrompt = prompt || "Fix the failing verification command and propose minimal changes.";
 
     setLoopState({ running: true, lastSummary: "loop running" });
     setReviewTitle("Loop workflow");
-    setDiffPreview(`verify: ${verifyLabel}\nmax attempts: ${maxAttempts}`);
 
     try {
+      let verifyLabel = verifyCommand;
+      if (!verifyLabel) {
+        pushEvent("loop: resolving verify commands from .codeforge/loop-engineering.yaml");
+        const resolved = await resolveLoopVerify(baseUrl, token, sessionId, {});
+        verifyLabel = resolved.verify_command;
+        if (!verifyLabel) {
+          throw new Error("No verify commands resolved from loop-engineering config");
+        }
+        if (!verifyCommand && resolved.max_attempts) {
+          maxAttempts = resolved.max_attempts;
+        }
+        pushEvent(`loop: auto-resolved → ${verifyLabel}`);
+      }
+
+      setDiffPreview(`verify: ${verifyLabel}\nmax attempts: ${maxAttempts}`);
       pushEvent("loop: backend verify/fix");
-      const result = await runAgentLoop(baseUrl, token, sessionId, {
-        verify_command: verifyLabel,
+
+      const payload = {
         prompt: fixedPrompt,
         max_attempts: maxAttempts,
         auto_apply: true,
         auto_mode: autoMode,
-      });
+      };
+      if (verifyCommand) {
+        payload.verify_command = verifyCommand;
+        payload.auto_resolve = false;
+      } else {
+        payload.auto_resolve = true;
+      }
+
+      const result = await runAgentLoop(baseUrl, token, sessionId, payload);
 
       const attemptLines = result.attempts.map((item) => {
         const applied = item.applied ? " | applied" : "";
@@ -1214,10 +1236,6 @@ function App() {
       }
 
       const options = parseLoopCommand(argument);
-      if (!options.verifyCommand) {
-        setError("Usage: /loop --verify <command> [--max <n>] [--prompt <text>]");
-        return;
-      }
 
       setBusy(true);
       setError("");

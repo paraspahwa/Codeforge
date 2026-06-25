@@ -54,6 +54,13 @@ def _token_to_user_id(token: str) -> str:
         from .oidc import subject_from_id_token
 
         return subject_from_id_token(token)
+    from .native_auth import auth_jwt_secret, decode_access_token, native_auth_enabled
+
+    if native_auth_enabled() and token.count(".") == 2 and auth_jwt_secret():
+        try:
+            return decode_access_token(token)["user_id"]
+        except HTTPException:
+            pass
     supabase_secret = os.getenv("SUPABASE_JWT_SECRET")
     if supabase_secret:
         try:

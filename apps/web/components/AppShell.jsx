@@ -62,7 +62,7 @@ function isNavActive(pathname, href) {
 export default function AppShell({ children }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { userId, token, ready, logout } = useAuth();
+  const { userId, username, token, ready, logout } = useAuth();
   const { usage, sessionGrant } = useShellBar();
   const [navOpen, setNavOpen] = useState(false);
   const [journeyDone, setJourneyDone] = useState(0);
@@ -157,8 +157,8 @@ export default function AppShell({ children }) {
               ) : null}
               {sessionGrant?.viewOnly ? <Badge variant="warning">View-only session</Badge> : null}
               <Badge variant="primary">Signed in</Badge>
-              <span className="small">
-                <strong>{userId}</strong>
+              <span className="small topbar-username">
+                <strong>{username || userId}</strong>
               </span>
               <button type="button" className="ghost-btn inline-btn" onClick={logout}>
                 Logout

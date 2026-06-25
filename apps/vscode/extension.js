@@ -443,6 +443,43 @@ async function completeOidcLogin(context, code) {
   pushEvent(`auth:oidc:${panelState.userId}`);
 }
 
+function getMagicPointerMessageContext() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return null;
+  }
+  const selection = editor.selection;
+  const selectionText = selection.isEmpty ? "" : editor.document.getText(selection);
+  const lineNumber = (selection.isEmpty ? editor.selection.active : selection.start).line + 1;
+  const cursorLineText = editor.document.lineAt(lineNumber - 1).text;
+  const context = {
+    current_file: getCurrentFile() || null,
+    line_number: lineNumber,
+    cursor_line_text: cursorLineText,
+  };
+  if (selectionText) {
+    context.selection_text = selectionText;
+    context.selection_start_line = selection.start.line + 1;
+    context.selection_end_line = selection.end.line + 1;
+  }
+  const radius = 5;
+  const start = Math.max(0, (selectionText ? selection.start.line : lineNumber - 1) - radius);
+  const end = Math.min(
+    editor.document.lineCount - 1,
+    (selectionText ? selection.end.line : lineNumber - 1) + radius,
+  );
+  const surrounding = [];
+  for (let line = start; line <= end; line += 1) {
+    const marker = line >= (selectionText ? selection.start.line : lineNumber - 1)
+      && line <= (selectionText ? selection.end.line : lineNumber - 1)
+      ? ">"
+      : " ";
+    surrounding.push(`${marker} ${String(line + 1).padStart(4)}| ${editor.document.lineAt(line).text}`);
+  }
+  context.surrounding_context = surrounding.join("\n");
+  return context;
+}
+
 async function streamPrompt(context, prompt, currentFile) {
   const agent = await loadSharedModule(context, "agentClient.js");
   const sse = await loadSharedModule(context, "sse.js");
@@ -457,10 +494,16 @@ async function streamPrompt(context, prompt, currentFile) {
   panelState.loopSummary = "";
   postState();
 
-  const routeContext = agent.buildMessageContext({
+  const pointerContext = getMagicPointerMessageContext();
+  const routeContext = pointerContext || agent.buildMessageContext({
     workspacePath: panelState.workspacePath || getWorkspacePath(),
     activeFile: currentFile || getCurrentFile(),
     selection: getSelectionText() || null,
+    lineNumber: pointerContext?.line_number,
+    selectionStartLine: pointerContext?.selection_start_line,
+    selectionEndLine: pointerContext?.selection_end_line,
+    cursorLineText: pointerContext?.cursor_line_text,
+    surroundingContext: pointerContext?.surrounding_context,
   });
 
   for await (const event of agent.runChatTurn(panelState.baseUrl, panelState.token, sessionId, {
@@ -584,13 +627,19 @@ function startTeamEventPump(context) {
 async function runAgentLoop(context, verifyCommand) {
   const api = await loadSharedModule(context, "api.js");
   const sessionId = await ensureSession(context);
-  const result = await api.runAgentLoop(panelState.baseUrl, panelState.token, sessionId, {
-    verify_command: verifyCommand,
+  const payload = {
     prompt: "Fix verification failures with minimal safe edits.",
-    max_attempts: 3,
+    max_attempts: 5,
     auto_apply: true,
     current_file: getCurrentFile() || null,
-  });
+  };
+  if (verifyCommand?.trim()) {
+    payload.verify_command = verifyCommand.trim();
+    payload.auto_resolve = false;
+  } else {
+    payload.auto_resolve = true;
+  }
+  const result = await api.runAgentLoop(panelState.baseUrl, panelState.token, sessionId, payload);
 
   panelState.loopSummary = result.message;
   pushEvent(result.passed ? `loop:passed:${result.message}` : `loop:failed:${result.message}`);
@@ -1405,10 +1454,10 @@ function activate(context) {
     vscode.commands.registerCommand("codeforge.runAgentLoop", async () => {
       const panel = ensurePanel(context);
       const verifyCommand = await vscode.window.showInputBox({
-        prompt: "Verification command for the agent loop",
-        value: panelState?.loopVerify || "pytest -q",
+        prompt: "Verification command (leave empty to auto-resolve from .codeforge/loop-engineering.yaml)",
+        value: panelState?.loopVerify || "",
       });
-      if (!verifyCommand) {
+      if (verifyCommand === undefined) {
         return;
       }
       setBusy(true);

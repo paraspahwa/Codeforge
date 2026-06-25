@@ -16,36 +16,40 @@ export default function SidebarRouter({ view, ws }) {
   if (view === "explorer") {
     return (
       <div className="ide-sidebar-content">
-        <div className="ide-session-toolbar">
-          <input
-            value={ws.projectPath}
-            onChange={(event) => ws.setProjectPath(event.target.value)}
-            placeholder="Project path"
-            disabled={ws.loading}
-            aria-label="Project path"
-          />
-          <button type="button" onClick={ws.handleCreateSession} disabled={ws.loading || !ws.projectPath.trim()}>
-            New
-          </button>
-          <select
-            value={ws.sessionId}
-            onChange={(event) => ws.handleSelectSession(event.target.value)}
-            disabled={ws.loading || ws.sessions.length === 0}
-            aria-label="Session"
-          >
-            <option value="">Session</option>
-            {ws.sessions.map((session) => (
-              <option key={session.session_id} value={session.session_id}>
-                {formatSessionListLabel(session)}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!ws.localMode ? (
+          <div className="ide-session-toolbar">
+            <input
+              value={ws.projectPath}
+              onChange={(event) => ws.setProjectPath(event.target.value)}
+              placeholder="Project path"
+              disabled={ws.loading}
+              aria-label="Project path"
+            />
+            <button type="button" onClick={ws.handleCreateSession} disabled={ws.loading || !ws.projectPath.trim()}>
+              New
+            </button>
+            <select
+              value={ws.sessionId}
+              onChange={(event) => ws.handleSelectSession(event.target.value)}
+              disabled={ws.loading || ws.sessions.length === 0}
+              aria-label="Session"
+            >
+              <option value="">Session</option>
+              {ws.sessions.map((session) => (
+                <option key={session.session_id} value={session.session_id}>
+                  {formatSessionListLabel(session)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <p className="small muted ide-local-badge">Local workspace — saved in browser</p>
+        )}
         {ws.currentSession && !ws.sessionWritable ? (
           <p className="small muted">{viewOnlySessionMessage(ws.currentSession)}</p>
         ) : null}
         <h3>Explorer</h3>
-        {!ws.sessionId ? (
+        {!ws.localMode && !ws.sessionId ? (
           <p className="small muted">Select a session to browse files.</p>
         ) : (
           <WorkspaceFileTree
@@ -61,17 +65,21 @@ export default function SidebarRouter({ view, ws }) {
             onToggleChangedOnly={() => ws.setShowChangedOnly((value) => !value)}
           />
         )}
-        <OutlinePanel
-          activePath={ws.activePath}
-          onSearchSymbols={ws.handleSearchSymbols}
-          onOpenAt={ws.openFileAt}
-        />
-        <TimelinePanel
-          sessionId={ws.sessionId}
-          activePath={ws.activePath}
-          onLoadGitLog={ws.handleLoadGitLog}
-          onOpenAt={ws.openFileAt}
-        />
+        {!ws.localMode ? (
+          <>
+            <OutlinePanel
+              activePath={ws.activePath}
+              onSearchSymbols={ws.handleSearchSymbols}
+              onOpenAt={ws.openFileAt}
+            />
+            <TimelinePanel
+              sessionId={ws.sessionId}
+              activePath={ws.activePath}
+              onLoadGitLog={ws.handleLoadGitLog}
+              onOpenAt={ws.openFileAt}
+            />
+          </>
+        ) : null}
       </div>
     );
   }
@@ -123,6 +131,8 @@ export default function SidebarRouter({ view, ws }) {
         onShellCommandChange={ws.setShellCommand}
         launchConfigs={ws.launchConfigs}
         onRunLaunch={ws.handleRunLaunch}
+        localMode={ws.localMode}
+        onRunFile={ws.handleRunCode}
       />
     );
   }
@@ -132,7 +142,7 @@ export default function SidebarRouter({ view, ws }) {
   }
 
   if (view === "settings") {
-    return <IdeSettingsSidebar />;
+    return <IdeSettingsSidebar ws={ws} />;
   }
 
   return null;

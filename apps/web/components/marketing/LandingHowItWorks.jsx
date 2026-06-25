@@ -5,30 +5,30 @@ import { ScrollReveal } from "./useScrollReveal";
 
 const STEPS = [
   {
-    num: "1",
-    title: "Describe your idea",
-    description: "Tell CodeForge what you want to build. No technical jargon needed — just your vision.",
+    num: "01",
+    title: "Plan with context",
+    description: "Composer reads your files, selection, and Magic Pointer context — @-mentions and slash commands included.",
   },
   {
-    num: "2",
-    title: "Plan with agents",
-    description: "Get a PRD, architecture, and step-by-step plan. Pick from 30+ specialized agent patterns.",
+    num: "02",
+    title: "Build across files",
+    description: "Agents edit multiple files, run terminal commands, and propose patches you approve in the IDE.",
   },
   {
-    num: "3",
-    title: "Build and ship",
-    description: "Edit code in the IDE, run automations, and deploy with production-ready checklists.",
+    num: "03",
+    title: "Verify and ship",
+    description: "Loop Engineering runs your test suite after every change until green — no manual copy-paste.",
   },
 ];
 
 export default function LandingHowItWorks() {
   return (
-    <section className="landing-how landing-section-block">
+    <section id="workflow" className="landing-how landing-section-block mkt-section">
       <LandingContainer>
-        <ScrollReveal className="landing-section-header">
-          <span className="landing-section-eyebrow">Workflow</span>
-          <h2>How it works</h2>
-          <p>Three steps from idea to production — designed for founders, not just engineers.</p>
+        <ScrollReveal className="landing-section-header mkt-section-header">
+          <span className="landing-section-eyebrow mkt-eyebrow">Workflow</span>
+          <h2>Plan → Build → Verify</h2>
+          <p>Linear-style momentum with Cursor-style agent depth — in your browser.</p>
         </ScrollReveal>
 
         <ScrollReveal delayClass="landing-reveal-delay-1">

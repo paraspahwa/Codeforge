@@ -57,6 +57,95 @@ export async function devLogin(userId) {
   return data.access_token;
 }
 
+export async function getAuthConfig() {
+  const response = await fetchWithRetry(resolveApiUrl("/api/v1/auth/config"));
+  if (!response.ok) {
+    throw new Error("Failed to load auth configuration");
+  }
+  return response.json();
+}
+
+export async function registerAccount({ email, username, password }) {
+  const response = await fetch(resolveApiUrl("/api/v1/auth/register"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, username, password }),
+  });
+  if (!response.ok) {
+    let detail = "Registration failed";
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.detail) {
+        detail = typeof errorBody.detail === "string" ? errorBody.detail : detail;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return data.access_token;
+}
+
+export async function loginWithCredentials({ email, password }) {
+  const response = await fetch(resolveApiUrl("/api/v1/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    let detail = "Invalid credentials";
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.detail) {
+        detail = typeof errorBody.detail === "string" ? errorBody.detail : detail;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return data.access_token;
+}
+
+export async function getAccountProfile(token) {
+  const response = await fetch(resolveApiUrl("/api/v1/auth/me"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error("Failed to load account profile");
+  }
+  return response.json();
+}
+
+export async function changeAccountPassword(token, { currentPassword, newPassword }) {
+  const response = await fetch(resolveApiUrl("/api/v1/auth/change-password"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (!response.ok) {
+    let detail = "Password change failed";
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.detail) {
+        detail = typeof errorBody.detail === "string" ? errorBody.detail : detail;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 export async function getOidcConfig() {
   return shared.getOidcConfig(API_BASE);
 }
@@ -525,6 +614,10 @@ export async function forkSession(sessionId, token, payload = {}) {
 
 export async function runAgentLoop(sessionId, token, payload) {
   return shared.runAgentLoop(API_BASE, token, sessionId, payload);
+}
+
+export async function resolveLoopVerify(sessionId, token, payload = {}) {
+  return shared.resolveLoopVerify(API_BASE, token, sessionId, payload);
 }
 
 export async function compactWorkflow(sessionId, token) {

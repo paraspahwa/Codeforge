@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import MarketingShell from "../../components/marketing/MarketingShell";
 import PlanCards from "../../components/marketing/PlanCards";
 import { ScrollReveal } from "../../components/marketing/useScrollReveal";
@@ -21,21 +22,17 @@ export default function PricingPage() {
 
   return (
     <MarketingShell>
-      <section className="landing-page-hero-band">
-        <LandingContainer>
-          <ScrollReveal>
-            <h1>Simple, transparent pricing</h1>
-            <p className="landing-hero-lead">
-              Start free. Upgrade when you need more requests. All plans billed in INR via Razorpay.
-            </p>
-          </ScrollReveal>
-        </LandingContainer>
-      </section>
-      <section className="marketing-section landing-pricing-teaser">
+      <MarketingPageHeader
+        eyebrow="Pricing"
+        title="Simple, transparent plans"
+        lead="Start free. Upgrade when you need more requests. All plans billed in INR via Razorpay."
+      />
+
+      <section className="marketing-section mkt-pricing-section">
         <LandingContainer>
           <ScrollReveal delayClass="landing-reveal-delay-1">
             <PlanCards plans={plans} loading={loading} />
-            <p className="small marketing-pricing-note">
+            <p className="small marketing-pricing-note mkt-pricing-note">
               Need a team plan?{" "}
               <a href="/login?next=/team">Sign in</a> and manage organization billing from the Team page.
             </p>

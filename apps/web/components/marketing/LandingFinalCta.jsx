@@ -7,15 +7,20 @@ import { ScrollReveal } from "./useScrollReveal";
 
 export default function LandingFinalCta() {
   return (
-    <section className="landing-final-cta-wrap">
+    <section className="landing-final-cta-wrap mkt-final-cta-wrap">
       <LandingContainer>
-        <div className="landing-final-cta landing-glass landing-glow-border">
+        <div className="landing-final-cta mkt-final-cta">
           <ScrollReveal>
-            <h2>Try CodeForge now</h2>
-            <p>Start building your next app — free to begin, ready for production when you are.</p>
-            <Link href="/login?next=/app" className="landing-btn landing-btn-primary">
-              Get started — it&apos;s free
-            </Link>
+            <h2>Start building with agents today.</h2>
+            <p>Open the editor locally or sign in for cloud sessions, git, and team features.</p>
+            <div className="mkt-hero-actions mkt-hero-actions--center">
+              <Link href="/editor" className="landing-btn landing-btn-primary mkt-btn-primary">
+                Open web editor
+              </Link>
+              <Link href="/login?next=/code" className="landing-btn landing-btn-secondary mkt-btn-secondary">
+                Sign in
+              </Link>
+            </div>
           </ScrollReveal>
         </div>
       </LandingContainer>

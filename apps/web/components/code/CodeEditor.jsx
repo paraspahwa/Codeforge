@@ -87,6 +87,7 @@ export default function CodeEditor({
   onSave,
   onCursorChange,
   onSelectionChange,
+  onHoverContext,
   onEditorReady,
   onInlineEdit,
   onGoToDefinition,
@@ -96,6 +97,7 @@ export default function CodeEditor({
   loading = false,
   wordWrap = "on",
   minimap = true,
+  theme = "codeforge-dark",
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -166,7 +168,13 @@ export default function CodeEditor({
           "editorBracketMatch.border": "#38bdf8",
         },
       });
-      monaco.editor.setTheme("codeforge-dark");
+      const resolvedTheme =
+        theme === "vs" || theme === "light"
+          ? "vs"
+          : theme === "vs-dark" || theme === "dark"
+            ? "vs-dark"
+            : theme;
+      monaco.editor.setTheme(resolvedTheme);
 
       const saveAction = () => {
         if (!readOnly && onSave) {
@@ -212,6 +220,43 @@ export default function CodeEditor({
       });
 
       editor.addAction({
+        id: "codeforge-magic-pointer",
+        label: "Magic Pointer (Ctrl+Shift+G)",
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
+        run: () => {
+          reportCursor(editor);
+          reportSelection(editor);
+          const selection = editor.getSelection();
+          const model = editor.getModel();
+          const position = editor.getPosition();
+          const payload =
+            selection && model && !selection.isEmpty()
+              ? {
+                  startLine: selection.startLineNumber,
+                  endLine: selection.endLineNumber,
+                  startColumn: selection.startColumn,
+                  endColumn: selection.endColumn,
+                  text: model.getValueInRange(selection),
+                }
+              : null;
+          window.dispatchEvent(
+            new CustomEvent("codeforge:magic-pointer", {
+              detail: {
+                selection: payload,
+                cursor: position
+                  ? { lineNumber: position.lineNumber, column: position.column }
+                  : null,
+                cursorLine:
+                  position && model
+                    ? model.getLineContent(position.lineNumber)
+                    : "",
+              },
+            }),
+          );
+        },
+      });
+
+      editor.addAction({
         id: "codeforge-inline-edit",
         label: "Inline edit (Ctrl+K)",
         keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
@@ -253,12 +298,55 @@ export default function CodeEditor({
 
       editor.onDidChangeCursorPosition(() => reportCursor(editor));
       editor.onDidChangeCursorSelection(() => reportSelection(editor));
+
+      if (onHoverContext) {
+        let hoverTimer = null;
+        editor.onMouseMove((event) => {
+          if (hoverTimer) {
+            clearTimeout(hoverTimer);
+          }
+          hoverTimer = setTimeout(() => {
+            const target = event.target;
+            if (!target?.position) {
+              onHoverContext(null);
+              return;
+            }
+            const model = editor.getModel();
+            if (!model) {
+              return;
+            }
+            const word = model.getWordAtPosition(target.position);
+            const line = model.getLineContent(target.position.lineNumber);
+            onHoverContext({
+              lineNumber: target.position.lineNumber,
+              column: target.position.column,
+              hoverToken: word?.word || "",
+              cursorLineText: line,
+            });
+          }, 120);
+        });
+      }
+
       reportCursor(editor);
       reportSelection(editor);
       onEditorReady?.(editor, monaco);
     },
-    [onSave, onEditorReady, onInlineEdit, onGoToDefinition, onFindReferences, readOnly, reportCursor, reportSelection],
+    [onSave, onEditorReady, onInlineEdit, onGoToDefinition, onFindReferences, onHoverContext, readOnly, reportCursor, reportSelection, theme],
   );
+
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco) {
+      return;
+    }
+    const resolved =
+      theme === "vs" || theme === "light"
+        ? "vs"
+        : theme === "vs-dark" || theme === "dark"
+          ? "vs-dark"
+          : theme;
+    monaco.editor.setTheme(resolved);
+  }, [theme]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -327,7 +415,7 @@ export default function CodeEditor({
           path={path}
           language={language}
           value={value}
-          theme="codeforge-dark"
+          theme={theme === "vs" || theme === "light" ? "vs" : theme === "vs-dark" ? "vs-dark" : theme}
           onChange={(nextValue) => onChange(nextValue ?? "")}
           onMount={handleMount}
           loading={<p className="small muted code-editor-loading">Loading Monaco editor…</p>}

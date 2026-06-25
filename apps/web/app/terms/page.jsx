@@ -9,11 +9,16 @@ export const metadata = {
 export default function TermsPage() {
   return (
     <MarketingShell>
-      <LandingContainer>
-        <article className="marketing-legal">
-          <h1>Terms of Service</h1>
-          <p className="small marketing-legal-updated">Last updated: June 2026</p>
+      <section className="mkt-page-hero">
+        <LandingContainer>
+          <p className="mkt-eyebrow">Legal</p>
+          <h1 className="mkt-page-title">Terms of Service</h1>
+          <p className="mkt-page-lead">Last updated: June 2026</p>
+        </LandingContainer>
+      </section>
 
+      <LandingContainer>
+        <article className="marketing-legal mkt-prose mkt-legal-body">
           <section>
             <h2>Agreement</h2>
             <p>

@@ -83,12 +83,16 @@ class VectorStore:
     """Qdrant-first vector store with local in-process fallback."""
 
     def __init__(self) -> None:
-        self._url = os.getenv("QDRANT_URL", "http://localhost:6333")
+        self._url = os.getenv("QDRANT_URL", "http://localhost:6333").strip()
         self._collection = os.getenv("QDRANT_COLLECTION", "codeforge-context")
         self._client = None
         self._backend = "memory"
         self._memory_points: list[dict[str, Any]] = []
         self._embedding_source = "deterministic"
+
+        if not self._url:
+            logger.info("QDRANT_URL unset — using in-memory vector store")
+            return
 
         try:
             from qdrant_client import QdrantClient  # type: ignore

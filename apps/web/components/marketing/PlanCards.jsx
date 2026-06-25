@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-export default function PlanCards({ plans, loading, showCheckoutHint = true }) {
+export default function PlanCards({ plans, loading, showCheckoutHint = true, yearly = false }) {
   if (loading) {
     return <p className="small">Loading plans…</p>;
   }
@@ -28,7 +28,7 @@ export default function PlanCards({ plans, loading, showCheckoutHint = true }) {
             {plan.amount_inr > 0 ? (
               <>
                 ₹{plan.amount_inr}
-                <span className="small">/mo</span>
+                <span className="small">/{yearly ? "yr" : "mo"}</span>
               </>
             ) : (
               "Free"

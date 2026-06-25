@@ -5,6 +5,7 @@ import { ChatMessageList } from "@codeforge/ui";
 import ChatAttachments from "../chat/ChatAttachments";
 import ProposalReview from "../chat/ProposalReview";
 import CodebaseSearchPanel from "../code/CodebaseSearchPanel";
+import MagicPointerChips from "./MagicPointerChips";
 
 const MODES = ["Agent", "Ask", "Plan"];
 const MODELS = ["auto", "gpt-4o-mini", "gpt-4o"];
@@ -50,7 +51,15 @@ export default function ComposerPanel({
         <p className="small ide-selection-pill">
           {ws.selection.endLine - ws.selection.startLine + 1} lines selected in {ws.activePath}
         </p>
+      ) : ws.magicPointerArmed ? (
+        <p className="small ide-selection-pill">Magic Pointer armed — “this” refers to cursor context</p>
       ) : null}
+
+      <MagicPointerChips
+        entities={ws.pointerEntities}
+        onAction={ws.handlePointerEntityAction}
+        disabled={ws.loading}
+      />
 
       <div className="code-chat-messages ide-composer-messages">
         <ChatMessageList messages={ws.messages} />

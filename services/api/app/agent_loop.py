@@ -7,8 +7,15 @@ from uuid import uuid4
 from .agent import build_agent_run
 from .db import insert_agent_proposal, update_agent_proposal_status
 from .file_ops import apply_proposed_content
+from .loop_engineering import VerifyCommand
 from .models import utc_now
 from .shell_ops import ShellError, run_shell_command
+
+
+@dataclass(frozen=True)
+class VerifyStep:
+    command: str
+    cwd: str = "."
 
 
 @dataclass
@@ -29,26 +36,40 @@ class AgentLoopResult:
     passed: bool
     attempts: list[AgentLoopAttemptResult]
     message: str
+    verify_commands: list[str] | None = None
 
 
-async def run_verify_fix_loop(
-    *,
-    session_id: str,
-    user_id: str,
+def verify_commands_to_steps(commands: list[VerifyCommand]) -> list[VerifyStep]:
+    steps: list[VerifyStep] = []
+    for item in commands:
+        if item.required:
+            steps.append(VerifyStep(command=item.command, cwd=item.cwd))
+    return steps
+
+
+async def _run_verify_steps(
     project_path: str,
-    verify_command: str,
-    fix_prompt: str | None = None,
-    max_attempts: int = 3,
-    auto_apply: bool = True,
-    auto_mode: bool = False,
-    current_file: str | None = None,
-) -> AgentLoopResult:
-    prompt_seed = fix_prompt or "Fix the failing verification command with minimal, safe changes."
-    attempts: list[AgentLoopAttemptResult] = []
+    steps: list[VerifyStep],
+    *,
+    user_id: str,
+) -> dict[str, Any]:
+    if not steps:
+        return {
+            "exit_code": 1,
+            "summary": "No verify commands configured",
+            "passed": False,
+        }
 
-    for attempt in range(1, max_attempts + 1):
+    summaries: list[str] = []
+    for step in steps:
+        label = f"[{step.cwd}] {step.command}" if step.cwd not in {".", "./"} else step.command
         try:
-            verify = await run_shell_command(project_path, verify_command, user_id=user_id)
+            verify = await run_shell_command(
+                project_path,
+                step.command,
+                user_id=user_id,
+                working_dir=None if step.cwd in {".", "./"} else step.cwd,
+            )
         except ShellError as exc:
             verify = {
                 "exit_code": 1,
@@ -56,17 +77,61 @@ async def run_verify_fix_loop(
                 "passed": False,
             }
 
+        summaries.append(f"$ {label}\n{verify.get('summary', '')}")
+        if not verify.get("passed"):
+            return {
+                "exit_code": int(verify.get("exit_code", 1)),
+                "summary": "\n\n".join(summaries),
+                "passed": False,
+            }
+
+    return {
+        "exit_code": 0,
+        "summary": "\n\n".join(summaries),
+        "passed": True,
+    }
+
+
+async def run_verify_fix_loop(
+    *,
+    session_id: str,
+    user_id: str,
+    project_path: str,
+    verify_command: str | None = None,
+    verify_steps: list[VerifyStep] | None = None,
+    fix_prompt: str | None = None,
+    max_attempts: int = 5,
+    auto_apply: bool = True,
+    auto_mode: bool = False,
+    current_file: str | None = None,
+) -> AgentLoopResult:
+    if verify_steps:
+        steps = verify_steps
+        verify_label = " → ".join(step.command for step in steps)
+    elif verify_command:
+        steps = [VerifyStep(command=verify_command)]
+        verify_label = verify_command
+    else:
+        raise ValueError("verify_command or verify_steps is required")
+
+    prompt_seed = fix_prompt or "Fix the failing verification command with minimal, safe changes."
+    attempts: list[AgentLoopAttemptResult] = []
+
+    for attempt in range(1, max_attempts + 1):
+        verify = await _run_verify_steps(project_path, steps, user_id=user_id)
+
         if verify.get("passed"):
             return AgentLoopResult(
                 session_id=session_id,
                 passed=True,
                 attempts=attempts,
                 message=f"Verification passed on attempt {attempt}.",
+                verify_commands=[step.command for step in steps],
             )
 
         loop_prompt = (
             f"{prompt_seed}\n\n"
-            f"Verification command: {verify_command}\n"
+            f"Verification command(s): {verify_label}\n"
             f"Attempt: {attempt}/{max_attempts}\n"
             f"Latest verify output:\n{verify.get('summary', '')}"
         )
@@ -134,11 +199,12 @@ async def run_verify_fix_loop(
         passed=False,
         attempts=attempts,
         message=f"Verification did not pass within {max_attempts} attempt(s).",
+        verify_commands=[step.command for step in steps],
     )
 
 
 def serialize_loop_result(result: AgentLoopResult) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "session_id": result.session_id,
         "passed": result.passed,
         "message": result.message,
@@ -156,3 +222,6 @@ def serialize_loop_result(result: AgentLoopResult) -> dict[str, Any]:
             for item in result.attempts
         ],
     }
+    if result.verify_commands:
+        payload["verify_commands"] = result.verify_commands
+    return payload

@@ -12,16 +12,46 @@ function normalizeBaseUrl(baseUrl) {
   return String(baseUrl || "http://127.0.0.1:8000").replace(/\/+$/, "");
 }
 
-export function buildMessageContext({ workspacePath = null, activeFile = null, selection = null } = {}) {
-  if (!workspacePath && !activeFile && !selection) {
-    return null;
+export function buildMessageContext({
+  workspacePath = null,
+  activeFile = null,
+  selection = null,
+  lineNumber = null,
+  selectionStartLine = null,
+  selectionEndLine = null,
+  cursorLineText = null,
+  surroundingContext = null,
+  magicPointerArmed = false,
+} = {}) {
+  const context = {};
+  if (workspacePath) {
+    context.workspace_path = workspacePath;
   }
-
-  return {
-    workspace_path: workspacePath || null,
-    active_file: activeFile || null,
-    selection: selection || null,
-  };
+  if (activeFile) {
+    context.current_file = activeFile;
+  }
+  if (lineNumber) {
+    context.line_number = lineNumber;
+  }
+  if (selection) {
+    context.selection_text = selection;
+  }
+  if (selectionStartLine) {
+    context.selection_start_line = selectionStartLine;
+  }
+  if (selectionEndLine) {
+    context.selection_end_line = selectionEndLine;
+  }
+  if (cursorLineText) {
+    context.cursor_line_text = cursorLineText;
+  }
+  if (surroundingContext) {
+    context.surrounding_context = surroundingContext;
+  }
+  if (magicPointerArmed) {
+    context.magic_pointer_armed = true;
+  }
+  return Object.keys(context).length ? context : null;
 }
 
 export async function* runChatTurn(baseUrl, token, sessionId, { content, context = null }) {

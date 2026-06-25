@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
+import MarketingShell from "../../components/marketing/MarketingShell";
 import { listAgents } from "../../lib/api";
 import { AGENT_CATEGORIES, COMPLEXITY_LABELS, queueAgentSelection } from "../../lib/agent-catalog";
 import { queueChatGoal } from "../../lib/product-features";
@@ -47,22 +50,20 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="agents-page">
-      <header className="features-hero cf-animate-in">
-        <p className="features-hero-kicker">
-          <span className="cf-sparkle-inline" aria-hidden>🤖</span>
-          Agentic design patterns
-        </p>
-        <h1>{catalog.total || "30+"} AI agents — full agentic universe</h1>
-        <p className="features-hero-sub">
-          Foundational logic, ReAct &amp; reflection, multi-agent orchestration, human-in-the-loop, industry roles,
-          infrastructure, and lifecycle patterns — like Claude Code, AutoGen, and CrewAI.
-        </p>
-        <Link href="/features" className="features-hero-link cf-hover-lift">
-          ← All features
-        </Link>
-      </header>
+    <MarketingShell>
+      <MarketingPageHeader
+        eyebrow="Agent catalog"
+        title={`${catalog.total || "30+"} specialized agents`}
+        lead="Foundational logic, ReAct, multi-agent orchestration, human-in-the-loop, and infrastructure patterns — ready to run in your workspace."
+      >
+        <div className="mkt-page-links">
+          <Link href="/features">All features →</Link>
+          <Link href="/app">Open chat →</Link>
+        </div>
+      </MarketingPageHeader>
 
+      <LandingContainer>
+      <div className="agents-page mkt-content-page">
       <nav className="agent-category-nav cf-animate-in" aria-label="Filter by category">
         <button
           type="button"
@@ -113,7 +114,9 @@ export default function AgentsPage() {
             <AgentCardGrid agents={visibleAgents} onStart={startWithAgent} />
           </section>
         )}
-    </div>
+      </div>
+      </LandingContainer>
+    </MarketingShell>
   );
 }
 

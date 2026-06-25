@@ -132,12 +132,12 @@ function BentoTile({ tile, index }) {
 
 export default function LandingFeatures() {
   return (
-    <section id="features" className="landing-features landing-section-block">
+    <section id="capabilities" className="landing-features landing-section-block mkt-section">
       <LandingContainer>
-        <ScrollReveal className="landing-section-header">
-          <span className="landing-section-eyebrow">Platform</span>
-          <h2>Everything you need to ship</h2>
-          <p>One workspace for planning, building, automating, and deploying — from first idea to production.</p>
+        <ScrollReveal className="landing-section-header mkt-section-header">
+          <span className="landing-section-eyebrow mkt-eyebrow">Platform</span>
+          <h2>Everything in one agentic workspace</h2>
+          <p>IDE, composer, MCP research, and verify loops — the stack Cursor and Linear users expect, tuned for India.</p>
         </ScrollReveal>
 
         <div className="landing-bento">

@@ -7,6 +7,7 @@
     "./api": "./src/api.js",
     "./agent": "./src/agentClient.js",
     "./sse": "./src/sse.js",
-    "./sessions": "./src/sessions.js"
+    "./sessions": "./src/sessions.js",
+    "./magic-pointer": "./src/magic-pointer.js"
   }
 }

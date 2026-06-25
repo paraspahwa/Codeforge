@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 import { formatSessionListLabel } from "@codeforge/shared/sessions";
 
+import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import {
   addTeamWorkspaceMember,
   approveTeamDelegationStep,
@@ -859,13 +861,14 @@ export default function TeamPage() {
   );
 
   return (
-    <div className="stack">
-      <section className="panel">
-        <h2>Team platform</h2>
-        <p className="small">
-          Shared workspaces, project knowledge indexing, and delegated agent tasks for collaborative workflows.
-        </p>
-      </section>
+    <>
+      <MarketingPageHeader
+        eyebrow="Account"
+        title="Team"
+        lead="Shared workspaces, project knowledge indexing, and delegated agent tasks for collaborative workflows."
+      />
+      <LandingContainer>
+        <div className="stack mkt-account-content mkt-settings-content">
       <Tabs
         defaultTab="workspaces"
         tabs={[
@@ -877,6 +880,8 @@ export default function TeamPage() {
           { id: "audit", label: "Audit", content: auditTab },
         ]}
       />
-    </div>
+        </div>
+      </LandingContainer>
+    </>
   );
 }

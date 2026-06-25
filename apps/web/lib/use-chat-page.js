@@ -35,6 +35,7 @@ import {
   listAgents,
   rewindCheckpoint,
   rollbackWorkflowPlan,
+  resolveLoopVerify,
   runAgentLoop,
   searchSymbols,
   searchWeb,
@@ -52,6 +53,11 @@ import { advanceBuildJourney, detectJourneyStepFromText } from "./build-journey"
 import { runSlashCommand } from "./slash-commands";
 import { readSessionIdFromUrl, syncSessionIdInUrl } from "./session-route";
 import { useToast } from "./toast-context";
+import {
+  buildPointerPayload,
+  detectEntitiesInText,
+  readMagicPointerState,
+} from "@codeforge/shared/magic-pointer";
 
 const DEFAULT_PROJECT_PATH = "/workspaces/demo";
 
@@ -83,9 +89,9 @@ export function useChatPage() {
   const [activePlanId, setActivePlanId] = useState("");
   const [workflowOutput, setWorkflowOutput] = useState("");
   const [autoMode, setAutoMode] = useState(false);
-  const [loopVerify, setLoopVerify] = useState("pytest -q");
+  const [loopVerify, setLoopVerify] = useState("");
   const [loopPrompt, setLoopPrompt] = useState("Fix verification failures with minimal safe edits.");
-  const [loopMaxAttempts, setLoopMaxAttempts] = useState(3);
+  const [loopMaxAttempts, setLoopMaxAttempts] = useState(5);
   const [loopRunning, setLoopRunning] = useState(false);
   const [artifacts, setArtifacts] = useState([]);
   const [selectedArtifactId, setSelectedArtifactId] = useState("");
@@ -103,6 +109,8 @@ export function useChatPage() {
   );
   const [sessionFilter, setSessionFilter] = useState("");
   const [activeFile, setActiveFile] = useState("");
+  const [pointerEntities, setPointerEntities] = useState([]);
+  const [magicPointerArmed, setMagicPointerArmed] = useState(false);
   const [gitSummary, setGitSummary] = useState("");
   const [shellCommand, setShellCommand] = useState("pytest -q");
   const [shellOutput, setShellOutput] = useState("");
@@ -264,6 +272,21 @@ export function useChatPage() {
     getGitStatus(token, sessionId)
       .then((status) => setGitSummary(`${status.branch} · ${status.summary}`))
       .catch(() => undefined);
+    resolveLoopVerify(sessionId, token)
+      .then((result) => {
+        setLoopVerify(result.verify_command || "");
+        if (result.max_attempts) {
+          setLoopMaxAttempts(result.max_attempts);
+        }
+      })
+      .catch(() => undefined);
+    const storedPointer = readMagicPointerState();
+    if (storedPointer?.file_path) {
+      setActiveFile(storedPointer.file_path);
+      setPointerEntities(storedPointer.detected_entities || detectEntitiesInText(
+        [storedPointer.selection_text, storedPointer.cursor_line_text].filter(Boolean).join("\n"),
+      ));
+    }
   }, [token, sessionId]);
 
   useEffect(() => {
@@ -350,6 +373,32 @@ export function useChatPage() {
     setAgentEvents((prev) => [...entries.filter(Boolean), ...prev].slice(0, 12));
   }
 
+  function buildChatMessageContext(options = {}) {
+    const stored = readMagicPointerState();
+    const base = stored?.file_path
+      ? {
+          current_file: stored.file_path,
+          line_number: stored.line_number,
+          selection_start_line: stored.selection_start_line,
+          selection_end_line: stored.selection_end_line,
+          selection_text: stored.selection_text,
+          cursor_line_text: stored.cursor_line_text,
+          surrounding_context: stored.surrounding_context,
+          magic_pointer_armed: magicPointerArmed || stored.magic_pointer_armed,
+        }
+      : {};
+    if (activeFile.trim() && !base.current_file) {
+      base.current_file = activeFile.trim();
+    }
+    return {
+      ...base,
+      plan_mode: options.planMode ?? planMode,
+      permission_mode: permissionMode,
+      agent_type: options.agentType || selectedAgent,
+      attached_files: attachedFiles,
+    };
+  }
+
   async function dispatchUserMessage(userText, activeSessionId = sessionId, options = {}) {
     if (!token || !activeSessionId || !userText.trim()) {
       return;
@@ -367,13 +416,7 @@ export function useChatPage() {
       { id: assistantId, role: "assistant", content: "" },
     ]);
 
-    const messageContext = {
-      ...(activeFile.trim() ? { current_file: activeFile.trim() } : {}),
-      plan_mode: effectivePlanMode,
-      permission_mode: permissionMode,
-      agent_type: options.agentType || selectedAgent,
-      attached_files: attachedFiles,
-    };
+    const messageContext = buildChatMessageContext(options);
     const hasContext = Object.keys(messageContext).length > 0;
     const sent = await sendMessage(
       activeSessionId,
@@ -382,6 +425,7 @@ export function useChatPage() {
       hasContext ? messageContext : null,
       selectedTemplateId || null,
     );
+    setMagicPointerArmed(false);
     setAttachedFiles([]);
     setRoutingSignal({
       intent: sent.intent,
@@ -587,8 +631,12 @@ export function useChatPage() {
           sessionId,
           planMode,
           attachedFiles,
+          pointerContext: buildChatMessageContext(),
         });
         if (commandResult.handled) {
+          if (commandResult.magicPointerArmed) {
+            setMagicPointerArmed(true);
+          }
           if (commandResult.activeFile) {
             setActiveFile(commandResult.activeFile);
           }
@@ -770,21 +818,24 @@ export function useChatPage() {
       toast.push("Create or select a session first");
       return;
     }
-    if (!loopVerify.trim()) {
-      toast.push("Enter a verify command (e.g. pytest -q)");
-      return;
-    }
 
     setLoopRunning(true);
     setLoading(true);
     try {
-      const result = await runAgentLoop(sessionId, token, {
-        verify_command: loopVerify.trim(),
+      const payload = {
         prompt: loopPrompt.trim() || "Fix verification failures with minimal safe edits.",
-        max_attempts: Number(loopMaxAttempts) || 3,
+        max_attempts: Number(loopMaxAttempts) || 5,
         auto_apply: true,
         auto_mode: autoMode,
-      });
+      };
+      if (loopVerify.trim()) {
+        payload.verify_command = loopVerify.trim();
+        payload.auto_resolve = false;
+      } else {
+        payload.auto_resolve = true;
+      }
+
+      const result = await runAgentLoop(sessionId, token, payload);
 
       const attemptLines = result.attempts.map((item) => {
         const applied = item.applied ? " · applied" : "";
@@ -1247,6 +1298,12 @@ export function useChatPage() {
     }
   }
 
+  function handlePointerEntityAction(entity) {
+    const action = entity.suggested_actions?.[0] || `Investigate ${entity.value}`;
+    setPrompt(`Regarding ${entity.kind} "${entity.value}": ${action}. `);
+    setMagicPointerArmed(true);
+  }
+
   return {
     ready,
     token,
@@ -1300,6 +1357,9 @@ export function useChatPage() {
     setSessionFilter,
     activeFile,
     setActiveFile,
+    pointerEntities,
+    handlePointerEntityAction,
+    magicPointerArmed,
     gitSummary,
     shellCommand,
     setShellCommand,

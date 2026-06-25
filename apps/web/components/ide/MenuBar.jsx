@@ -20,6 +20,7 @@ const MENUS = [
     label: "Edit",
     items: [
       { id: "inline-edit", label: "Inline edit", shortcut: "Ctrl+K" },
+      { id: "magic-pointer", label: "Magic Pointer", shortcut: "Ctrl+Shift+G" },
       { id: "toggle-wrap", label: "Toggle word wrap" },
       { id: "format", label: "Format document", shortcut: "Shift+Alt+F" },
       { id: "split-right", label: "Split editor right" },

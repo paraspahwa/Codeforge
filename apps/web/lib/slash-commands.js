@@ -35,6 +35,7 @@ import {
   streamShellCommand,
   updateAgentPreferences,
 } from "./api";
+import { formatActiveCursorContext, readMagicPointerState } from "@codeforge/shared/magic-pointer";
 
 const HELP_TEXT = `CodeForge workspace commands:
 
@@ -58,6 +59,7 @@ const HELP_TEXT = `CodeForge workspace commands:
 /context — show active context stack
 /context add <path> — pin file to session context
 /compact — summarize conversation context
+/pointer — show Magic Pointer context (or arm with Ctrl+Shift+G)
 /pr create <title> — create GitHub/GitLab pull request
 /rewind <checkpoint_id> — restore files to checkpoint
 
@@ -79,7 +81,15 @@ function parseCommand(text) {
 /**
  * @returns {Promise<{ handled: boolean, reply?: string, activeFile?: string, activePlanId?: string, planMode?: boolean, attachedFiles?: string[] }>}
  */
-export async function runSlashCommand({ text, token, projectPath, sessionId, planMode = false, attachedFiles = [] }) {
+export async function runSlashCommand({
+  text,
+  token,
+  projectPath,
+  sessionId,
+  planMode = false,
+  attachedFiles = [],
+  pointerContext = null,
+}) {
   const parsed = parseCommand(text);
   if (!parsed) {
     return { handled: false };
@@ -99,6 +109,32 @@ export async function runSlashCommand({ text, token, projectPath, sessionId, pla
   }
 
   try {
+    if (name === "pointer") {
+      const ctx = pointerContext || readMagicPointerState();
+      const filePath = ctx?.file_path || ctx?.filePath || ctx?.current_file;
+      if (!filePath) {
+        return {
+          handled: true,
+          reply:
+            "Magic Pointer: open /code, place the cursor or highlight code, then press Ctrl+Shift+G or send your next prompt with deictic language (e.g. “optimize this”).",
+        };
+      }
+      const block = formatActiveCursorContext({
+        filePath,
+        lineNumber: ctx.line_number || ctx.lineNumber,
+        selectionStartLine: ctx.selection_start_line || ctx.selectionStartLine,
+        selectionEndLine: ctx.selection_end_line || ctx.selectionEndLine,
+        selectionText: ctx.selection_text || ctx.selectionText,
+        cursorLineText: ctx.cursor_line_text || ctx.cursorLineText,
+        surroundingContext: ctx.surrounding_context || ctx.surroundingContext,
+      });
+      return {
+        handled: true,
+        reply: block || "No cursor context captured yet.",
+        magicPointerArmed: true,
+      };
+    }
+
     if (name === "file") {
       const path = argLine.trim();
       if (!path) {

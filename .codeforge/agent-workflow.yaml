@@ -1,0 +1,190 @@
+# CodeForge Agent Workflow — Cursor-parity configuration
+# Loaded from {project_root}/.codeforge/agent-workflow.yaml when a session binds to a project.
+# See docs/cursor-parity-blueprint.md for the full implementation plan.
+
+version: 1
+
+# ── Codebase indexing ──────────────────────────────────────────────────────────
+indexing:
+  enabled: true
+  # vector backend: qdrant | local-disabled (when QDRANT_URL is empty)
+  backend: qdrant
+  # Rebuild knowledge index when git HEAD changes or index older than max_age_hours
+  auto_rebuild:
+    on_session_start: true
+    on_git_head_change: true
+    max_age_hours: 24
+  # Glob patterns skipped during indexing (gitignore-style)
+  ignore:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/.next/**"
+    - "**/__pycache__/**"
+    - "**/.venv/**"
+    - "**/coverage/**"
+    - "**/*.min.js"
+    - "**/*.map"
+  # Max file size (bytes) to chunk and embed
+  max_file_bytes: 512000
+  # Max total tokens injected from @workspace resolution
+  workspace_token_budget: 12000
+
+# ── @-Mentions (Cursor-style context) ─────────────────────────────────────────
+mentions:
+  enabled: true
+  triggers:
+    - "@"
+  types:
+    workspace:
+      aliases: ["@workspace", "@codebase"]
+      description: "Top-k semantic chunks across the indexed repository"
+      default_top_k: 8
+    file:
+      aliases: ["@file"]
+      description: "Full file or line range, e.g. @file:apps/web/lib/api.js:10-40"
+      max_lines: 400
+    folder:
+      aliases: ["@folder"]
+      description: "All indexable files under a directory"
+      max_files: 20
+    symbols:
+      aliases: ["@symbols", "@symbol"]
+      description: "Ripgrep/symbol search hits"
+      max_results: 15
+  # Server-side resolution before each agent turn
+  resolve_before_stream: true
+  # Show autocomplete picker in web chat (not only /code Composer)
+  web_picker_surfaces:
+    - "/code"
+    - "/app"
+
+# ── Multi-file Composer ────────────────────────────────────────────────────────
+composer:
+  enabled: true
+  modes:
+    ask:
+      allow_file_writes: false
+      allow_shell: false
+    plan:
+      allow_file_writes: false
+      allow_shell: false
+      persist_plan: true
+    agent:
+      allow_file_writes: true
+      allow_shell: true
+      require_proposal_approval: true
+    composer:
+      # Closest to Cursor Composer: plan → approve → multi-file execute → verify
+      allow_file_writes: true
+      allow_shell: true
+      workflow:
+        - create_plan          # POST .../workflows/plan
+        - await_approval
+        - execute_plan         # POST .../workflows/plan/{id}/execute
+        - verify               # run_verify_fix_loop when auto_verify true
+  multi_file:
+    max_files_per_plan: 25
+    snapshot_before_execute: true
+    rollback_on_failure: true
+  # Default mode for /code ComposerPanel and /app when user selects "Composer"
+  default_mode: agent
+
+# ── Terminal & verification ──────────────────────────────────────────────────
+terminal:
+  enabled: true
+  # subprocess = current shell_ops; pty = future WebSocket terminal (Phase 3)
+  transport: subprocess
+  # Policy tier applied to agent-initiated commands
+  policy: verify
+  policies:
+    readonly:
+      allow_shell: true
+      allowed_commands:
+        - pwd
+        - ls
+        - dir
+        - cat
+        - rg
+        - git status
+        - git diff
+        - git log
+    verify:
+      extends: readonly
+      allowed_commands:
+        - npm run test
+        - npm run lint
+        - npm run build
+        - npx
+        - pytest
+        - python -m pytest
+        - cargo test
+        - cargo check
+        - go test
+        - dotnet test
+    dev:
+      extends: verify
+      allowed_commands:
+        - npm run dev
+        - npm start
+        - docker compose
+    full:
+      # Unrestricted except built-in blocklist in shell_ops.py — use with caution
+      allow_shell: true
+      allowed_commands: ["*"]
+  # Commands run automatically after successful multi-file apply
+  auto_verify: true
+  verify_commands:
+    - "npm run api:test"
+    - "npm run lint:web"
+    - "npm run build:web"
+  verify_timeout_seconds: 300
+  max_output_bytes: 1048576
+
+# ── Loop Engineering (strict autonomous verify/fix) ───────────────────────────
+loop_engineering:
+  enabled: true
+  config_path: ".codeforge/loop-engineering.yaml"
+  resolve_endpoint: "/api/v1/sessions/{session_id}/loop/resolve"
+  max_attempts: 5
+  auto_heal: true
+  autonomous: true
+  # Injected into agent system context when project_memory loads AGENTS.md
+  agents_md: ".codeforge/AGENTS.md"
+
+# ── Inline edit (Ctrl+K) ───────────────────────────────────────────────────────
+inline_edit:
+  enabled: true
+  shortcut:
+    web: "Ctrl+K"
+    mac: "Cmd+K"
+  # Send structured selection block to API (Phase 4)
+  structured_context: true
+  # Auto-apply small diffs without proposal review modal
+  fast_apply:
+    enabled: false
+    max_changed_lines: 30
+    require_tests_pass: true
+  # Surfaces where inline edit is available
+  surfaces:
+    - "/code"
+    # - "/app"   # enable after Monaco bridge lands
+
+# ── Agent defaults ───────────────────────────────────────────────────────────
+agent:
+  # Inject project memory files at session start
+  project_memory_files:
+    - "CODEFORGE.md"
+    - "CLAUDE.md"
+    - ".codeforge/AGENTS.md"
+  # Attach resolved @-mentions + knowledge RAG
+  context:
+    include_mentions: true
+    include_team_knowledge: true
+    include_context_packs: true
+    max_context_tokens: 32000
+  # Skills discovery (existing .codeforge/skills/)
+  skills:
+    enabled: true
+    prefer_project_over_bundled: true

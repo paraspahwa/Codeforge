@@ -551,7 +551,7 @@ export function useCodeWorkspace() {
       const result = await runAgentLoop(token, sessionId, {
         verify_command: loopVerify.trim(),
         prompt: "Fix verification failures with minimal safe edits.",
-        max_attempts: 3,
+        max_attempts: 5,
         auto_apply: true,
         auto_mode: autoMode,
         current_file: selectedFile || null,

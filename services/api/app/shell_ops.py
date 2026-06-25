@@ -143,19 +143,33 @@ def _resolve_shell_executable() -> tuple[str, bool]:
     raise ShellError("No supported shell is available (bash or PowerShell)")
 
 
+def _resolve_working_directory(root: Path, working_dir: str | None) -> Path:
+    if not working_dir or working_dir in {".", "./"}:
+        return root
+    candidate = (root / working_dir).resolve()
+    root_resolved = root.resolve()
+    if candidate != root_resolved and root_resolved not in candidate.parents:
+        raise ShellError("working_dir escapes project root")
+    if not candidate.exists() or not candidate.is_dir():
+        raise ShellError("working_dir does not exist")
+    return candidate
+
+
 def prepare_shell_execution(
     project_path: str,
     command: str,
     *,
     user_rtk_enabled: bool | None = None,
+    working_dir: str | None = None,
 ) -> tuple[Path, str, str, bool, bool]:
     root = _normalize_project_path(project_path)
+    cwd = _resolve_working_directory(root, working_dir)
     sanitized = _validate_shell_command(command)
     rtk_applied = should_apply_rtk(sanitized, user_rtk_enabled=user_rtk_enabled)
     if rtk_applied:
-        return root, sanitized, "rtk", True, False
+        return cwd, sanitized, "rtk", True, False
     shell_executable, use_bash = _resolve_shell_executable()
-    return root, sanitized, shell_executable, False, use_bash
+    return cwd, sanitized, shell_executable, False, use_bash
 
 
 async def _run_subprocess_collect(
@@ -244,6 +258,7 @@ async def run_shell_command(
     *,
     user_id: str | None = None,
     user_rtk_enabled: bool | None = None,
+    working_dir: str | None = None,
 ) -> dict[str, Any]:
     """Run a sandboxed shell command and collect stdout for verification loops."""
     from .skills_service import skills_service
@@ -256,6 +271,7 @@ async def run_shell_command(
         project_path,
         command,
         user_rtk_enabled=resolved_rtk,
+        working_dir=working_dir,
     )
 
     if rtk_applied:

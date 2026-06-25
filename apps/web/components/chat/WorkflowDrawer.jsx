@@ -60,7 +60,7 @@ export default function WorkflowDrawer({
             value={loopVerify}
             onChange={(event) => onLoopVerifyChange(event.target.value)}
             disabled={loading || loopRunning}
-            placeholder="pytest -q"
+            placeholder="auto from .codeforge/loop-engineering.yaml"
           />
           <textarea
             rows={2}
@@ -79,7 +79,7 @@ export default function WorkflowDrawer({
           <Button
             type="button"
             onClick={onRunLoop}
-            disabled={!sessionId || loading || loopRunning || !loopVerify.trim() || !sessionWritable}
+            disabled={!sessionId || loading || loopRunning || !sessionWritable}
           >
             {loopRunning ? "Loop running…" : "Run Loop"}
           </Button>

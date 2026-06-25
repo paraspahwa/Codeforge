@@ -46,7 +46,19 @@ See `docs/microservices.md` for gateway (:8080) vs direct ports.
 
 ## Testing
 
-- API: `npm run api:test`
+- API: `npm run api:test` (pytest in `services/api`)
+- Web: `npm run lint:web`, `npm run build:web` (no Jest unit tests in web workspace)
 - Web route audit: `npm run audit:web`
+- VS Code ext: `npm run check:vscode`
+- Desktop: `cargo check` in `apps/desktop/src-tauri`
 - E2E: `npm run test:e2e` (Playwright)
 - A11y: `npm run test:a11y`
+- CI order: api-tests → web-audit (build + route audit) → e2e-smoke
+
+## Loop Engineering
+
+Autonomous verify/fix after code changes: see `.cursor/rules/loop-engineering.mdc` and `.codeforge/loop-engineering.yaml` (max **5** attempts).
+
+## Magic Pointer
+
+Cursor-aware context and deictic language ("this", "that"): `.cursor/rules/magic-pointer.mdc`, `.codeforge/magic-pointer.yaml`, **Ctrl+Shift+G** on `/code`.

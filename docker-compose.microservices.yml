@@ -56,6 +56,7 @@ services:
         NEXT_PUBLIC_API_BASE: http://localhost:8080
     environment:
       NEXT_PUBLIC_API_BASE: http://localhost:8080
+      CODEFORGE_PUBLIC_API_BASE: http://api:8000
       CODEFORGE_DEV_LOGIN_SECRET: ${CODEFORGE_DEV_LOGIN_SECRET:-local-dev-login-secret}
     depends_on:
       api:
@@ -78,3 +79,10 @@ services:
   worker:
     environment:
       CODEFORGE_ENV: development
+      CODEFORGE_DISABLE_PLAYWRIGHT: "true"
+
+  worker-browser:
+    profiles: ["browser"]
+    environment:
+      CODEFORGE_ENV: development
+      CODEFORGE_DISABLE_PLAYWRIGHT: "false"

@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { EmptyState, Skeleton, Tabs } from "@codeforge/ui";
 
+import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import {
   createContextPack,
   createMcpConnector,
   exportTaste,
   exportMemory,
   getAgentPreferences,
+  getAccountProfile,
+  changeAccountPassword,
   getDeployReadiness,
   getAgentReachStatus,
   getHermesStatus,
@@ -67,8 +71,15 @@ function groupSkillsByCatalog(skills) {
 }
 
 export default function SettingsPage() {
-  const { userId, token, ready } = useAuth();
+  const { userId, token, ready, logout } = useAuth();
   const toast = useToast();
+
+  const [accountProfile, setAccountProfile] = useState(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const [projectPath, setProjectPath] = useState("");
   const [packs, setPacks] = useState([]);
@@ -159,6 +170,11 @@ export default function SettingsPage() {
         setPlanModeDefault(Boolean(prefs.plan_mode_default));
       })
       .catch(() => setAgentPrefs(null));
+    setAccountLoading(true);
+    getAccountProfile(token)
+      .then(setAccountProfile)
+      .catch(() => setAccountProfile(null))
+      .finally(() => setAccountLoading(false));
     getRtkStatus(token)
       .then(setRtkStatus)
       .catch(() => setRtkStatus(null));
@@ -343,8 +359,96 @@ export default function SettingsPage() {
 
   const profileTab = (
       <section className="panel">
-        <h2>Profile</h2>
-        <p className="small">User: {userId || "not logged in"}</p>
+        <h2>Account</h2>
+        {accountLoading ? (
+          <Skeleton lines={3} />
+        ) : accountProfile ? (
+          <>
+            <p className="small">
+              <strong>Email:</strong> {accountProfile.email}
+            </p>
+            <p className="small">
+              <strong>Username:</strong> {accountProfile.username}
+            </p>
+            <p className="small">
+              <strong>Member since:</strong> {new Date(accountProfile.created_at).toLocaleString()}
+            </p>
+            <h3 className="mt-8">Change password</h3>
+            <label className="small" htmlFor="current-password">
+              Current password
+            </label>
+            <input
+              id="current-password"
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+            <label className="small mt-6" htmlFor="new-password">
+              New password
+            </label>
+            <input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+            <label className="small mt-6" htmlFor="confirm-password">
+              Confirm new password
+            </label>
+            <input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+            <div className="mt-6">
+              <button
+                type="button"
+                disabled={passwordSaving || !currentPassword || !newPassword || newPassword !== confirmPassword}
+                onClick={async () => {
+                  if (!token) {
+                    return;
+                  }
+                  setPasswordSaving(true);
+                  try {
+                    await changeAccountPassword(token, {
+                      currentPassword,
+                      newPassword,
+                    });
+                    setCurrentPassword("");
+                    setNewPassword("");
+                    setConfirmPassword("");
+                    toast.push("Password updated", "success");
+                  } catch (error) {
+                    toast.push(error.message);
+                  } finally {
+                    setPasswordSaving(false);
+                  }
+                }}
+              >
+                {passwordSaving ? "Saving…" : "Update password"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="small">User: {userId || "not logged in"}</p>
+        )}
+        <div className="mt-8">
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={async () => {
+              await logout();
+              window.location.assign("/login");
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+        <h3 className="mt-8">Session</h3>
         <p className="small">API base: {API_BASE}</p>
         <h3 className="mt-8">Onboarding language</h3>
         <p className="small">Hinglish copy on chat welcome and composer — English + Hindi mix for Indian founders.</p>
@@ -1010,13 +1114,14 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="stack">
-      <section className="panel">
-        <h2>Settings</h2>
-        <p className="small">
-          Profile, project defaults, token saver, memory, coding taste, context packs, MCP connectors, and deploy readiness.
-        </p>
-      </section>
+    <>
+      <MarketingPageHeader
+        eyebrow="Account"
+        title="Settings"
+        lead="Profile, project defaults, memory, taste, MCP connectors, skills, and deploy readiness."
+      />
+      <LandingContainer>
+        <div className="stack mkt-account-content mkt-settings-content">
       <Tabs
         defaultTab="profile"
         tabs={[
@@ -1031,6 +1136,8 @@ export default function SettingsPage() {
           { id: "deploy", label: "Deploy", content: deployTab },
         ]}
       />
-    </div>
+        </div>
+      </LandingContainer>
+    </>
   );
 }

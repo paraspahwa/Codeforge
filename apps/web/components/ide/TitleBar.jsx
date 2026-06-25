@@ -9,6 +9,7 @@ export default function TitleBar({
   onGlobalSearchChange,
   onOpenQuickOpen,
   usage,
+  onRun,
 }) {
   return (
     <header className="ide-title-bar">
@@ -41,6 +42,11 @@ export default function TitleBar({
         />
       </div>
       <div className="ide-title-right">
+        {onRun ? (
+          <button type="button" className="ide-title-run-btn" onClick={onRun} title="Run (Ctrl+Shift+R)">
+            Run
+          </button>
+        ) : null}
         {usage ? <span className="ide-title-usage">{usage.requests_remaining ?? 0} req left</span> : null}
       </div>
     </header>

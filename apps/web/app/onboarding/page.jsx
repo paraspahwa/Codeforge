@@ -6,6 +6,7 @@ import { Suspense } from "react";
 
 import { Button, Panel } from "@codeforge/ui";
 
+import AuthLayout from "../../components/marketing/AuthLayout";
 import { audienceHomePath, setAudiencePreference } from "../../lib/audience-preference";
 
 function OnboardingContent() {
@@ -23,10 +24,15 @@ function OnboardingContent() {
   }
 
   return (
-    <div className="onboarding-page">
-      <Panel className="onboarding-card">
-        <h1>Welcome to CodeForge</h1>
-        <p className="small">Pick how you want to start — you can change this later in Settings.</p>
+    <AuthLayout>
+    <div className="onboarding-page mkt-auth-center">
+      <Panel className="onboarding-card mkt-auth-card">
+        <div className="brand login-brand mkt-brand">
+          <span className="brand-mark mkt-brand-mark">CF</span>
+          <span>Welcome</span>
+        </div>
+        <h1 className="mkt-auth-title">How will you use CodeForge?</h1>
+        <p className="small mkt-auth-tagline">Pick a starting point — you can change this later in Settings.</p>
         <div className="onboarding-actions">
           <Button type="button" onClick={() => choose("founder")}>
             I have an idea (founder)
@@ -35,11 +41,14 @@ function OnboardingContent() {
             I write code (developer)
           </Button>
         </div>
-        <p className="small">
+        <p className="small login-footer">
+          <Link href="/editor">Try editor without signing in</Link>
+          {" · "}
           <Link href="/app">Skip for now</Link>
         </p>
       </Panel>
     </div>
+    </AuthLayout>
   );
 }
 

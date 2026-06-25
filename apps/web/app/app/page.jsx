@@ -9,6 +9,7 @@ import AgentToolsPanel from "../../components/chat/AgentToolsPanel";
 import AgentWelcome from "../../components/chat/AgentWelcome";
 import ChatLayout from "../../components/chat/ChatLayout";
 import Composer from "../../components/chat/Composer";
+import MagicPointerChips from "../../components/ide/MagicPointerChips";
 import DeployChecklistPanel from "../../components/chat/DeployChecklistPanel";
 import FounderPreviewPanel from "../../components/chat/FounderPreviewPanel";
 import ParallelSessionsBar from "../../components/chat/ParallelSessionsBar";
@@ -198,6 +199,12 @@ export default function ChatPage() {
         sessionChecks={chat.sessionDeployChecks}
         loading={chat.deployReadinessLoading}
         onDismiss={chat.dismissPostRunPanels}
+      />
+
+      <MagicPointerChips
+        entities={chat.pointerEntities}
+        onAction={chat.handlePointerEntityAction}
+        disabled={chat.loading}
       />
 
       <Composer

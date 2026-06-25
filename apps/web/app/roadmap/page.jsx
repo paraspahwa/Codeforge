@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import MarketingShell from "../../components/marketing/MarketingShell";
 import { ScrollReveal } from "../../components/marketing/useScrollReveal";
 import { getQualitySummary } from "../../lib/api";
@@ -26,19 +27,16 @@ export default function RoadmapPage() {
 
   return (
     <MarketingShell>
-      <section className="landing-page-hero-band">
-        <LandingContainer>
-          <ScrollReveal immediate>
-            <h1>Product roadmap</h1>
-            <p className="landing-hero-lead">{PRIMARY_WEDGE.summary}</p>
-          </ScrollReveal>
-        </LandingContainer>
-      </section>
+      <MarketingPageHeader
+        eyebrow="Roadmap"
+        title="Product roadmap"
+        lead={PRIMARY_WEDGE.summary}
+      />
 
-      <section className="marketing-section">
+      <section className="marketing-section mkt-content-section">
         <LandingContainer>
-          <ScrollReveal className="landing-section-header">
-            <span className="landing-section-eyebrow">Quality</span>
+          <ScrollReveal className="mkt-section-header">
+            <span className="mkt-eyebrow">Quality</span>
             <h2>Agent quality metrics</h2>
             <p>Published results from our SWE-bench-style regression harness — run in CI on every quality gate.</p>
           </ScrollReveal>
@@ -87,8 +85,8 @@ export default function RoadmapPage() {
             {quality?.description ? <p className="quality-metrics-note small">{quality.description}</p> : null}
           </ScrollReveal>
 
-          <ScrollReveal className="landing-section-header">
-            <span className="landing-section-eyebrow">Transparency</span>
+          <ScrollReveal className="mkt-section-header">
+            <span className="mkt-eyebrow">Transparency</span>
             <h2>What we&apos;re building</h2>
             <p>
               Shipped items are live in the product today. In-progress work is actively being built. Planned items are
@@ -126,11 +124,11 @@ export default function RoadmapPage() {
             <code>docs/product-roadmap.md</code> in the repository.
           </p>
 
-          <div className="roadmap-cta-row">
-            <Link href="/login?next=/app" className="landing-btn landing-btn-primary">
-              Start building free
+          <div className="roadmap-cta-row mkt-cta-row">
+            <Link href="/editor" className="landing-btn landing-btn-primary mkt-btn-primary">
+              Open editor
             </Link>
-            <Link href="/pricing" className="landing-btn landing-btn-secondary">
+            <Link href="/pricing" className="landing-btn landing-btn-secondary mkt-btn-secondary">
               View pricing
             </Link>
           </div>

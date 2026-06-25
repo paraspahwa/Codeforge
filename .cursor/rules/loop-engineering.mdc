@@ -1,0 +1,57 @@
+---
+description: Loop Engineering — autonomous verify/fix cycles after every code change
+alwaysApply: true
+---
+
+# Loop Engineering protocol
+
+After **any** code generation or modification, run the **Execution Loop** before reporting success. Do not ask the user to run tests first.
+
+## 1. Execution loop (mandatory)
+
+1. **Identify scope** from changed paths (see `.codeforge/loop-engineering.yaml`).
+2. **Run verify commands** via the Terminal tool — smallest relevant set first (lint → unit tests → build).
+3. **Read full stderr/stdout** on non-zero exit; treat warnings that fail CI as failures.
+
+### Default commands (CodeForge monorepo)
+
+| Changed paths | Run (in order) |
+|---------------|----------------|
+| `services/api/**` | `npm run api:test` |
+| `apps/web/**` | `npm run lint:web` then `npm run build:web` |
+| `apps/vscode/**` | `npm run check:vscode` |
+| `apps/desktop/**` or `**/src-tauri/**` | `cd apps/desktop/src-tauri && cargo check` |
+| `e2e/**` or Playwright specs | `npm run test:e2e` (only if e2e files changed) |
+| Root `package.json` / workspaces | `npm run api:test` + scoped commands for touched apps |
+
+No Rust/Python/Node tests in a package? Run its **build** or **lint** command instead.
+
+## 2. Auto-healing (no user pause)
+
+If verify fails:
+
+1. Capture the **full error trace** (last ~80 lines if huge).
+2. **Diagnose** root cause; prefer minimal fixes over refactors.
+3. **Patch** the code.
+4. **Re-run** the same verify command(s).
+5. **Do not** ask "should I fix this?" — proceed autonomously.
+
+## 3. Exit condition
+
+- **Success:** all required verify commands pass → summarize what changed and which commands passed.
+- **Failure cap:** stop after **5 attempts** (one attempt = one fix + one verify run). Then pause and report:
+  - commands run and exit codes
+  - last error trace
+  - what was tried each attempt
+  - suspected roadblock and options for the user
+
+## 4. Constraints
+
+- Never skip verify because a change "looks small."
+- Never run destructive shell commands (`rm -rf`, force push, `down -v`) as part of the loop.
+- Prefer `npm run api:test` over ad-hoc `pytest` so cwd matches CI.
+- Docker-only flows (`stack:up`, e2e stack) are **optional** unless the change requires integration; say so when skipped.
+
+## 5. CodeForge backend shortcut
+
+When driving the CodeForge API (terminal `/loop`, web loop UI), use `max_attempts: 5` and the scoped `verify_command` from `.codeforge/loop-engineering.yaml`.

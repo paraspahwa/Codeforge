@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Skeleton } from "@codeforge/ui";
 
+import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import Sparkline from "../../components/Sparkline";
 
 import {
@@ -102,7 +104,14 @@ export default function AnalyticsPage() {
     coworkHistory?.snapshots?.map((snapshot) => Math.round((1 - (snapshot.failure_rate ?? 0)) * 100)) || [];
 
   return (
-    <div className="stack">
+    <>
+      <MarketingPageHeader
+        eyebrow="Account"
+        title="Usage & analytics"
+        lead="Request limits, token spend, routing benchmarks, and rollout readiness for your workspace."
+      />
+      <LandingContainer>
+        <div className="stack mkt-account-content">
       <section className="stats-grid">
         <article className="stat-card">
           <p className="small">Requests (this month)</p>
@@ -279,6 +288,8 @@ export default function AnalyticsPage() {
           <p className="small mt-8">Load a plan to inspect rollout readiness per environment.</p>
         )}
       </section>
-    </div>
+        </div>
+      </LandingContainer>
+    </>
   );
 }

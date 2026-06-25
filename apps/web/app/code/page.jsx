@@ -1,22 +1,28 @@
 "use client";
 
-import Link from "next/link";
-
 import IdeShell from "../../components/ide/IdeShell";
 import { useCodeWorkspace } from "../../lib/use-code-workspace";
+import { useLocalIde } from "../../lib/use-local-ide";
+
+function LocalIdeShell() {
+  const ws = useLocalIde();
+  return <IdeShell ws={ws} />;
+}
 
 export default function CodeWorkspacePage() {
-  const ws = useCodeWorkspace();
+  const apiWs = useCodeWorkspace();
 
-  if (ws.ready && !ws.token) {
+  if (!apiWs.ready) {
     return (
       <section className="panel ide-signin-panel">
-        <h2>Code editor</h2>
-        <p className="small">Sign in to open the Monaco IDE workspace.</p>
-        <Link href="/login?next=/code">Sign in</Link>
+        <p className="small muted">Loading workspace…</p>
       </section>
     );
   }
 
-  return <IdeShell ws={ws} />;
+  if (!apiWs.token) {
+    return <LocalIdeShell />;
+  }
+
+  return <IdeShell ws={apiWs} />;
 }

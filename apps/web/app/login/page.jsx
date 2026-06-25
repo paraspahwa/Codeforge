@@ -6,8 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button, Input, Panel } from "@codeforge/ui";
 
+import AuthLayout from "../../components/marketing/AuthLayout";
 import { getDeployReadiness } from "../../lib/api";
-import { audienceHomePath, getAudiencePreference, needsOnboarding } from "../../lib/audience-preference";
+import { needsOnboarding } from "../../lib/audience-preference";
 import { useAuth } from "../../lib/auth-context";
 import { useToast } from "../../lib/toast-context";
 
@@ -25,33 +26,49 @@ export default function LoginPage() {
     ready,
     oidcEnabled,
     supabaseEnabled,
+    nativeEnabled,
+    devEnabled,
     login,
+    loginWithNative,
     loginWithOidc,
     loginWithSupabaseEmail,
     loginWithSupabaseMagicLink,
     loginWithSupabaseOAuth,
   } = useAuth();
   const toast = useToast();
-  const [loginInput, setLoginInput] = useState("dev-user");
+  const [loginInput, setLoginInput] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const [oidcLoading, setOidcLoading] = useState(false);
   const [supabaseLoading, setSupabaseLoading] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const [devLoginAllowed, setDevLoginAllowed] = useState(true);
   const [showDevLogin, setShowDevLogin] = useState(false);
+  const [devLoginOpen, setDevLoginOpen] = useState(false);
 
   useEffect(() => {
-    if (ready && token) {
-      if (needsOnboarding() && nextPath !== "/onboarding") {
-        router.replace(`/onboarding?next=${encodeURIComponent(nextPath)}`);
-        return;
-      }
-      const audience = getAudiencePreference();
-      const fallback = audience ? audienceHomePath(audience) : "/app";
-      router.replace(nextPath.startsWith("/") && nextPath !== "/login" ? nextPath : fallback);
+    if (typeof window === "undefined") {
+      return;
     }
+    const params = new URLSearchParams(window.location.search);
+    const prefillEmail = params.get("email");
+    if (prefillEmail) {
+      setEmail(prefillEmail);
+    }
+    if (params.get("registered") === "1") {
+      toast.push("Account created. Sign in with your email and password.", "success");
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (!ready || !token) {
+      return;
+    }
+    if (needsOnboarding()) {
+      router.replace(`/onboarding?next=${encodeURIComponent("/app")}`);
+      return;
+    }
+    router.replace(nextPath.startsWith("/") && nextPath !== "/login" ? nextPath : "/app");
   }, [ready, token, router, nextPath]);
 
   useEffect(() => {
@@ -62,14 +79,31 @@ export default function LoginPage() {
             (check.name === "dev_login_disabled_under_oidc" && check.ok) ||
             (check.name === "dev_login_disabled_in_production" && check.ok),
         );
-        setDevLoginAllowed(!devBlocked);
-        setShowDevLogin(!devBlocked);
+        setShowDevLogin(devEnabled && !devBlocked);
       })
-      .catch(() => {
-        setDevLoginAllowed(true);
-        setShowDevLogin(true);
-      });
-  }, []);
+      .catch(() => setShowDevLogin(devEnabled));
+  }, [devEnabled]);
+
+  async function handleNativeLogin(event) {
+    event.preventDefault();
+    if (!email.trim() || !password) {
+      return;
+    }
+    setLoggingIn(true);
+    try {
+      await loginWithNative(email, password);
+      toast.push("Signed in", "success");
+      if (needsOnboarding()) {
+        router.replace(`/onboarding?next=${encodeURIComponent("/app")}`);
+        return;
+      }
+      router.replace(nextPath.startsWith("/") && nextPath !== "/login" ? nextPath : "/app");
+    } catch (error) {
+      toast.push(error.message || "Invalid credentials");
+    } finally {
+      setLoggingIn(false);
+    }
+  }
 
   async function handleDevLogin(event) {
     event.preventDefault();
@@ -143,27 +177,68 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-page">
-      <Panel className="login-card">
+    <AuthLayout>
+    <div className="login-page mkt-auth-center">
+      <Panel className="login-card mkt-auth-card">
         <div className="brand login-brand">
           <span className="brand-mark">CF</span>
           <span>CodeForge</span>
         </div>
-        <p className="login-tagline">India-first AI coding assistant — affordable, powerful, trustworthy.</p>
+        <p className="login-tagline mkt-auth-tagline">
+          Sign in to sync cloud sessions, git workspaces, and team features.
+        </p>
 
         {oidcEnabled ? (
           <>
             <Button type="button" onClick={handleOidcLogin} disabled={oidcLoading} className="login-primary-btn">
               {oidcLoading ? "Redirecting…" : "Sign in with SSO"}
             </Button>
-            <p className="small login-tagline mt-6">
-              Redirect URI:{" "}
-              <code>{typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : "/auth/callback"}</code>
-            </p>
           </>
         ) : null}
 
-        {supabaseEnabled ? (
+        {nativeEnabled ? (
+          <div className={oidcEnabled ? "mt-6 login-section-divider" : ""}>
+            {oidcEnabled ? <p className="small login-section-label">Or sign in with email</p> : null}
+            <form onSubmit={handleNativeLogin} className="login-form">
+              <label className="small" htmlFor="email">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={loggingIn}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+              <label className="small" htmlFor="password">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={loggingIn}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+              <Button
+                type="submit"
+                disabled={loggingIn || !email.trim() || !password}
+                className="login-primary-btn"
+              >
+                {loggingIn ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+            <p className="small mt-6">
+              New here? <Link href="/signup">Create an account</Link>
+            </p>
+          </div>
+        ) : null}
+
+        {supabaseEnabled && !nativeEnabled ? (
           <div className={oidcEnabled ? "mt-6 login-section-divider" : ""}>
             {oidcEnabled ? <p className="small login-section-label">Or sign in with email</p> : null}
             <form onSubmit={handleSupabaseEmailLogin} className="login-form">
@@ -213,30 +288,28 @@ export default function LoginPage() {
           </div>
         ) : null}
 
-        {devLoginAllowed && (!oidcEnabled && !supabaseEnabled || showDevLogin) ? (
+        {showDevLogin ? (
           <>
-            {oidcEnabled || supabaseEnabled ? (
-              <button type="button" className="ghost-btn mt-6" onClick={() => setShowDevLogin((open) => !open)}>
-                {showDevLogin ? "Hide development sign-in" : "Use development sign-in"}
-              </button>
-            ) : null}
-            {(showDevLogin || (!oidcEnabled && !supabaseEnabled)) && (
+            <button type="button" className="ghost-btn mt-6" onClick={() => setDevLoginOpen((open) => !open)}>
+              {devLoginOpen ? "Hide development sign-in" : "Use development sign-in"}
+            </button>
+            {devLoginOpen ? (
               <form onSubmit={handleDevLogin} className="login-form mt-6">
-                <label className="small" htmlFor="devUserId">
-                  Development user ID
-                </label>
-                <Input
-                  id="devUserId"
-                  value={loginInput}
-                  onChange={(event) => setLoginInput(event.target.value)}
-                  disabled={loggingIn}
-                  placeholder="dev-user"
-                />
-                <Button type="submit" disabled={loggingIn || !loginInput.trim()} className="login-primary-btn">
-                  {loggingIn ? "Signing in…" : oidcEnabled || supabaseEnabled ? "Continue with dev login" : "Continue"}
-                </Button>
-              </form>
-            )}
+              <label className="small" htmlFor="devUserId">
+                Development user ID
+              </label>
+              <Input
+                id="devUserId"
+                value={loginInput}
+                onChange={(event) => setLoginInput(event.target.value)}
+                disabled={loggingIn}
+                placeholder="dev-user"
+              />
+              <Button type="submit" disabled={loggingIn || !loginInput.trim()} className="login-primary-btn">
+                {loggingIn ? "Signing in…" : "Continue with dev login"}
+              </Button>
+            </form>
+            ) : null}
           </>
         ) : null}
 
@@ -247,5 +320,6 @@ export default function LoginPage() {
         </p>
       </Panel>
     </div>
+    </AuthLayout>
   );
 }

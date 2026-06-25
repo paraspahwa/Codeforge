@@ -1,0 +1,54 @@
+---
+description: Magic Pointer — cursor-aware context and deictic language ("this", "that")
+alwaysApply: true
+---
+
+# Magic Pointer protocol
+
+CodeForge tracks **editor selection and cursor position**. When `[ACTIVE_CURSOR_CONTEXT]` is present in the prompt, treat it as ground truth.
+
+## Deictic language (mandatory)
+
+Resolve these **without asking the user to paste code**:
+
+| User says | Resolves to |
+|-----------|-------------|
+| "this", "that", "it" (code) | `Selected Text`, or `Cursor Line` if no selection |
+| "this function", "this method", "this block" | `Selected Text` |
+| "this file", "here", "in this file" | `File` path + visible scope |
+| "this line" | `Cursor Line` at `Line` |
+
+If context is missing and the user uses deictic language, ask them to select code or press **Ctrl+Shift+G** (Magic Pointer) in `/code`.
+
+## Context block format
+
+```text
+[ACTIVE_CURSOR_CONTEXT]
+File: apps/web/lib/api.js
+Line: 42
+Selected Text:
+const login = () => { ... }
+Surrounding:
+  37| ...
+> 42| const login = () => {
+Detected Entities:
+- api_route: /api/v1/auth/login → suggest router trace
+[/ACTIVE_CURSOR_CONTEXT]
+```
+
+## Entity-driven actions
+
+When `Detected Entities` lists items, **propose concrete next steps** before generic advice:
+
+- **api_route / http_path** → find handler, models, tests, gateway route
+- **npm_missing** → `npm install` in correct workspace
+- **pytest_failure** → Loop Engineering (`npm run api:test`, auto-heal)
+- **import_statement** → go to definition or check manifest
+
+## Web IDE triggers
+
+- **Ctrl+Shift+G** — arm Magic Pointer (grab cursor/selection, open composer)
+- **/pointer** — show or refresh bound context in chat
+- **Ctrl+K** — inline edit on selection (fallback)
+
+Config: `.codeforge/magic-pointer.yaml`

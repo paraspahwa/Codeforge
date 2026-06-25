@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { canWriteSession } from "@codeforge/shared/sessions";
+import {
+  buildPointerPayload,
+  detectEntitiesInText,
+  persistMagicPointerState,
+} from "@codeforge/shared/magic-pointer";
 
 import {
   applyFile,
@@ -25,6 +30,7 @@ import {
   lspReferences,
   queryProjectKnowledge,
   renameWorkspaceFile,
+  resolveLoopVerify,
   requestCodeCompletion,
   runAgentLoop,
   searchSymbols,
@@ -65,6 +71,9 @@ export function useCodeWorkspace() {
   const [inlineEditOpen, setInlineEditOpen] = useState(false);
   const [inlineEditLoading, setInlineEditLoading] = useState(false);
   const [inlineEditPreview, setInlineEditPreview] = useState("");
+  const [magicPointerArmed, setMagicPointerArmed] = useState(false);
+  const [hoverContext, setHoverContext] = useState(null);
+  const [pointerEntities, setPointerEntities] = useState([]);
   const [activityView, setActivityView] = useState("explorer");
   const [zenMode, setZenMode] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
@@ -92,7 +101,7 @@ export function useCodeWorkspace() {
   const [shellCommand, setShellCommand] = useState("git status");
   const [shellOutput, setShellOutput] = useState("");
   const [pendingProposal, setPendingProposal] = useState(null);
-  const [loopVerify, setLoopVerify] = useState("pytest -q");
+  const [loopVerify, setLoopVerify] = useState("");
   const [loopRunning, setLoopRunning] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("terminal");
   const [showBottomPanel, setShowBottomPanel] = useState(true);
@@ -169,15 +178,30 @@ export function useCodeWorkspace() {
       setInlineEditOpen(true);
       setInlineEditPreview("");
     }
+    function openMagicPointer(event) {
+      const detail = event.detail || {};
+      if (detail.selection) {
+        setSelection(detail.selection);
+      }
+      setMagicPointerArmed(true);
+      setShowChatPanel(true);
+      setComposerMode("agent");
+      toast.push("Magic Pointer armed — describe what to change (e.g. “optimize this”)", "success");
+      setTimeout(() => {
+        document.querySelector(".ide-composer-form textarea")?.focus();
+      }, 0);
+    }
     window.addEventListener("codeforge:command-palette", openPalette);
     window.addEventListener("codeforge:quick-open", openQuick);
     window.addEventListener("codeforge:inline-edit", openInlineEdit);
+    window.addEventListener("codeforge:magic-pointer", openMagicPointer);
     return () => {
       window.removeEventListener("codeforge:command-palette", openPalette);
       window.removeEventListener("codeforge:quick-open", openQuick);
       window.removeEventListener("codeforge:inline-edit", openInlineEdit);
+      window.removeEventListener("codeforge:magic-pointer", openMagicPointer);
     };
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     function onGlobalKeys(event) {
@@ -250,6 +274,12 @@ export function useCodeWorkspace() {
       setGitStatus(status);
     } catch {
       setGitStatus(null);
+    }
+    try {
+      const resolved = await resolveLoopVerify(activeSessionId, activeToken);
+      setLoopVerify(resolved.verify_command || "");
+    } catch {
+      // keep manual verify command if resolve fails
     }
   }
 
@@ -756,21 +786,62 @@ export function useCodeWorkspace() {
     toast.push(`Sent to terminal: ${command}`, "success");
   }
 
+  useEffect(() => {
+    if (!activePath) {
+      setPointerEntities([]);
+      return;
+    }
+    const payload = buildPointerPayload({
+      filePath: activePath,
+      content: fileEditorContent,
+      selection,
+      cursor,
+      hoverToken: hoverContext?.hoverToken,
+    });
+    persistMagicPointerState({
+      ...payload,
+      magic_pointer_armed: magicPointerArmed,
+    });
+    setPointerEntities(payload.detected_entities || []);
+  }, [activePath, cursor, selection, fileEditorContent, magicPointerArmed, hoverContext]);
+
   function buildMessageContext(extra = {}) {
+    const payload = buildPointerPayload({
+      filePath: activePath,
+      content: fileEditorContent,
+      selection,
+      cursor,
+      hoverToken: hoverContext?.hoverToken,
+    });
     const context = {
       attached_files: attachedFiles,
       ...extra,
     };
-    if (activePath) {
-      context.current_file = activePath;
-      context.line_number = cursor.lineNumber;
+    if (payload.file_path) {
+      context.current_file = payload.file_path;
+      context.line_number = payload.line_number;
+      context.cursor_line_text = payload.cursor_line_text;
+      context.surrounding_context = payload.surrounding_context;
     }
-    if (selection?.text) {
-      context.selection_start_line = selection.startLine;
-      context.selection_end_line = selection.endLine;
-      context.selection_text = selection.text;
+    if (payload.selection_text) {
+      context.selection_start_line = payload.selection_start_line;
+      context.selection_end_line = payload.selection_end_line;
+      context.selection_text = payload.selection_text;
+    }
+    if (magicPointerArmed) {
+      context.magic_pointer_armed = true;
     }
     return context;
+  }
+
+  function handlePointerEntityAction(entity) {
+    const action = entity.suggested_actions?.[0] || `Investigate ${entity.value}`;
+    setPrompt(`Regarding ${entity.kind} "${entity.value}": ${action}. `);
+    setShowChatPanel(true);
+    setMagicPointerArmed(true);
+    setTimeout(() => {
+      document.querySelector(".ide-composer-form textarea")?.focus();
+    }, 0);
   }
 
   async function streamAssistantReply(userText, { assistantId, onProposal } = {}) {
@@ -815,6 +886,7 @@ export function useCodeWorkspace() {
     }
     const userText = prompt.trim();
     setPrompt("");
+    setMagicPointerArmed(false);
     setLoading(true);
 
     if (userText.startsWith("/")) {
@@ -824,8 +896,12 @@ export function useCodeWorkspace() {
           token,
           projectPath: projectPath || null,
           sessionId,
+          pointerContext: buildMessageContext(),
         });
         if (commandResult.handled) {
+          if (commandResult.magicPointerArmed) {
+            setMagicPointerArmed(true);
+          }
           setMessages((prev) => [
             ...prev,
             { id: `u_${Date.now()}`, role: "user", content: userText },
@@ -1169,11 +1245,17 @@ export function useCodeWorkspace() {
     }
     setLoopRunning(true);
     try {
-      const result = await runAgentLoop(sessionId, token, {
-        verify_command: loopVerify,
-        max_attempts: 3,
+      const payload = {
+        max_attempts: 5,
         auto_apply: true,
-      });
+      };
+      if (loopVerify.trim()) {
+        payload.verify_command = loopVerify.trim();
+        payload.auto_resolve = false;
+      } else {
+        payload.auto_resolve = true;
+      }
+      const result = await runAgentLoop(sessionId, token, payload);
       toast.push(result.passed ? "Verify loop passed" : "Verify loop finished with failures", result.passed ? "success" : undefined);
       await refreshGit();
     } catch (error) {
@@ -1247,6 +1329,13 @@ export function useCodeWorkspace() {
       },
       "close-all": () => closeAllTabs(),
       "inline-edit": () => handleOpenInlineEdit(selection),
+      "magic-pointer": () => {
+        window.dispatchEvent(
+          new CustomEvent("codeforge:magic-pointer", {
+            detail: { selection },
+          }),
+        );
+      },
       "toggle-wrap": () => setWordWrap((v) => (v === "on" ? "off" : "on")),
       format: () => handleFormatDocument(),
       "split-right": () => {
@@ -1325,6 +1414,7 @@ export function useCodeWorkspace() {
       { id: "toggle-scm", label: "View: Source control", run: () => executeIdeCommand("toggle-scm") },
       { id: "toggle-run", label: "View: Run and Debug", run: () => executeIdeCommand("toggle-run") },
       { id: "inline-edit", label: "Edit: Inline edit (Ctrl+K)", shortcut: "Ctrl+K", run: () => executeIdeCommand("inline-edit") },
+      { id: "magic-pointer", label: "Edit: Magic Pointer (Ctrl+Shift+G)", shortcut: "Ctrl+Shift+G", run: () => executeIdeCommand("magic-pointer") },
       { id: "format", label: "Edit: Format document", shortcut: "Shift+Alt+F", run: () => executeIdeCommand("format") },
       { id: "split-right", label: "View: Split editor right", run: () => executeIdeCommand("split-right") },
       { id: "split-down", label: "View: Split editor down", run: () => executeIdeCommand("split-down") },
@@ -1441,6 +1531,11 @@ export function useCodeWorkspace() {
     showSlashHint,
     setShowSlashHint,
     breadcrumbHeading,
+    magicPointerArmed,
+    setMagicPointerArmed,
+    pointerEntities,
+    handlePointerEntityAction,
+    setHoverContext,
     inlineEditOpen,
     inlineEditLoading,
     inlineEditPreview,

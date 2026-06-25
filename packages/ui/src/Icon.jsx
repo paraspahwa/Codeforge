@@ -12,6 +12,7 @@ import {
   Sparkles,
   Users,
   FolderOpen,
+  X,
 } from "lucide-react";
 
 const ICON_MAP = {
@@ -28,6 +29,7 @@ const ICON_MAP = {
   CreditCard,
   Settings,
   Menu,
+  X,
 };
 
 export function Icon({ name, size = 20, className = "", strokeWidth = 1.75, ...props }) {

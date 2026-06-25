@@ -1,5 +1,6 @@
 .git
 .github
+.cursor
 node_modules
 **/node_modules
 **/.next
@@ -9,4 +10,14 @@ node_modules
 **/__pycache__
 **/*.pyc
 **/.DS_Store
+apps/desktop/**
+!apps/desktop/package.json
+apps/terminal/**
+!apps/terminal/package.json
+apps/vscode/**
+!apps/vscode/package.json
+docs
+e2e
+workspaces
+**/*.md
 Cheap Claude-Code Alternative (1).md

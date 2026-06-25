@@ -1109,6 +1109,116 @@ main:has(.code-workspace-page) {
   flex-direction: column;
 }
 
+.ide-editor-stack-with-preview {
+  flex-direction: row;
+}
+
+.ide-preview-pane {
+  flex: 0 0 42%;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--cf-border);
+  background: #0f172a;
+}
+
+.ide-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--cf-border);
+  color: var(--cf-muted);
+}
+
+.ide-preview-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+.ide-local-terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 160px;
+}
+
+.ide-local-terminal-log {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.ide-local-terminal-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--cf-border);
+}
+
+.ide-local-terminal-input input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: var(--cf-mono, monospace);
+  font-size: 13px;
+}
+
+.ide-local-terminal-prompt {
+  color: var(--cf-accent, #38bdf8);
+  font-family: var(--cf-mono, monospace);
+}
+
+.ide-title-run-btn {
+  margin-right: 10px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--cf-border);
+  background: #14532d;
+  color: #bbf7d0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ide-run-primary-btn {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #166534;
+  background: #14532d;
+  color: #dcfce7;
+  cursor: pointer;
+}
+
+.ide-local-badge {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.ide-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ide-shell-theme-light .ide-title-bar,
+.ide-shell-theme-light .ide-menu-bar,
+.ide-shell-theme-light .ide-primary-sidebar,
+.ide-shell-theme-light .ide-bottom-panel {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
 .code-editor-panel-full,
 .code-editor-surface-full {
   flex: 1;
@@ -1695,6 +1805,53 @@ main:has(.code-workspace-page) {
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: rgba(56, 189, 248, 0.15);
+}
+
+.magic-pointer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.5rem;
+}
+
+.magic-pointer-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: rgba(8, 145, 178, 0.12);
+  color: var(--cf-text);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.magic-pointer-chip:hover:not(:disabled) {
+  border-color: var(--cf-accent);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+}
+
+.magic-pointer-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.magic-pointer-chip-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cf-accent);
+  font-weight: 600;
+}
+
+.magic-pointer-chip-value {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--cf-font-mono);
 }
 
 .proposal-actions {

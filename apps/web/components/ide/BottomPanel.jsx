@@ -1,6 +1,7 @@
 "use client";
 
 import IdeTerminal from "../code/IdeTerminal";
+import LocalTerminal from "../code/LocalTerminal";
 import MonacoDiffView from "./MonacoDiffView";
 import OutputPanel from "./OutputPanel";
 import PortsPanel from "./PortsPanel";
@@ -35,6 +36,10 @@ export default function BottomPanel({
   publicHost,
   problemCount,
   onOpenAt,
+  localTerminal = false,
+  localFiles = {},
+  onRunFile,
+  onAppendOutput,
 }) {
   if (!visible) {
     return null;
@@ -78,13 +83,22 @@ export default function BottomPanel({
           </div>
         ) : null}
         {activeTab === "terminal" ? (
-          <IdeTerminal
-            ref={terminalRef}
-            sessionId={sessionId}
-            token={token}
-            projectPath={projectPath}
-            disabled={terminalDisabled}
-          />
+          localTerminal ? (
+            <LocalTerminal
+              ref={terminalRef}
+              files={localFiles}
+              onRunFile={onRunFile}
+              onAppendOutput={onAppendOutput}
+            />
+          ) : (
+            <IdeTerminal
+              ref={terminalRef}
+              sessionId={sessionId}
+              token={token}
+              projectPath={projectPath}
+              disabled={terminalDisabled}
+            />
+          )
         ) : null}
         {activeTab === "ports" ? <PortsPanel publicHost={publicHost} /> : null}
         {activeTab === "diff" ? (

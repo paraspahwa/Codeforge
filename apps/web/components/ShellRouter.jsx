@@ -3,8 +3,20 @@
 import { usePathname } from "next/navigation";
 
 import AppShell from "./AppShell";
+import MarketingShell from "./marketing/MarketingShell";
 
-const PUBLIC_MARKETING_PREFIXES = ["/pricing", "/privacy", "/terms", "/about", "/roadmap", "/case-studies"];
+const PUBLIC_MARKETING_PREFIXES = [
+  "/pricing",
+  "/privacy",
+  "/terms",
+  "/about",
+  "/roadmap",
+  "/case-studies",
+  "/features",
+  "/agents",
+];
+
+const ACCOUNT_MARKETING_PREFIXES = ["/billing", "/settings", "/team", "/analytics"];
 
 function isMarketingRoute(pathname) {
   if (!pathname) {
@@ -14,6 +26,15 @@ function isMarketingRoute(pathname) {
     return true;
   }
   return PUBLIC_MARKETING_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function isAccountMarketingRoute(pathname) {
+  if (!pathname) {
+    return false;
+  }
+  return ACCOUNT_MARKETING_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
@@ -38,6 +59,9 @@ export default function ShellRouter({ children }) {
   }
   if (isMarketingRoute(pathname)) {
     return children;
+  }
+  if (isAccountMarketingRoute(pathname)) {
+    return <MarketingShell variant="account">{children}</MarketingShell>;
   }
   return <AppShell>{children}</AppShell>;
 }

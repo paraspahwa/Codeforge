@@ -13,12 +13,15 @@ class RedisSessionStore:
     """Redis-backed session counters with in-memory fallback for local/dev resilience."""
 
     def __init__(self) -> None:
-        self._url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self._url = os.getenv("REDIS_URL", "redis://localhost:6379/0").strip()
         self._memory: dict[str, Any] = {}
         self._lock = Lock()
         self._client = None
         self._backend = "memory"
 
+        if not self._url:
+            logger.info("REDIS_URL unset — using in-memory cache")
+            return
         try:
             import redis  # type: ignore
 

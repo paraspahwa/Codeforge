@@ -43,6 +43,8 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_user_agent_preferences_user ON user_agent_preferences(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_memories_user_created ON agent_memories(user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_agent_memories_project ON agent_memories(project_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_user_accounts_email ON user_accounts(email)",
+    "CREATE INDEX IF NOT EXISTS idx_user_accounts_username ON user_accounts(username)",
 )
 
 
@@ -572,6 +574,18 @@ def init_db() -> None:
                 )
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS user_accounts (
+                        user_id TEXT PRIMARY KEY,
+                        email TEXT NOT NULL UNIQUE,
+                        username TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS agent_memories (
                         memory_id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL,
@@ -955,6 +969,15 @@ def init_db() -> None:
                 rtk_enabled INTEGER NOT NULL DEFAULT 0,
                 rtk_last_stats_json TEXT NOT NULL DEFAULT '{}',
                 agent_engine TEXT NOT NULL DEFAULT 'codeforge',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_accounts (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
 

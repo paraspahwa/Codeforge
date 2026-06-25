@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@codeforge/ui";
 
+import LandingContainer from "../../components/marketing/LandingContainer";
+import MarketingPageHeader from "../../components/marketing/MarketingPageHeader";
 import {
   createBillingOrder,
   getBillingContext,
@@ -149,7 +151,14 @@ export default function BillingPage() {
   const effectiveSource = billingContext?.effective_source || "free";
 
   return (
-    <div className="stack">
+    <>
+      <MarketingPageHeader
+        eyebrow="Account"
+        title="Billing & plans"
+        lead="Manage your subscription, request limits, and organization billing. All prices in INR via Razorpay."
+      />
+      <LandingContainer>
+        <div className="stack mkt-account-content">
       {billingContext ? (
         <section className="panel subscription-banner">
           <strong>Effective plan:</strong> {effectivePlanId} via {formatPlanSource(effectiveSource)}
@@ -281,6 +290,8 @@ export default function BillingPage() {
           />
         ) : null}
       </section>
-    </div>
+        </div>
+      </LandingContainer>
+    </>
   );
 }

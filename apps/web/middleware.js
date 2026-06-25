@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const SESSION_COOKIE = "codeforge_session";
 
-const PUBLIC_PREFIXES = ["/login", "/auth", "/pricing", "/privacy", "/terms", "/about", "/billing", "/roadmap", "/case-studies"];
+const PUBLIC_PREFIXES = ["/login", "/signup", "/auth", "/pricing", "/privacy", "/terms", "/about", "/billing", "/roadmap", "/case-studies"];
 
 const PROTECTED_PREFIXES = [
   "/app",

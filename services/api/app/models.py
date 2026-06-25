@@ -33,6 +33,9 @@ class MessageContext(BaseModel):
     selection_start_line: int | None = None
     selection_end_line: int | None = None
     selection_text: str | None = None
+    cursor_line_text: str | None = None
+    surrounding_context: str | None = None
+    magic_pointer_armed: bool = False
     plan_mode: bool = False
     attached_files: list[str] = Field(default_factory=list)
     permission_mode: str | None = None
@@ -685,12 +688,36 @@ class UsageSummary(BaseModel):
 
 
 class AgentLoopRequest(BaseModel):
-    verify_command: str = Field(min_length=1)
+    verify_command: str | None = None
+    changed_paths: list[str] | None = None
+    auto_resolve: bool = True
     prompt: str | None = None
-    max_attempts: int = Field(default=3, ge=1, le=10)
+    max_attempts: int = Field(default=5, ge=1, le=10)
     auto_apply: bool = True
     auto_mode: bool = False
     current_file: str | None = None
+
+
+class LoopVerifyCommandResponse(BaseModel):
+    id: str
+    command: str
+    cwd: str = "."
+    required: bool = True
+    pipeline_id: str | None = None
+    note: str | None = None
+
+
+class LoopResolveRequest(BaseModel):
+    changed_paths: list[str] | None = None
+
+
+class LoopResolveResponse(BaseModel):
+    changed_paths: list[str]
+    matched_pipeline_ids: list[str]
+    commands: list[LoopVerifyCommandResponse]
+    verify_command: str
+    max_attempts: int
+    config_source: str
 
 
 class AgentLoopAttemptResponse(BaseModel):
@@ -709,6 +736,9 @@ class AgentLoopResponse(BaseModel):
     passed: bool
     message: str
     attempts: list[AgentLoopAttemptResponse]
+    verify_commands: list[str] | None = None
+    matched_pipeline_ids: list[str] | None = None
+    config_source: str | None = None
 
 
 class CompactWorkflowResponse(BaseModel):
@@ -877,6 +907,36 @@ class DevLoginRequest(BaseModel):
 class DevLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class NativeRegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class NativeLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AccountProfileResponse(BaseModel):
+    user_id: str
+    email: str
+    username: str
+    created_at: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class AuthConfigResponse(BaseModel):
+    native_enabled: bool
+    supabase_enabled: bool
+    oidc_enabled: bool
+    dev_enabled: bool
 
 
 class SessionState(BaseModel):

@@ -18,7 +18,7 @@ from .agent import build_agent_run, get_synthesis_rollout_status, route_request,
 from .agent_loop_v2 import AgentLoopV2Config, build_agent_run_v2
 from .agent_orchestrator import run_typed_agent
 from .agent_registry import category_counts, list_agent_categories, list_agents
-from .agent_loop import run_verify_fix_loop
+from .agent_loop import run_verify_fix_loop, verify_commands_to_steps
 from .auth import AuthUser, dev_auth_enabled, get_current_user, oidc_auth_enabled, resolve_user_from_token, verify_dev_login_secret
 from . import team_event_bus
 from . import remote_channels
@@ -33,6 +33,7 @@ from .session_attachments import (
 )
 from .cowork import CoworkError, cowork_service
 from .cowork_scheduler import cowork_scheduler_enabled
+from .routers import auth_native as auth_native_router
 from .routers import hermes as hermes_router
 from .routers import memory as memory_router
 from .routers import platform as platform_router
@@ -143,6 +144,8 @@ from .web_search_service import (
     search_web,
     should_auto_search,
 )
+from .loop_engineering import LoopEngineeringError, resolve_verify_plan
+from .magic_pointer import compose_from_message_context
 from .tracing import add_span_event, configure_tracing, current_trace_id, set_span_attributes, traced_span
 from .models import (
     AgentLoopAttemptResponse,
@@ -158,6 +161,9 @@ from .models import (
     AgentTemplateListResponse,
     AgentTemplateResponse,
     CompactWorkflowResponse,
+    LoopResolveRequest,
+    LoopResolveResponse,
+    LoopVerifyCommandResponse,
     BillingContextResponse,
     BillingPlan,
     BillingWebhookResponse,
@@ -486,6 +492,7 @@ app.add_middleware(
 )
 
 app.include_router(platform_router.router)
+app.include_router(auth_native_router.router)
 app.include_router(taste_router.router)
 app.include_router(skills_router.router)
 app.include_router(rtk_router.router)
@@ -3338,6 +3345,29 @@ def session_workflow_rollback_plan(
     return PlanRollbackResponse(**result)
 
 
+@app.post("/api/v1/sessions/{session_id}/loop/resolve", response_model=LoopResolveResponse)
+def resolve_session_loop_verify(
+    session_id: str,
+    payload: LoopResolveRequest | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> LoopResolveResponse:
+    session = _require_session(session_id, user)
+    project_path = resolved_project_path(session)
+    try:
+        plan = resolve_verify_plan(project_path, changed_paths=(payload.changed_paths if payload else None))
+    except LoopEngineeringError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return LoopResolveResponse(
+        changed_paths=plan.changed_paths,
+        matched_pipeline_ids=plan.matched_pipeline_ids,
+        commands=[LoopVerifyCommandResponse(**item.__dict__) for item in plan.commands],
+        verify_command=plan.verify_command,
+        max_attempts=plan.max_attempts,
+        config_source=plan.config_source,
+    )
+
+
 @app.post("/api/v1/sessions/{session_id}/agent/loop", response_model=AgentLoopResponse)
 async def session_agent_loop(
     session_id: str,
@@ -3352,23 +3382,50 @@ async def session_agent_loop(
         raise HTTPException(status_code=429, detail=f"Request limit reached for {plan_id} plan")
 
     project_path = resolved_project_path(session)
-    result = await run_verify_fix_loop(
-        session_id=session_id,
-        user_id=user.user_id,
-        project_path=project_path,
-        verify_command=payload.verify_command,
-        fix_prompt=payload.prompt,
-        max_attempts=payload.max_attempts,
-        auto_apply=payload.auto_apply,
-        auto_mode=payload.auto_mode,
-        current_file=payload.current_file,
-    )
+    resolved_plan = None
+    verify_command = payload.verify_command.strip() if payload.verify_command else None
+    verify_steps = None
+
+    if verify_command:
+        pass
+    elif payload.auto_resolve:
+        try:
+            resolved_plan = resolve_verify_plan(project_path, changed_paths=payload.changed_paths)
+        except LoopEngineeringError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not resolved_plan.commands:
+            raise HTTPException(status_code=400, detail="No verify commands resolved from loop-engineering config")
+        verify_steps = verify_commands_to_steps(resolved_plan.commands)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="verify_command is required when auto_resolve is false",
+        )
+
+    try:
+        result = await run_verify_fix_loop(
+            session_id=session_id,
+            user_id=user.user_id,
+            project_path=project_path,
+            verify_command=verify_command,
+            verify_steps=verify_steps,
+            fix_prompt=payload.prompt,
+            max_attempts=payload.max_attempts,
+            auto_apply=payload.auto_apply,
+            auto_mode=payload.auto_mode,
+            current_file=payload.current_file,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return AgentLoopResponse(
         session_id=result.session_id,
         passed=result.passed,
         message=result.message,
         attempts=[AgentLoopAttemptResponse(**attempt.__dict__) for attempt in result.attempts],
+        verify_commands=result.verify_commands,
+        matched_pipeline_ids=resolved_plan.matched_pipeline_ids if resolved_plan else None,
+        config_source=resolved_plan.config_source if resolved_plan else None,
     )
 
 
@@ -3576,7 +3633,10 @@ async def stream_session(
                 if attachment_context:
                     composed_prompt = f"{attachment_context}\n\n{composed_prompt}"
             selection_text = (message_context.get("selection_text") or "").strip()
-            if selection_text and current_file:
+            pointer_block = compose_from_message_context(message_context)
+            if pointer_block:
+                composed_prompt = f"{pointer_block}\n\n{composed_prompt}"
+            elif selection_text and current_file:
                 start_line = message_context.get("selection_start_line")
                 end_line = message_context.get("selection_end_line")
                 line_hint = ""

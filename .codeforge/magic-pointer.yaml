@@ -1,0 +1,72 @@
+# Magic Pointer — cursor-aware, gesture-driven AI context (DeepMind-inspired)
+# See docs/magic-pointer.md and .cursor/rules/magic-pointer.mdc
+
+version: 1
+
+enabled: true
+
+# How selection/cursor updates reach the agent
+binding:
+  # Pipe editor state into message context on every send (hidden until user prompts)
+  auto_bind_selection: true
+  # Include N lines above/below selection or cursor line
+  surrounding_line_radius: 5
+  # Persist latest pointer state in browser sessionStorage (web IDE)
+  session_storage_key: codeforge_magic_pointer
+
+# Keyboard / command triggers (web Monaco IDE)
+triggers:
+  keyboard:
+    web: "Ctrl+Shift+G"
+    mac: "Cmd+Shift+G"
+    description: "Magic Pointer — arm overlay and listen for next instruction"
+  slash_command: "/pointer"
+  inline_edit_fallback: "Ctrl+K"
+
+# Tagged payload injected before user message (API + agents)
+context_tags:
+  open: "[ACTIVE_CURSOR_CONTEXT]"
+  close: "[/ACTIVE_CURSOR_CONTEXT]"
+
+# Deictic pronouns resolved against ACTIVE_CURSOR_CONTEXT
+deictic:
+  pronouns: ["this", "that", "it", "here", "there"]
+  file_phrases: ["this file", "this module", "here", "in this file"]
+  selection_phrases: ["this function", "this method", "this block", "this code", "this line"]
+  rule: >
+    When ACTIVE_CURSOR_CONTEXT is present, interpret deictic language as referring to
+    Selected Text (or Cursor Line if selection is empty). Never ask the user to
+    paste code that is already in the context block.
+
+# Pixel-to-entity heuristics (regex on selection + cursor line)
+entities:
+  - id: api_route
+    pattern: '@(?:app|router)\\.(?:get|post|put|patch|delete|websocket)\\([\\"\\']([^\\"\\']+)'
+    suggested_actions:
+      - "Open the router module that registers this route"
+      - "Trace handler implementation and request/response models"
+      - "Run API integration tests for this endpoint"
+
+  - id: http_path
+    pattern: '[\\"'](/api/[^\\"\\']+)[\\"\\']'
+    suggested_actions:
+      - "Find FastAPI route or Next.js BFF proxy for this path"
+      - "Check gateway nginx routing in infra/gateway/nginx.conf"
+
+  - id: npm_missing
+    pattern: "Cannot find module ['\\\"]([^'\\\"]+)['\\\"]"
+    suggested_actions:
+      - "Run npm install in the relevant workspace"
+      - "Add dependency to package.json and reinstall"
+
+  - id: pytest_failure
+    pattern: '(FAILED|AssertionError|pytest\\.fail)'
+    suggested_actions:
+      - "Run npm run api:test with verbose output"
+      - "Apply Loop Engineering verify/fix protocol"
+
+  - id: import_statement
+    pattern: '(?:from|import)\\s+([\\w.]+)'
+    suggested_actions:
+      - "Jump to module definition"
+      - "Check if package is listed in requirements.txt or package.json"
